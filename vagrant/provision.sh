@@ -84,15 +84,63 @@ if ! bash auto/configure \
     --with-http_v2_module \
     --with-http_realip_module \
     --with-http_stub_status_module \
-    --with-stream \
-    --with-stream_ssl_module \
+    --without-http_charset_module \
+    --without-http_gzip_module \
+    --without-http_ssi_module \
+    --without-http_userid_module \
+    --without-http_access_module \
+    --without-http_auth_basic_module \
+    --without-http_auth_request_module \
+    --without-http_mirror_module \
+    --without-http_autoindex_module \
+    --without-http_geo_module \
+    --without-http_map_module \
+    --without-http_split_clients_module \
+    --without-http_referer_module \
     --without-http_fastcgi_module \
     --without-http_uwsgi_module \
     --without-http_scgi_module \
     --without-http_memcached_module \
+    --without-http_grpc_module \
+    --without-http_limit_conn_module \
+    --without-http_limit_req_module \
+    --without-http_empty_gif_module \
+    --without-http_browser_module \
+    --without-http_upstream_hash_module \
+    --without-http_upstream_ip_hash_module \
+    --without-http_upstream_least_conn_module \
+    --without-http_upstream_random_module \
+    --without-http_upstream_zone_module \
+    --without-http_upstream_keepalive_module \
+    --without-http_upstream_least_time_module \
+    --without-http_upstream_sticky_module \
+    --without-http_degradation_module \
+    --without-http_addition_module \
+    --without-http_dav_module \
+    --without-http_flv_module \
+    --without-http_gunzip_module \
+    --without-http_gzip_static_module \
+    --without-http_image_filter_module \
+    --without-http_mp4_module \
+    --without-http_random_index_module \
+    --without-http_secure_link_module \
+    --without-http_slice_module \
+    --without-http_sub_module \
+    --without-http_xslt_module \
+    --without-http_try_files_module \
     --without-mail_pop3_module \
     --without-mail_imap_module \
     --without-mail_smtp_module \
+    --without-stream \
+    --without-stream_ssl_module \
+    --without-stream_realip_module \
+    --without-stream_geoip_module \
+    --without-stream_ssl_preread_module \
+    --without-stream_upstream_hash_module \
+    --without-stream_upstream_least_conn_module \
+    --without-stream_upstream_random_module \
+    --without-stream_upstream_zone_module \
+    --without-http_perl_module \
     --add-module="$NGINX_BUILD_DIR/modules/ngx_waffynx" \
     > /tmp/nginx-configure.log 2>&1; then
     echo "ERROR: nginx configure failed:"
