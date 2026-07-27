@@ -4,6 +4,7 @@
 Vagrant.configure("2") do |config|
   config.vm.box = "bento/ubuntu-22.04"
   config.vm.hostname = "waffynx-test"
+  config.vm.boot_timeout = 600
 
   # Networking: expose the WAF port for testing from host
   config.vm.network "forwarded_port", guest: 8080, host: 8080

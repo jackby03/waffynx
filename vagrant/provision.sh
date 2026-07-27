@@ -18,7 +18,7 @@ echo "============================================"
 # ================================================================
 echo "==> Installing system packages..."
 apt-get update -qq
-apt-get install -y -qq \
+apt-get install -y \
     build-essential \
     libpcre3-dev \
     libssl-dev \
@@ -32,7 +32,20 @@ apt-get install -y -qq \
     ca-certificates \
     unzip \
     python3 \
-    > /dev/null
+    2>&1 | tail -3 || true
+
+# Fallback: try PCRE2 if PCRE not available
+if ! dpkg -l libpcre3-dev &>/dev/null; then
+    echo "  Trying libpcre2-dev..."
+    apt-get install -y libpcre2-dev 2>/dev/null || true
+fi
+
+# Verify GCC is available
+if ! command -v cc &>/dev/null; then
+    echo "CC not found, retrying package install..."
+    apt-get install -y build-essential
+fi
+echo "==> C compiler: $(cc --version | head -1)"
 
 # ================================================================
 # 2. Install Go
@@ -52,13 +65,19 @@ echo "==> Go version: $(go version)"
 # ================================================================
 echo "==> Building nginx with waffynx module..."
 
-# Fix Windows CRLF -> LF in nginx source
-find "$WAFFYNX_ROOT/third_party/nginx" -type f -not -path "*/.git/*" -exec sed -i 's/\r$//' {} \; 2>/dev/null || true
-find "$WAFFYNX_ROOT/modules" -type f -exec sed -i 's/\r$//' {} \; 2>/dev/null || true
+# VirtualBox shared folders (vboxsf) don't support the filesystem
+# operations that nginx's auto/configure needs (temp files, symlinks).
+# Copy source to a local directory first.
+NGINX_BUILD_DIR="/tmp/nginx-build"
+rm -rf "$NGINX_BUILD_DIR"
+cp -r "$WAFFYNX_ROOT/third_party/nginx" "$NGINX_BUILD_DIR"
+cp -r "$WAFFYNX_ROOT/modules" "$NGINX_BUILD_DIR/modules"
 
-cd "$WAFFYNX_ROOT/third_party/nginx"
+cd "$NGINX_BUILD_DIR"
 
-# Reconfigure with the VM's prefix
+# Strip CRLF from all files (Windows -> Linux)
+find . -type f -exec sed -i 's/\r$//' {} \; 2>/dev/null || true
+
 bash auto/configure \
     --prefix="$WAFFYNX_HOME/nginx" \
     --with-http_ssl_module \
@@ -74,12 +93,22 @@ bash auto/configure \
     --without-mail_pop3_module \
     --without-mail_imap_module \
     --without-mail_smtp_module \
-    --add-module="$WAFFYNX_ROOT/modules/ngx_waffynx" \
+    --add-module="$NGINX_BUILD_DIR/modules/ngx_waffynx" \
     > /tmp/nginx-configure.log 2>&1
+
+if [ $? -ne 0 ]; then
+    echo "ERROR: nginx configure failed:"
+    cat /tmp/nginx-configure.log
+    exit 1
+fi
 
 make -j$(nproc) > /tmp/nginx-make.log 2>&1
 
 echo "==> Nginx build complete"
+
+# Copy nginx binary from build dir
+NGINX_BUILD_DIR="/tmp/nginx-build"
+cp "$NGINX_BUILD_DIR/objs/nginx" "$WAFFYNX_HOME/nginx/sbin/nginx"
 
 # ================================================================
 # 4. Build Go binaries
@@ -103,8 +132,8 @@ echo "==> Installing to $WAFFYNX_HOME..."
 mkdir -p "$WAFFYNX_HOME"/{bin,config,logs,nginx/{conf,logs,client_body_temp,proxy_temp},appsec}
 
 # Copy nginx binary and config
-cp "$WAFFYNX_ROOT/third_party/nginx/objs/nginx" "$WAFFYNX_HOME/nginx/sbin/nginx"
-cp "$WAFFYNX_ROOT/third_party/nginx/conf/mime.types" "$WAFFYNX_HOME/nginx/conf/"
+cp "$NGINX_BUILD_DIR/objs/nginx" "$WAFFYNX_HOME/nginx/sbin/nginx"
+cp "$NGINX_BUILD_DIR/conf/mime.types" "$WAFFYNX_HOME/nginx/conf/"
 
 # Copy Go binaries
 cp "$WAFFYNX_ROOT/bin/"* "$WAFFYNX_HOME/bin/"
