@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 
+	"github.com/jackby03/waffynx/internal/appsec"
 	"github.com/jackby03/waffynx/internal/logging"
 	"github.com/jackby03/waffynx/internal/plugin"
 	"github.com/jackby03/waffynx/internal/policy"
@@ -14,6 +17,11 @@ import (
 
 // Sidecar is the Unix socket HTTP server that nginx's waffynx module
 // calls to evaluate every request against the WAF policy engine.
+//
+// Evaluation pipeline (in order):
+//   1. Plugin chain (pattern matching: SQLi, XSS, rate-limit, bots...)
+//   2. Policy engine (custom WAF rules)
+//   3. Appsec scorer (ML-based anomaly detection: basic-go or open-appsec)
 //
 // Protocol:
 //
@@ -33,13 +41,15 @@ type Sidecar struct {
 	server     *http.Server
 	chain      *plugin.Chain
 	engine     policy.Evaluator
+	scorer     appsec.Scorer // ML anomaly scorer (may be nil)
 }
 
-func NewSidecar(socketPath string, eval policy.Evaluator, chain *plugin.Chain) *Sidecar {
+func NewSidecar(socketPath string, eval policy.Evaluator, chain *plugin.Chain, scorer appsec.Scorer) *Sidecar {
 	return &Sidecar{
 		socketPath: socketPath,
 		chain:      chain,
 		engine:     eval,
+		scorer:     scorer,
 	}
 }
 
@@ -128,26 +138,95 @@ func (s *Sidecar) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Run through policy engine
-	result := s.engine.Evaluate(ctx, policy.PhaseRequest, req)
+	// Stage 2: Run through policy engine
+	policyResult := s.engine.Evaluate(ctx, policy.PhaseRequest, req)
 
-	switch result.Action {
-	case policy.ActionAllow:
-		s.respondAllow(w)
-	case policy.ActionLog:
+	if policyResult.Action != policy.ActionAllow && policyResult.Action != policy.ActionLog {
 		logging.Warn().
-			Str("rule_id", result.RuleID).
-			Str("reason", result.Reason).
-			Msg("policy matched (log only)")
-		s.respondAllow(w)
-	default:
-		logging.Warn().
-			Str("action", string(result.Action)).
-			Str("rule_id", result.RuleID).
-			Str("reason", result.Reason).
+			Str("action", string(policyResult.Action)).
+			Str("rule_id", policyResult.RuleID).
+			Str("reason", policyResult.Reason).
 			Msg("policy blocked request")
-		s.respondDeny(w, result.RuleID, result.Reason)
+		s.respondDeny(w, policyResult.RuleID, policyResult.Reason)
+		return
 	}
+
+	// Stage 3: ML-based anomaly detection
+	if s.scorer != nil {
+		appsecResult, err := s.scorer.Evaluate(ctx, &appsec.Features{
+			Method:      req.Method,
+			URI:         req.Path,
+			Host:        req.Host,
+			ClientIP:    req.RemoteIP,
+			UserAgent:   r.Header.Get("X-WN-UA"),
+			ContentType: r.Header.Get("X-WN-CT"),
+			Referer:     r.Header.Get("X-WN-Ref"),
+			URILength:   len(req.Path),
+			QueryParams: parseQueryParams(req.Path),
+		})
+		if err != nil {
+			logging.Warn().Err(err).Msg("appsec scorer error, allowing request")
+		} else {
+			logging.Debug().
+				Str("model", appsecResult.ModelName).
+				Float64("score", appsecResult.Score).
+				Float64("confidence", appsecResult.Confidence).
+				Str("verdict", string(appsecResult.Verdict)).
+				Strs("anomalies", appsecResult.Anomalies).
+				Msg("appsec evaluation")
+
+			if appsecResult.Verdict == appsec.VerdictBlock {
+				logging.Warn().
+					Float64("score", appsecResult.Score).
+					Strs("reasons", appsecResult.Reasons).
+					Msg("appsec blocked request")
+				reason := fmt.Sprintf("ML anomaly: %s", strings.Join(appsecResult.Reasons, "; "))
+				s.respondDeny(w, "appsec-"+appsecResult.ModelName, reason)
+				return
+			}
+
+			if appsecResult.Verdict == appsec.VerdictSuspicious {
+				logging.Warn().
+					Float64("score", appsecResult.Score).
+					Strs("reasons", appsecResult.Reasons).
+					Msg("appsec suspicious request (allowing)")
+			}
+		}
+	}
+
+	// All stages passed: allow
+	s.respondAllow(w)
+}
+
+// parseQueryParams extracts query parameters from a URI string.
+func parseQueryParams(rawURI string) map[string]string {
+	params := make(map[string]string)
+
+	idx := strings.Index(rawURI, "?")
+	if idx < 0 || idx == len(rawURI)-1 {
+		return params
+	}
+
+	queryStr := rawURI[idx+1:]
+
+	// URL decode first
+	decoded, err := url.QueryUnescape(queryStr)
+	if err != nil {
+		decoded = queryStr
+	}
+	// Also handle + as space
+	decoded = strings.ReplaceAll(decoded, "+", " ")
+
+	for _, pair := range strings.Split(decoded, "&") {
+		kv := strings.SplitN(pair, "=", 2)
+		if len(kv) == 2 {
+			params[kv[0]] = kv[1]
+		} else if len(kv) == 1 && kv[0] != "" {
+			params[kv[0]] = ""
+		}
+	}
+
+	return params
 }
 
 func (s *Sidecar) respondAllow(w http.ResponseWriter) {

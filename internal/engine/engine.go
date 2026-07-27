@@ -4,6 +4,7 @@ import (
 	"os/exec"
 	"sync"
 
+	"github.com/jackby03/waffynx/internal/appsec"
 	"github.com/jackby03/waffynx/internal/config"
 	"github.com/jackby03/waffynx/internal/plugin"
 	"github.com/jackby03/waffynx/internal/policy"
@@ -14,6 +15,7 @@ import (
 //   - nginx:   Forked nginx subprocess with ngx_waffynx module compiled in
 //   - Chain:   Plugin execution pipeline
 //   - Policy:  WAF rule evaluator
+//   - AppSec:  ML-based anomaly scorer (basic-go or open-appsec bridge)
 type Engine struct {
 	mu       sync.RWMutex
 	cfg      *config.Config
@@ -23,6 +25,7 @@ type Engine struct {
 	sidecar  *Sidecar
 	chain    *plugin.Chain
 	policy   policy.Evaluator
+	scorer   appsec.Scorer
 
 	policies *PolicyStore
 }
@@ -60,6 +63,16 @@ func (e *Engine) AddPlugin(p plugin.Plugin) {
 
 func (e *Engine) PolicyEngine() policy.Evaluator {
 	return e.policy
+}
+
+// SetAppSecScorer sets the ML anomaly scorer. Call before Start().
+// Use NewBasicScorer() for development or NewBridgeScorer() for open-appsec.
+func (e *Engine) SetAppSecScorer(s appsec.Scorer) {
+	e.scorer = s
+}
+
+func (e *Engine) AppSecScorer() appsec.Scorer {
+	return e.scorer
 }
 
 func (e *Engine) PluginChain() *plugin.Chain {

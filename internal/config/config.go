@@ -44,10 +44,13 @@ type NginxConfig struct {
 }
 
 type AppSecConfig struct {
-	Enabled     bool   `yaml:"enabled"`
-	RulesPath   string `yaml:"rules_path"`
-	MLModelPath string `yaml:"ml_model_path"`
-	LearningMode bool  `yaml:"learning_mode"`
+	Enabled      bool   `yaml:"enabled"`
+	Engine       string `yaml:"engine"`        // "basic-go" or "open-appsec"
+	RulesPath    string `yaml:"rules_path"`
+	MLModelPath  string `yaml:"ml_model_path"`
+	LearningMode bool   `yaml:"learning_mode"`
+	BridgeSocket string `yaml:"bridge_socket"` // Unix socket for open-appsec bridge
+	TimeoutMs    int    `yaml:"timeout_ms"`    // bridge timeout
 }
 
 type GatewayConfig struct {
@@ -131,6 +134,12 @@ func Load(path string) (*Config, error) {
 			ReadTimeout:    60,
 			WriteTimeout:   60,
 			IdleTimeout:    120,
+		},
+		AppSec: AppSecConfig{
+			Enabled:      false,
+			Engine:       "basic-go",
+			BridgeSocket: "/var/run/open-appsec.sock",
+			TimeoutMs:    200,
 		},
 		Firewall: FirewallConfig{
 			Backend:    "nftables",

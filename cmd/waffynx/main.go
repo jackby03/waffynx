@@ -6,9 +6,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/jackby03/waffynx/internal/appsec"
 	"github.com/jackby03/waffynx/internal/config"
 	"github.com/jackby03/waffynx/internal/engine"
 	"github.com/jackby03/waffynx/internal/logging"
@@ -125,6 +127,30 @@ func runEngine(cfg *config.Config) error {
 		Enabled:  false,
 		Action:   engine.ActionBlock,
 	})
+
+	// Set up ML anomaly scorer
+	if cfg.AppSec.Enabled {
+		switch cfg.AppSec.Engine {
+		case "open-appsec":
+			bridge := appsec.NewBridgeScorer(
+				cfg.AppSec.BridgeSocket,
+				time.Duration(cfg.AppSec.TimeoutMs)*time.Millisecond,
+			)
+			eng.SetAppSecScorer(bridge)
+			logging.Info().
+				Str("engine", "open-appsec").
+				Str("socket", cfg.AppSec.BridgeSocket).
+				Msg("ML scorer initialized (bridge mode)")
+
+		default:
+			// Use built-in Go scorer (development/testing)
+			scorer := appsec.NewBasicScorer()
+			eng.SetAppSecScorer(scorer)
+			logging.Info().
+				Str("engine", "basic-go").
+				Msg("ML scorer initialized (built-in Go mode)")
+		}
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
