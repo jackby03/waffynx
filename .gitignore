@@ -26,8 +26,10 @@
 .DS_Store
 Thumbs.db
 
-# Go
-vendor/
+# Vagrant
+.vagrant/
+vagrant/.vagrant/
+*.box
 
 # Environment
 .env

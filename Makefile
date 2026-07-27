@@ -128,6 +128,35 @@ install-complete: install install-service
 	@echo "============================================"
 
 # ============================================================
+# Vagrant testing
+# ============================================================
+.PHONY: vagrant-up vagrant-provision vagrant-test vagrant-ssh vagrant-destroy vagrant-reload
+
+vagrant-up:
+	@cd vagrant && vagrant up
+
+vagrant-provision:
+	@cd vagrant && vagrant provision
+
+vagrant-test:
+	@cd vagrant && vagrant ssh -c "bash /waffynx/vagrant/test.sh"
+
+vagrant-ssh:
+	@cd vagrant && vagrant ssh
+
+vagrant-destroy:
+	@cd vagrant && vagrant destroy -f
+
+vagrant-reload:
+	@cd vagrant && vagrant reload --provision
+
+# Full test cycle: destroy old VM, create fresh, provision, test
+vagrant-full-test:
+	@cd vagrant && vagrant destroy -f 2>/dev/null || true
+	@cd vagrant && vagrant up
+	@cd vagrant && vagrant ssh -c "bash /waffynx/vagrant/test.sh"
+
+# ============================================================
 # Utilities
 # ============================================================
 clean:

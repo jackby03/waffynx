@@ -1,0 +1,36 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "bento/ubuntu-22.04"
+  config.vm.hostname = "waffynx-test"
+
+  # Networking: expose the WAF port for testing from host
+  config.vm.network "forwarded_port", guest: 8080, host: 8080
+  config.vm.network "forwarded_port", guest: 9090, host: 9090
+  config.vm.network "forwarded_port", guest: 3000, host: 3000
+
+  # Synced folder: mount the project from the host into the VM
+  config.vm.synced_folder "..", "/waffynx"
+
+  config.vm.provider "virtualbox" do |vb|
+    vb.name = "waffynx-dev"
+    vb.memory = 2048
+    vb.cpus = 2
+  end
+
+  # Provisioning: install dependencies and build the project
+  config.vm.provision "shell", path: "provision.sh", args: ["/waffynx"]
+
+  # Always-on provisioning: start the WAF on every `vagrant up`
+  config.vm.provision "shell",
+    run: "always",
+    inline: <<-SHELL
+      set -e
+      echo "==> Starting Waffynx services..."
+      systemctl start waffynx 2>/dev/null || true
+      systemctl start waf-agent 2>/dev/null || true
+      systemctl start appsec-bridge 2>/dev/null || true
+      echo "==> Waffynx running on http://localhost:8080"
+    SHELL
+end
