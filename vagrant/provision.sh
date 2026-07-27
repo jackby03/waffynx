@@ -4,6 +4,7 @@ set -euo pipefail
 WAFFYNX_ROOT="${1:-/waffynx}"
 WAFFYNX_HOME="/opt/waffynx"
 GO_VERSION="1.22.4"
+NGINX_BUILD_DIR="/tmp/nginx-build"
 
 echo "============================================"
 echo "  Waffynx VM Provisioning"
@@ -68,7 +69,6 @@ echo "==> Building nginx with waffynx module..."
 # VirtualBox shared folders (vboxsf) don't support the filesystem
 # operations that nginx's auto/configure needs (temp files, symlinks).
 # Copy source to a local directory first.
-NGINX_BUILD_DIR="/tmp/nginx-build"
 rm -rf "$NGINX_BUILD_DIR"
 cp -r "$WAFFYNX_ROOT/third_party/nginx" "$NGINX_BUILD_DIR"
 cp -r "$WAFFYNX_ROOT/modules" "$NGINX_BUILD_DIR/modules"
@@ -106,10 +106,6 @@ make -j$(nproc) > /tmp/nginx-make.log 2>&1
 
 echo "==> Nginx build complete"
 
-# Copy nginx binary from build dir
-NGINX_BUILD_DIR="/tmp/nginx-build"
-cp "$NGINX_BUILD_DIR/objs/nginx" "$WAFFYNX_HOME/nginx/sbin/nginx"
-
 # ================================================================
 # 4. Build Go binaries
 # ================================================================
@@ -129,7 +125,15 @@ echo "==> Go build complete"
 # ================================================================
 echo "==> Installing to $WAFFYNX_HOME..."
 
-mkdir -p "$WAFFYNX_HOME"/{bin,config,logs,nginx/{conf,logs,client_body_temp,proxy_temp},appsec}
+mkdir -p "$WAFFYNX_HOME/bin"
+mkdir -p "$WAFFYNX_HOME/config"
+mkdir -p "$WAFFYNX_HOME/logs"
+mkdir -p "$WAFFYNX_HOME/nginx/sbin"
+mkdir -p "$WAFFYNX_HOME/nginx/conf"
+mkdir -p "$WAFFYNX_HOME/nginx/logs"
+mkdir -p "$WAFFYNX_HOME/nginx/client_body_temp"
+mkdir -p "$WAFFYNX_HOME/nginx/proxy_temp"
+mkdir -p "$WAFFYNX_HOME/appsec"
 
 # Copy nginx binary and config
 cp "$NGINX_BUILD_DIR/objs/nginx" "$WAFFYNX_HOME/nginx/sbin/nginx"
