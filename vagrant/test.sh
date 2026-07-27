@@ -69,29 +69,48 @@ echo ""
 bold "--- Health Checks ---"
 
 echo -n "  Sidecar socket... "
-if [ -S "$SIDECAR_SOCK" ]; then green "found"; else red "NOT FOUND"; FAILED=$((FAILED+1)); fi
+TESTS=$((TESTS + 1))
+if [ -S "$SIDECAR_SOCK" ]; then green "found"; PASSED=$((PASSED + 1)); else red "NOT FOUND"; FAILED=$((FAILED+1)); fi
 
 echo -n "  Bridge socket... "
-if [ -S "$BRIDGE_SOCK" ]; then green "found"; else red "NOT FOUND"; FAILED=$((FAILED+1)); fi
+TESTS=$((TESTS + 1))
+if [ -S "$BRIDGE_SOCK" ]; then green "found"; PASSED=$((PASSED + 1)); else red "NOT FOUND"; FAILED=$((FAILED+1)); fi
 
 echo -n "  Nginx running... "
-if pgrep -x nginx >/dev/null; then green "yes"; else red "NO"; FAILED=$((FAILED+1)); fi
+TESTS=$((TESTS + 1))
+if pgrep -x nginx >/dev/null; then green "yes"; PASSED=$((PASSED + 1)); else red "NO"; FAILED=$((FAILED+1)); fi
 
 # ---- 2. Normal traffic (should pass) ----
 echo ""
 bold "--- Normal Traffic (should ALL pass) ---"
 
-# Start a test backend
-python3 -m http.server 3000 --bind 127.0.0.1 &>/dev/null &
+cleanup_backend() {
+    kill "$BACKEND_PID" 2>/dev/null || true
+    wait "$BACKEND_PID" 2>/dev/null || true
+}
+
+python3 -m http.server 3000 --bind 127.0.0.1 &>/tmp/backend.log &
 BACKEND_PID=$!
-sleep 1
+trap 'cleanup_backend' EXIT
+
+echo -n "  Waiting for test backend... "
+for i in $(seq 1 10); do
+    if curl -s -o /dev/null --max-time 1 http://127.0.0.1:3000/ 2>/dev/null; then
+        green "ready"
+        break
+    fi
+    if [ "$i" -eq 10 ]; then
+        red "FAILED TO START"
+        TESTS=$((TESTS + 1))
+        FAILED=$((FAILED + 1))
+    fi
+    sleep 0.5
+done
 
 assert_status "GET / (homepage)"    200 "/"
 assert_status "GET /api/users"     200 "/api/users"
 assert_status "POST /api/login"    200 "/api/login"
 assert_status "GET /health"        200 "/health"
-
-kill $BACKEND_PID 2>/dev/null || true
 
 # ---- 3. Sidecar direct evaluation ----
 echo ""
@@ -108,12 +127,14 @@ echo ""
 bold "--- AppSec Bridge ---"
 
 echo -n "  Bridge health check... "
+TESTS=$((TESTS + 1))
 bridge_health=$(curl -s --max-time 3 --unix-socket "$BRIDGE_SOCK" http://localhost/health 2>/dev/null || echo "")
 if echo "$bridge_health" | grep -q '"status":"ok"'; then
     green "OK"
+    PASSED=$((PASSED + 1))
 else
     red "FAILED"
-    FAILED=$((FAILED+1))
+    FAILED=$((FAILED + 1))
 fi
 
 # ---- 5. Firewall (optional) ----
