@@ -328,8 +328,8 @@ ngx_http_waffynx_body_handler(ngx_http_request_t *r)
     total = (ssize_t) ctx->header_len;
 
     /* Append body if available */
-    if (r->request_body != NULL) {
-        body_buf = r->request_body->bufs;
+	if (r->request_body != NULL && r->request_body->bufs != NULL) {
+		body_buf = r->request_body->bufs->buf;
 
         if (body_buf != NULL && body_buf->last > body_buf->pos) {
             body_len = body_buf->last - body_buf->pos;
