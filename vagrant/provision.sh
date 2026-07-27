@@ -153,6 +153,7 @@ sed -i "s|/opt/waffynx|$WAFFYNX_HOME|g" \
 # Copy systemd units and fix to run as root in test VM
 cp "$WAFFYNX_ROOT/deploy/systemd/waffynx.service" /etc/systemd/system/
 cp "$WAFFYNX_ROOT/deploy/systemd/waf-agent.service" /etc/systemd/system/
+cp "$WAFFYNX_ROOT/configs/agent.yaml" "$WAFFYNX_HOME/config/agent.yaml"
 sed -i 's/User=waffynx/User=root/g' /etc/systemd/system/waffynx.service
 sed -i 's/Group=waffynx/Group=root/g' /etc/systemd/system/waffynx.service
 # Disable ProtectSystem for the test VM (it makes /opt read-only)

@@ -1,0 +1,10 @@
+name: "waf-agent"
+firewall:
+  enabled: true
+  backend: "nftables"
+  default_in: "deny"
+  default_out: "allow"
+  managed_ports:
+    - 80
+    - 443
+    - 8443
