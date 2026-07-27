@@ -8,3 +8,7 @@ firewall:
     - 80
     - 443
     - 8443
+  block_list:
+    # Known malicious IPs blocked on startup
+    # - "192.0.2.1"
+    # - "198.51.100.0/24"

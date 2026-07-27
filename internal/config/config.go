@@ -84,11 +84,12 @@ type PluginConfig struct {
 }
 
 type FirewallConfig struct {
-	Enabled     bool     `yaml:"enabled"`
-	Backend     string   `yaml:"backend"`     // ufw, nftables
-	DefaultIn   string   `yaml:"default_in"`  // deny, allow
-	DefaultOut  string   `yaml:"default_out"` // deny, allow
-	ManagedPorts []int   `yaml:"managed_ports"`
+	Enabled      bool     `yaml:"enabled"`
+	Backend      string   `yaml:"backend"`       // ufw, nftables
+	DefaultIn    string   `yaml:"default_in"`    // deny, allow
+	DefaultOut   string   `yaml:"default_out"`   // deny, allow
+	ManagedPorts []int    `yaml:"managed_ports"`
+	BlockList    []string `yaml:"block_list"`    // IPs to block at startup
 }
 
 type APIConfig struct {

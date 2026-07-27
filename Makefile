@@ -27,7 +27,7 @@ all: build
 # ============================================================
 # Build targets
 # ============================================================
-build: build-cli build-agent build-api
+build: build-cli build-agent build-api build-bridge
 
 build-cli:
 	@echo "Building waffynx CLI..."
@@ -40,6 +40,10 @@ build-agent:
 build-api:
 	@echo "Building waf-api..."
 	@$(GO) build $(GOFLAGS) -o $(BIN_DIR)/waf-api ./cmd/waf-api
+
+build-bridge:
+	@echo "Building appsec-bridge..."
+	@$(GO) build $(GOFLAGS) -o $(BIN_DIR)/appsec-bridge ./cmd/appsec-bridge
 
 # ============================================================
 # Third-party: nginx fork

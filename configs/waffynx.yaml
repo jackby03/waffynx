@@ -10,7 +10,7 @@ listen: ":8443"
 
 # -- Sidecar (Go <-> nginx bridge) --
 sidecar:
-  socket_path: "/var/run/waffynx.sock"
+  socket_path: "/opt/waffynx/waffynx.sock"
   fail_open: true       # allow requests if sidecar is unreachable
   timeout_ms: 100       # max ms to wait for sidecar response
 

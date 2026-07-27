@@ -80,6 +80,12 @@ func (m *Manager) Start() error {
 		}
 	}
 
+	for _, ip := range m.cfg.BlockList {
+		if err := m.BlockIP(ip); err != nil {
+			logging.Warn().Err(err).Str("ip", ip).Msg("failed to block IP from blocklist")
+		}
+	}
+
 	logging.Info().Str("backend", m.cfg.Backend).Msg("firewall initialized")
 	return nil
 }
