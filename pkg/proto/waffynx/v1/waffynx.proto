@@ -1,0 +1,129 @@
+syntax = "proto3";
+
+package waffynx.v1;
+
+option go_package = "github.com/jackby03/waffynx/pkg/proto/waffynx/v1";
+
+service Waffynx {
+  rpc GetStatus(StatusRequest) returns (StatusResponse);
+  rpc ReloadConfig(ReloadRequest) returns (ReloadResponse);
+
+  rpc ListPolicies(ListPoliciesRequest) returns (ListPoliciesResponse);
+  rpc CreatePolicy(CreatePolicyRequest) returns (CreatePolicyResponse);
+  rpc UpdatePolicy(UpdatePolicyRequest) returns (UpdatePolicyResponse);
+  rpc DeletePolicy(DeletePolicyRequest) returns (DeletePolicyResponse);
+
+  rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse);
+  rpc CreateRoute(CreateRouteRequest) returns (CreateRouteResponse);
+  rpc DeleteRoute(DeleteRouteRequest) returns (DeleteRouteResponse);
+
+  rpc BlockIP(BlockIPRequest) returns (BlockIPResponse);
+  rpc UnblockIP(UnblockIPRequest) returns (UnblockIPResponse);
+}
+
+service Marketplace {
+  rpc ListPackages(ListPackagesRequest) returns (ListPackagesResponse);
+  rpc GetPackage(GetPackageRequest) returns (GetPackageResponse);
+  rpc InstallPackage(InstallPackageRequest) returns (InstallPackageResponse);
+  rpc UninstallPackage(UninstallPackageRequest) returns (UninstallPackageResponse);
+  rpc SearchPackages(SearchPackagesRequest) returns (SearchPackagesResponse);
+}
+
+// -- Status --
+message StatusRequest {}
+message StatusResponse {
+  string version = 1;
+  bool running = 2;
+  int64 uptime_seconds = 3;
+  uint64 requests_total = 4;
+  uint64 blocked_total = 5;
+  uint64 active_connections = 6;
+}
+
+// -- Config --
+message ReloadRequest { string config_path = 1; }
+message ReloadResponse { bool success = 1; string message = 2; }
+
+// -- Policies --
+message Policy {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string phase = 4;
+  int32 priority = 5;
+  bool enabled = 6;
+  repeated Condition conditions = 7;
+  string action = 8;
+}
+
+message Condition {
+  string field = 1;
+  string operator = 2;
+  string value = 3;
+}
+
+message ListPoliciesRequest {}
+message ListPoliciesResponse { repeated Policy policies = 1; }
+
+message CreatePolicyRequest { Policy policy = 1; }
+message CreatePolicyResponse { Policy policy = 1; }
+
+message UpdatePolicyRequest { Policy policy = 1; }
+message UpdatePolicyResponse { Policy policy = 1; }
+
+message DeletePolicyRequest { string id = 1; }
+message DeletePolicyResponse { bool success = 1; }
+
+// -- Routes --
+message Route {
+  string name = 1;
+  string host = 2;
+  string path = 3;
+  repeated string methods = 4;
+  string upstream = 5;
+  repeated string plugins = 6;
+}
+
+message ListRoutesRequest {}
+message ListRoutesResponse { repeated Route routes = 1; }
+
+message CreateRouteRequest { Route route = 1; }
+message CreateRouteResponse { Route route = 1; }
+
+message DeleteRouteRequest { string name = 1; }
+message DeleteRouteResponse { bool success = 1; }
+
+// -- IP Management --
+message BlockIPRequest { string ip = 1; string reason = 2; int32 ttl_seconds = 3; }
+message BlockIPResponse { bool success = 1; }
+
+message UnblockIPRequest { string ip = 1; }
+message UnblockIPResponse { bool success = 1; }
+
+// -- Marketplace --
+message PackageInfo {
+  string id = 1;
+  string name = 2;
+  string version = 3;
+  string description = 4;
+  string author = 5;
+  string category = 6;
+  repeated string tags = 7;
+  int64 downloads = 8;
+  string status = 9;
+}
+
+message ListPackagesRequest { string category = 1; int32 limit = 2; int32 offset = 3; }
+message ListPackagesResponse { repeated PackageInfo packages = 1; }
+
+message GetPackageRequest { string name = 1; string version = 2; }
+message GetPackageResponse { PackageInfo package = 1; }
+
+message InstallPackageRequest { string name = 1; string version = 2; }
+message InstallPackageResponse { bool success = 1; string message = 2; }
+
+message UninstallPackageRequest { string name = 1; }
+message UninstallPackageResponse { bool success = 1; string message = 2; }
+
+message SearchPackagesRequest { string query = 1; }
+message SearchPackagesResponse { repeated PackageInfo packages = 1; }

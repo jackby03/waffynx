@@ -1,0 +1,38 @@
+[Unit]
+Description=Waffynx - Next Generation WAF Engine
+Documentation=https://waffynx.io/docs
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=waffynx
+Group=waffynx
+ExecStart=/opt/waffynx/bin/waffynx start --config /opt/waffynx/config/waffynx.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+ExecStop=/bin/kill -SIGTERM $MAINPID
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65535
+LimitNPROC=65535
+LimitMEMLOCK=infinity
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/waffynx/logs /opt/waffynx/nginx/logs
+ReadOnlyPaths=/opt/waffynx/config /opt/waffynx/nginx/conf
+PrivateTmp=true
+ProtectKernelTunables=false
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+RestrictRealtime=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,6 @@
+[submodule "third_party/nginx"]
+	path = third_party/nginx
+	url = https://github.com/jackby03/ngx_waffynx
+[submodule "third_party/open-appsec"]
+	path = third_party/open-appsec
+	url = https://github.com/jackby03/appsec_waffynx

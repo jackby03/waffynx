@@ -1,0 +1,50 @@
+# Binaries
+/bin/
+/dist/
+/waffynx
+/waf-agent
+/waf-api
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.dylib
+
+# Third-party forks (git submodules)
+/third_party/nginx/src/
+/third_party/open-appsec/src/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
+
+# Environment
+.env
+.env.local
+*.pem
+*.key
+secrets/
+
+# Test coverage
+*.out
+coverage.html
+
+# UI
+ui/node_modules/
+ui/dist/
+ui/.env.local
+
+# Temp
+tmp/
+*.log

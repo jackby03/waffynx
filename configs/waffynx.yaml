@@ -1,0 +1,120 @@
+# ============================================================================
+# Waffynx - Next Generation WAF Configuration
+# ============================================================================
+
+name: "waffynx"
+version: "1"
+
+# -- Main listen address for the gateway --
+listen: ":8443"
+
+# -- Sidecar (Go <-> nginx bridge) --
+sidecar:
+  socket_path: "/var/run/waffynx.sock"
+  fail_open: true       # allow requests if sidecar is unreachable
+  timeout_ms: 100       # max ms to wait for sidecar response
+
+# -- Structured logging --
+logging:
+  level: "info"       # debug, info, warn, error
+  format: "json"      # json, console
+  output: "stdout"    # stdout, stderr, /var/log/waffynx.log
+
+# -- Forked nginx engine configuration --
+nginx:
+  binary_path: "/opt/waffynx/nginx/sbin/nginx"
+  config_path: "/opt/waffynx/nginx/conf"
+  worker_processes: 0          # 0 = auto
+  worker_connections: 65535
+  enable_http2: true
+  enable_http3: false
+
+# -- Open-appsec integration --
+appsec:
+  enabled: true
+  rules_path: "/opt/waffynx/appsec/rules"
+  ml_model_path: "/opt/waffynx/appsec/models"
+  learning_mode: false          # Enable learning mode for ML-based detection
+
+# -- API Gateway settings --
+gateway:
+  max_connections: 65535
+  read_timeout: 60
+  write_timeout: 60
+  idle_timeout: 120
+  enable_rate_limiting: false
+
+# -- Host firewall integration (UFW / nftables) --
+firewall:
+  enabled: true
+  backend: "nftables"           # nftables, ufw
+  default_in: "deny"            # deny, allow
+  default_out: "allow"          # deny, allow
+  managed_ports:
+    - 80
+    - 443
+    - 8443
+
+# -- Management API --
+api:
+  enabled: true
+  listen: ":9090"
+  auth:
+    jwt_secret: "change-me-in-production"
+    token_ttl: 3600
+
+# -- Route definitions (API Gateway) --
+routes:
+  - name: "api-backend"
+    host: "api.example.com"
+    path: "/*"
+    methods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+    upstream: "http://127.0.0.1:3000"
+    plugins:
+      - rate-limit
+      - request-validation
+
+  - name: "web-frontend"
+    host: "app.example.com"
+    path: "/*"
+    methods:
+      - GET
+    upstream: "http://127.0.0.1:4000"
+    headers:
+      X-Frame-Options: "DENY"
+      X-Content-Type-Options: "nosniff"
+
+# -- Enabled plugins --
+plugins:
+  - name: "rate-limit"
+    enabled: true
+    config:
+      requests_per_second: 100
+      burst: 200
+
+  - name: "geo-block"
+    enabled: false
+    config:
+      allowed_countries:
+        - "MX"
+        - "US"
+        - "CA"
+
+  - name: "bot-protection"
+    enabled: true
+    config:
+      challenge_type: "js"      # js, captcha, header
+      mode: "log"               # log, block
+
+  - name: "request-validation"
+    enabled: true
+    config:
+      max_body_size: 10485760   # 10MB
+      allowed_content_types:
+        - "application/json"
+        - "application/x-www-form-urlencoded"
+        - "multipart/form-data"

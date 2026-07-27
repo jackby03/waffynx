@@ -1,0 +1,24 @@
+[Unit]
+Description=Waffynx Host Agent - Firewall & System Manager
+Documentation=https://waffynx.io/docs
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/opt/waffynx/bin/waf-agent --config /opt/waffynx/config/agent.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+ExecStop=/bin/kill -SIGTERM $MAINPID
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65535
+LimitNPROC=65535
+
+# Agent requires root for firewall management
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_ADMIN
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
