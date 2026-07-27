@@ -157,9 +157,14 @@ sed -i "s|/var/run/waffynx.sock|$WAFFYNX_HOME/waffynx.sock|g" \
 sed -i "s|/opt/waffynx|$WAFFYNX_HOME|g" \
     "$WAFFYNX_HOME/nginx/conf/nginx.conf"
 
-# Copy systemd units
+# Copy systemd units and fix to run as root in test VM
 cp "$WAFFYNX_ROOT/deploy/systemd/waffynx.service" /etc/systemd/system/
 cp "$WAFFYNX_ROOT/deploy/systemd/waf-agent.service" /etc/systemd/system/
+sed -i 's/User=waffynx/User=root/g' /etc/systemd/system/waffynx.service
+sed -i 's/Group=waffynx/Group=root/g' /etc/systemd/system/waffynx.service
+# Disable ProtectSystem for the test VM (it makes /opt read-only)
+sed -i 's/ProtectSystem=strict/ProtectSystem=false/' /etc/systemd/system/waffynx.service
+# Fix all paths
 sed -i "s|/opt/waffynx|$WAFFYNX_HOME|g" /etc/systemd/system/waffynx.service
 sed -i "s|/opt/waffynx|$WAFFYNX_HOME|g" /etc/systemd/system/waf-agent.service
 
