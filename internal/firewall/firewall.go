@@ -158,12 +158,11 @@ func (n *NFTablesBackend) RemoveRule(rule Rule) error {
 }
 
 func (n *NFTablesBackend) ListRules() ([]Rule, error) {
-	out, err := runCmd("nft", "list", "ruleset")
+	out, err := runCmd("nft", "-a", "list", "ruleset")
 	if err != nil {
 		return nil, err
 	}
-	_ = out
-	return nil, nil
+	return parseNFTRules(out), nil
 }
 
 func (n *NFTablesBackend) SetDefaultPolicy(chain string, policy string) error {
@@ -229,8 +228,7 @@ func (u *UFWBackend) ListRules() ([]Rule, error) {
 	if err != nil {
 		return nil, err
 	}
-	_ = out
-	return nil, nil
+	return parseUFWRules(out), nil
 }
 
 func (u *UFWBackend) SetDefaultPolicy(chain string, policy string) error {
@@ -241,4 +239,172 @@ func (u *UFWBackend) SetDefaultPolicy(chain string, policy string) error {
 func (u *UFWBackend) Flush() error {
 	_, err := runCmd("ufw", "--force", "reset")
 	return err
+}
+
+func parseNFTRules(output string) []Rule {
+	var rules []Rule
+	var currentTable string
+	var currentChain string
+
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+
+		if strings.HasPrefix(trimmed, "table") {
+			parts := strings.Fields(trimmed)
+			if len(parts) >= 3 {
+				currentTable = parts[1] + " " + parts[2]
+			}
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "chain") {
+			parts := strings.Fields(trimmed)
+			if len(parts) >= 2 {
+				currentChain = parts[1]
+			}
+			continue
+		}
+
+		if trimmed == "{" || trimmed == "}" || trimmed == "" {
+			continue
+		}
+
+		action := extractAction(trimmed)
+		if action == "" {
+			continue
+		}
+
+		rule := Rule{
+			Table:  currentTable,
+			Chain:  strings.ToUpper(currentChain),
+			Action: action,
+		}
+
+		rule.Protocol = extractField(trimmed, "ip", "")
+		if rule.Protocol == "" {
+			rule.Protocol = extractField(trimmed, "tcp", "tcp")
+			if rule.Protocol == "" {
+				rule.Protocol = extractField(trimmed, "udp", "udp")
+			}
+		}
+
+		rule.Port = extractPort(trimmed)
+		rule.Source = extractSource(trimmed)
+		rule.Comment = extractQuoted(trimmed)
+
+		rules = append(rules, rule)
+	}
+
+	return rules
+}
+
+func parseUFWRules(output string) []Rule {
+	var rules []Rule
+	inRules := false
+
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+
+		if !inRules {
+			if strings.HasPrefix(trimmed, "--") {
+				inRules = true
+			}
+			continue
+		}
+
+		trimmed = strings.TrimPrefix(trimmed, "[")
+		if idx := strings.Index(trimmed, "]"); idx > 0 {
+			trimmed = strings.TrimSpace(trimmed[idx+1:])
+		}
+
+		fields := strings.Fields(trimmed)
+		if len(fields) < 2 {
+			continue
+		}
+
+		rule := Rule{
+			Table: "filter",
+			Chain: "INPUT",
+		}
+
+		portProto := fields[0]
+		if portProto != "Anywhere" && portProto != "Anywhere(v6)" {
+			if idx := strings.Index(portProto, "/"); idx > 0 {
+				if p, err := strconv.Atoi(portProto[:idx]); err == nil {
+					rule.Port = p
+				}
+				rule.Protocol = portProto[idx+1:]
+			}
+		}
+
+		action := strings.ToLower(fields[1])
+		if action == "allow" {
+			rule.Action = "accept"
+		} else if action == "deny" || action == "reject" {
+			rule.Action = action
+		}
+
+		if len(fields) > 3 && fields[2] == "IN" && fields[3] != "Anywhere" && fields[3] != "Anywhere(v6)" {
+			rule.Source = fields[3]
+		}
+
+		rules = append(rules, rule)
+	}
+
+	return rules
+}
+
+func extractAction(line string) string {
+	for _, action := range []string{"accept", "drop", "deny", "reject", "log"} {
+		if strings.Contains(line, " "+action) || strings.HasSuffix(line, " "+action) {
+			return action
+		}
+	}
+	return ""
+}
+
+func extractField(line, key, defaultValue string) string {
+	words := strings.Fields(line)
+	for i, w := range words {
+		if w == key && i+1 < len(words) &&
+			words[i+1] != "accept" && words[i+1] != "drop" &&
+			words[i+1] != "deny" && words[i+1] != "reject" {
+			return words[i+1]
+		}
+	}
+	return defaultValue
+}
+
+func extractPort(line string) int {
+	words := strings.Fields(line)
+	for i, w := range words {
+		if w == "dport" && i+1 < len(words) {
+			if port, err := strconv.Atoi(words[i+1]); err == nil {
+				return port
+			}
+		}
+	}
+	return 0
+}
+
+func extractSource(line string) string {
+	words := strings.Fields(line)
+	for i, w := range words {
+		if w == "saddr" && i+1 < len(words) {
+			return words[i+1]
+		}
+	}
+	return ""
+}
+
+func extractQuoted(line string) string {
+	start := strings.Index(line, "\"")
+	if start < 0 {
+		return ""
+	}
+	end := strings.Index(line[start+1:], "\"")
+	if end < 0 {
+		return ""
+	}
+	return line[start+1 : start+1+end]
 }
