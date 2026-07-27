@@ -71,7 +71,6 @@ echo "==> Building nginx with waffynx module..."
 # Copy source to a local directory first.
 rm -rf "$NGINX_BUILD_DIR"
 cp -r "$WAFFYNX_ROOT/third_party/nginx" "$NGINX_BUILD_DIR"
-cp -r "$WAFFYNX_ROOT/third_party/open-appsec" "$NGINX_BUILD_DIR/appsec"
 cp -r "$WAFFYNX_ROOT/modules" "$NGINX_BUILD_DIR/modules"
 
 cd "$NGINX_BUILD_DIR"
@@ -95,7 +94,6 @@ if ! bash auto/configure \
     --without-mail_imap_module \
     --without-mail_smtp_module \
     --add-module="$NGINX_BUILD_DIR/modules/ngx_waffynx" \
-    --add-module="$NGINX_BUILD_DIR/appsec/modules/nginx" \
     > /tmp/nginx-configure.log 2>&1; then
     echo "ERROR: nginx configure failed:"
     cat /tmp/nginx-configure.log

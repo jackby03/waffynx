@@ -76,8 +76,7 @@ nginx-configure:
 		--without-http_uwsgi_module \
 		--without-http_scgi_module \
 		--without-http_memcached_module \
-		--add-module=$(APPSEC_DIR)/modules/nginx \
-		--add-module=$(CURDIR)/modules/ngx_waffynx
+	--add-module=$(CURDIR)/modules/ngx_waffynx
 
 nginx-build:
 	@echo "Building nginx..."
