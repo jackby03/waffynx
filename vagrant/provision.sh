@@ -154,6 +154,16 @@ sed -i "s|/opt/waffynx|$WAFFYNX_HOME|g" \
 cp "$WAFFYNX_ROOT/deploy/systemd/waffynx.service" /etc/systemd/system/
 cp "$WAFFYNX_ROOT/deploy/systemd/waf-agent.service" /etc/systemd/system/
 cp "$WAFFYNX_ROOT/configs/agent.yaml" "$WAFFYNX_HOME/config/agent.yaml"
+
+# Download GeoLite2 database (optional, requires license key)
+if [ -n "${MAXMIND_LICENSE_KEY:-}" ]; then
+    mkdir -p "$WAFFYNX_HOME/geoip"
+    echo "==> Downloading GeoLite2-Country database..."
+    if ! curl -sS --max-time 30 -o "$WAFFYNX_HOME/geoip/GeoLite2-Country.mmdb" \
+        "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-Country&license_key=${MAXMIND_LICENSE_KEY}&suffix=tar.gz"; then
+        echo "    NOTE: GeoLite2 download failed; geo-block will operate in passthrough mode"
+    fi
+fi
 sed -i 's/User=waffynx/User=root/g' /etc/systemd/system/waffynx.service
 sed -i 's/Group=waffynx/Group=root/g' /etc/systemd/system/waffynx.service
 # Disable ProtectSystem for the test VM (it makes /opt read-only)
@@ -240,6 +250,16 @@ plugins:
     enabled: true
     config:
       mode: "block"
+  - name: "geo-block"
+    enabled: true
+    config:
+      mode: "block"
+      db_path: "${WAFFYNX_HOME}/geoip/GeoLite2-Country.mmdb"
+      blocked_countries: []
+      allowed_countries:
+        - "US"
+        - "MX"
+        - "CA"
   - name: "rate-limit"
     enabled: true
     config:

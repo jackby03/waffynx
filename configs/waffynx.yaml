@@ -99,6 +99,8 @@ plugins:
   - name: "geo-block"
     enabled: false
     config:
+      mode: "block"         # block | allow
+      db_path: "/opt/waffynx/geoip/GeoLite2-Country.mmdb"
       allowed_countries:
         - "MX"
         - "US"
