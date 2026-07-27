@@ -12,7 +12,10 @@
 *.dylib
 
 # Third-party forks (git submodules)
+/third_party/nginx/objs/
+/third_party/nginx/Makefile
 /third_party/nginx/src/
+/third_party/open-appsec/build/
 /third_party/open-appsec/src/
 
 # IDE
