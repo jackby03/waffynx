@@ -29,6 +29,8 @@
  * before the ngx_module_t definition at the bottom of this file. */
 extern ngx_module_t ngx_http_waffynx_module;
 
+#define WAFFYNX_MAX_BODY 65536  /* 64KB max body forwarded to sidecar */
+
 /* ------------------------------------------------------------------ */
 /*  Configuration struct                                               */
 /* ------------------------------------------------------------------ */
@@ -37,10 +39,20 @@ typedef struct {
     ngx_str_t   socket_path;
     ngx_msec_t  timeout;
     ngx_flag_t  fail_open;    /* 1 = allow request if sidecar is down */
+    size_t      max_body_size;
 } ngx_http_waffynx_loc_conf_t;
 
 /* ------------------------------------------------------------------ */
-/*  Connect to the Go sidecar’s Unix socket                            */
+/*  Per-request context (allocated from r->pool)                       */
+/* ------------------------------------------------------------------ */
+typedef struct {
+    ngx_http_waffynx_loc_conf_t  *wlcf;
+    u_char                       *request_buf;
+    size_t                        header_len;
+} ngx_http_waffynx_ctx_t;
+
+/* ------------------------------------------------------------------ */
+/*  Connect to the Go sidecar's Unix socket                            */
 /* ------------------------------------------------------------------ */
 static ngx_int_t
 ngx_http_waffynx_connect(ngx_str_t *path, ngx_msec_t timeout)
@@ -78,10 +90,10 @@ ngx_http_waffynx_connect(ngx_str_t *path, ngx_msec_t timeout)
 }
 
 /* ------------------------------------------------------------------ */
-/*  Build the HTTP request that we send to the Go sidecar              */
+/*  Build the HTTP headers that we send to the Go sidecar              */
 /* ------------------------------------------------------------------ */
 static ssize_t
-ngx_http_waffynx_build_request(ngx_http_request_t *r, u_char *buf, size_t size)
+ngx_http_waffynx_build_headers(ngx_http_request_t *r, u_char *buf, size_t size)
 {
     u_char  *p = buf;
     u_char  *end = buf + size;
@@ -144,7 +156,7 @@ ngx_http_waffynx_build_request(ngx_http_request_t *r, u_char *buf, size_t size)
     p = ngx_snprintf(p, end - p, "\r\n");
 
     if (p >= end) {
-        return -1; /* buffer too small */
+        return -1;
     }
     return p - buf;
 }
@@ -192,54 +204,48 @@ ngx_http_waffynx_parse_status(u_char *data, ssize_t len, ngx_uint_t *status)
 }
 
 /* ------------------------------------------------------------------ */
-/*  ACCESS phase handler -- called for every request                   */
+/*  Send request to sidecar, read response, enforce verdict            */
 /* ------------------------------------------------------------------ */
-static ngx_int_t
-ngx_http_waffynx_access_handler(ngx_http_request_t *r)
+static void
+ngx_http_waffynx_send_and_enforce(ngx_http_request_t *r,
+    ngx_http_waffynx_loc_conf_t *wlcf,
+    u_char *request_buf, ssize_t req_len)
 {
-    ngx_http_waffynx_loc_conf_t  *wlcf;
-    u_char                        request_buf[8192];
-    u_char                        response_buf[8192];
-    ssize_t                       req_len, resp_len;
-    ngx_int_t                     fd;
-    ngx_uint_t                    status;
+    u_char       response_buf[8192];
+    ssize_t      resp_len;
+    ngx_int_t    fd;
+    ngx_uint_t   status;
 
-    /* ---- 1. Get our module config for this location ---- */
-    wlcf = ngx_http_get_module_loc_conf(r, ngx_http_waffynx_module);
-    if (wlcf == NULL || !wlcf->enabled) {
-        return NGX_DECLINED; /* module disabled, pass through */
-    }
-
-    /* ---- 2. Build the HTTP request to send to sidecar ---- */
-    req_len = ngx_http_waffynx_build_request(r, request_buf,
-                                              sizeof(request_buf));
-    if (req_len < 0) {
-        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
-                      "waffynx: request buffer overflow");
-        return wlcf->fail_open ? NGX_OK : NGX_HTTP_FORBIDDEN;
-    }
-
-    /* ---- 3. Connect to Go sidecar ---- */
     fd = ngx_http_waffynx_connect(&wlcf->socket_path, wlcf->timeout);
     if (fd < 0) {
         ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
                       "waffynx: cannot connect to sidecar at %V (errno=%d)",
                       &wlcf->socket_path, errno);
-        return wlcf->fail_open ? NGX_OK : NGX_HTTP_FORBIDDEN;
+        if (wlcf->fail_open) {
+            ngx_http_finalize_request(r, NGX_OK);
+        } else {
+            ngx_http_finalize_request(r, NGX_HTTP_FORBIDDEN);
+        }
+        return;
     }
 
-    /* ---- 4. Send the request ---- */
+    /* Send */
     if (send(fd, request_buf, (size_t) req_len, 0) != req_len) {
         ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
                       "waffynx: send() failed (errno=%d)", errno);
         (void) close(fd);
-        return wlcf->fail_open ? NGX_OK : NGX_HTTP_FORBIDDEN;
+        if (wlcf->fail_open) {
+            ngx_http_finalize_request(r, NGX_OK);
+        } else {
+            ngx_http_finalize_request(r, NGX_HTTP_FORBIDDEN);
+        }
+        return;
     }
 
     /* Signal EOF so sidecar knows we are done sending */
     (void) shutdown(fd, SHUT_WR);
 
-    /* ---- 5. Read the response (loop to handle TCP fragmentation) ---- */
+    /* Read the response (loop to handle TCP fragmentation) */
     resp_len = 0;
     while (resp_len < (ssize_t)(sizeof(response_buf) - 1)) {
         ssize_t n = recv(fd, response_buf + resp_len,
@@ -264,31 +270,161 @@ ngx_http_waffynx_access_handler(ngx_http_request_t *r)
     if (resp_len <= 0) {
         ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
                       "waffynx: recv() failed (errno=%d)", errno);
-        return wlcf->fail_open ? NGX_OK : NGX_HTTP_FORBIDDEN;
+        if (wlcf->fail_open) {
+            ngx_http_finalize_request(r, NGX_OK);
+        } else {
+            ngx_http_finalize_request(r, NGX_HTTP_FORBIDDEN);
+        }
+        return;
     }
     response_buf[resp_len] = '\0';
 
-    /* ---- 6. Parse the HTTP status code ---- */
+    /* Parse the HTTP status code */
     if (ngx_http_waffynx_parse_status(response_buf, resp_len,
                                        &status) != NGX_OK) {
         ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
                       "waffynx: could not parse sidecar response");
+        if (wlcf->fail_open) {
+            ngx_http_finalize_request(r, NGX_OK);
+        } else {
+            ngx_http_finalize_request(r, NGX_HTTP_FORBIDDEN);
+        }
+        return;
+    }
+
+    /* Enforce verdict */
+    if (status == 204) {
+        ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                       "waffynx: allowed request to %V", &r->uri);
+        ngx_http_finalize_request(r, NGX_OK);
+    } else {
+        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                      "waffynx: blocked request to %V (status=%ui)",
+                      &r->uri, status);
+        ngx_http_finalize_request(r, NGX_HTTP_FORBIDDEN);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Body handler callback -- called when request body is ready         */
+/* ------------------------------------------------------------------ */
+static void
+ngx_http_waffynx_body_handler(ngx_http_request_t *r)
+{
+    ngx_http_waffynx_ctx_t  *ctx;
+    ngx_buf_t               *body_buf;
+    u_char                  *buf;
+    u_char                   cl_header[64];
+    ssize_t                  total;
+    size_t                   body_len, copy_len, insert_len;
+
+    ctx = ngx_http_get_module_ctx(r, ngx_http_waffynx_module);
+    if (ctx == NULL) {
+        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+        return;
+    }
+
+    buf = ctx->request_buf;
+    total = (ssize_t) ctx->header_len;
+
+    /* Append body if available */
+    if (r->request_body != NULL) {
+        body_buf = r->request_body->bufs;
+
+        if (body_buf != NULL && body_buf->last > body_buf->pos) {
+            body_len = body_buf->last - body_buf->pos;
+            copy_len = body_len;
+            if (copy_len > ctx->wlcf->max_body_size) {
+                copy_len = ctx->wlcf->max_body_size;
+            }
+
+            /*
+             * Insert Content-Length: NNN\r\n before the final \r\n
+             * (the HTTP header terminator at buf + header_len - 2).
+             * Then append body bytes after the terminator.
+             */
+            insert_len = ngx_snprintf(cl_header, sizeof(cl_header),
+                                      "Content-Length: %uz\r\n", copy_len)
+                         - cl_header;
+
+            /* Shift the final \r\n forward to make room */
+            ngx_memmove(buf + ctx->header_len - 2 + insert_len,
+                        buf + ctx->header_len - 2, 2);
+
+            /* Write Content-Length header */
+            ngx_memcpy(buf + ctx->header_len - 2, cl_header, insert_len);
+
+            /* Append body bytes after the shifted \r\n */
+            ngx_memcpy(buf + ctx->header_len + insert_len,
+                       body_buf->pos, copy_len);
+
+            total = (ssize_t)(ctx->header_len + insert_len + copy_len);
+        }
+    }
+
+    ngx_http_waffynx_send_and_enforce(r, ctx->wlcf, buf, total);
+}
+
+/* ------------------------------------------------------------------ */
+/*  ACCESS phase handler -- called for every request                   */
+/* ------------------------------------------------------------------ */
+static ngx_int_t
+ngx_http_waffynx_access_handler(ngx_http_request_t *r)
+{
+    ngx_http_waffynx_loc_conf_t  *wlcf;
+    ngx_http_waffynx_ctx_t       *ctx;
+    u_char                       *buf;
+    ssize_t                       header_len;
+    size_t                        buf_size;
+    ngx_int_t                     rc;
+
+    /* ---- 1. Get our module config for this location ---- */
+    wlcf = ngx_http_get_module_loc_conf(r, ngx_http_waffynx_module);
+    if (wlcf == NULL || !wlcf->enabled) {
+        return NGX_DECLINED; /* module disabled, pass through */
+    }
+
+    /* ---- 2. Build the HTTP headers ---- */
+    buf_size = 8192 + wlcf->max_body_size;
+    buf = ngx_pcalloc(r->pool, buf_size);
+    if (buf == NULL) {
+        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                      "waffynx: failed to allocate request buffer");
         return wlcf->fail_open ? NGX_OK : NGX_HTTP_FORBIDDEN;
     }
 
-    /* ---- 7. Enforce verdict ---- */
-    if (status == 204) {
-        /* allow */
-        ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-                       "waffynx: allowed request to %V", &r->uri);
-        return NGX_OK;
+    header_len = ngx_http_waffynx_build_headers(r, buf, buf_size);
+    if (header_len < 0) {
+        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                      "waffynx: request buffer overflow");
+        return wlcf->fail_open ? NGX_OK : NGX_HTTP_FORBIDDEN;
     }
 
-    /* deny */
-    ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
-                  "waffynx: blocked request to %V (status=%ui)",
-                  &r->uri, status);
-    return NGX_HTTP_FORBIDDEN;
+    /* ---- 3. Read body if present, then evaluate ---- */
+    if (r->headers_in.content_length_n > 0) {
+        ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_waffynx_ctx_t));
+        if (ctx == NULL) {
+            return wlcf->fail_open ? NGX_OK : NGX_HTTP_FORBIDDEN;
+        }
+        ctx->wlcf        = wlcf;
+        ctx->request_buf = buf;
+        ctx->header_len  = (size_t) header_len;
+
+        ngx_http_set_ctx(r, ctx, ngx_http_waffynx_module);
+
+        rc = ngx_http_read_client_request_body(r,
+                    ngx_http_waffynx_body_handler);
+        if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
+            ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                          "waffynx: failed to read request body");
+            return wlcf->fail_open ? NGX_OK : NGX_HTTP_FORBIDDEN;
+        }
+        return NGX_DONE;
+    }
+
+    /* No body: send immediately */
+    ngx_http_waffynx_send_and_enforce(r, wlcf, buf, header_len);
+    return NGX_OK;
 }
 
 /* ------------------------------------------------------------------ */
@@ -327,6 +463,7 @@ ngx_http_waffynx_create_loc_conf(ngx_conf_t *cf)
     conf->enabled = NGX_CONF_UNSET;
     conf->timeout = NGX_CONF_UNSET_MSEC;
     conf->fail_open = NGX_CONF_UNSET;
+    conf->max_body_size = NGX_CONF_UNSET_SIZE;
 
     return conf;
 }
@@ -343,6 +480,8 @@ ngx_http_waffynx_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_conf_merge_value(conf->enabled,   prev->enabled,   0);
     ngx_conf_merge_msec_value(conf->timeout, prev->timeout, 100);
     ngx_conf_merge_value(conf->fail_open, prev->fail_open, 1);
+    ngx_conf_merge_size_value(conf->max_body_size, prev->max_body_size,
+                               WAFFYNX_MAX_BODY);
 
     if (conf->socket_path.len == 0) {
         if (prev->socket_path.len > 0) {
@@ -386,6 +525,13 @@ static ngx_command_t ngx_http_waffynx_commands[] = {
       ngx_conf_set_flag_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
       offsetof(ngx_http_waffynx_loc_conf_t, fail_open),
+      NULL },
+
+    { ngx_string("waffynx_max_body_size"),
+      NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_size_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_waffynx_loc_conf_t, max_body_size),
       NULL },
 
     ngx_null_command

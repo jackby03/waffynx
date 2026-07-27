@@ -38,6 +38,7 @@ type Features struct {
 	UserAgent    string
 	ContentType  string
 	Referer      string
+	Body         []byte
 	HeadersCount int
 	URILength    int
 	QueryParams  map[string]string

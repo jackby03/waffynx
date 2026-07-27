@@ -124,7 +124,22 @@ func (p *RequestValidationPlugin) Execute(ctx *plugin.Context) (*plugin.Context,
 			ctx.ResponseWriter.Write([]byte(`{"error":"malicious request detected"}`))
 			ctx.Tags["waf_blocked"] = "true"
 			ctx.Tags["waf_pattern"] = pattern
-			return ctx, fmt.Errorf("waf pattern matched: %s", pattern)
+			return ctx, fmt.Errorf("waf pattern matched in URL: %s", pattern)
+		}
+	}
+
+	if body, ok := ctx.Values["wn_body"].(string); ok && body != "" {
+		lowerBody := strings.ToLower(body)
+		for _, pattern := range p.blockPatterns {
+			if strings.Contains(lowerBody, strings.ToLower(pattern)) {
+				ctx.StatusCode = 403
+				ctx.ResponseWriter.Header().Set("Content-Type", "application/json")
+				ctx.ResponseWriter.WriteHeader(http.StatusForbidden)
+				ctx.ResponseWriter.Write([]byte(`{"error":"malicious request detected"}`))
+				ctx.Tags["waf_blocked"] = "true"
+				ctx.Tags["waf_pattern"] = pattern
+				return ctx, fmt.Errorf("waf pattern matched in body: %s", pattern)
+			}
 		}
 	}
 

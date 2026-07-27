@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -113,11 +114,18 @@ func (s *Sidecar) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
+	const maxBodyRead = 65536
+	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, maxBodyRead))
+	if err == nil && len(bodyBytes) > 0 {
+		req.Body = bodyBytes
+	}
+
 	logging.Debug().
 		Str("method", req.Method).
 		Str("host", req.Host).
 		Str("path", req.Path).
 		Str("ip", req.RemoteIP).
+		Int("body_len", len(bodyBytes)).
 		Msg("evaluating request")
 
 	// Plugins look at ctx.Request which is the SIDECAR request (/evaluate),
@@ -131,7 +139,10 @@ func (s *Sidecar) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 	ctx.Values["wn_ua"]       = r.Header.Get("X-WN-UA")
 	ctx.Values["wn_ct"]       = r.Header.Get("X-WN-CT")
 	ctx.Values["wn_ref"]      = r.Header.Get("X-WN-Ref")
-	ctx, err := s.chain.Execute(ctx, plugin.PhasePreRequest)
+	if len(bodyBytes) > 0 {
+		ctx.Values["wn_body"] = string(bodyBytes)
+	}
+	ctx, err = s.chain.Execute(ctx, plugin.PhasePreRequest)
 	if err != nil {
 		logging.Warn().Err(err).Msg("plugin chain blocked request")
 		s.respondDeny(w, "plugin-chain", err.Error())
@@ -154,15 +165,18 @@ func (s *Sidecar) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 	// Stage 3: ML-based anomaly detection
 	if s.scorer != nil {
 		appsecResult, err := s.scorer.Evaluate(ctx, &appsec.Features{
-			Method:      req.Method,
-			URI:         req.Path,
-			Host:        req.Host,
-			ClientIP:    req.RemoteIP,
-			UserAgent:   r.Header.Get("X-WN-UA"),
-			ContentType: r.Header.Get("X-WN-CT"),
-			Referer:     r.Header.Get("X-WN-Ref"),
-			URILength:   len(req.Path),
-			QueryParams: parseQueryParams(req.Path),
+			Method:       req.Method,
+			URI:          req.Path,
+			Host:         req.Host,
+			ClientIP:     req.RemoteIP,
+			UserAgent:    r.Header.Get("X-WN-UA"),
+			ContentType:  r.Header.Get("X-WN-CT"),
+			Referer:      r.Header.Get("X-WN-Ref"),
+			Body:         bodyBytes,
+			URILength:    len(req.Path),
+			PayloadSize:  int64(len(bodyBytes)),
+			HasPayload:   len(bodyBytes) > 0,
+			QueryParams:  parseQueryParams(req.Path),
 		})
 		if err != nil {
 			logging.Warn().Err(err).Msg("appsec scorer error, allowing request")

@@ -104,28 +104,28 @@ func (s *BasicScorer) Evaluate(ctx context.Context, features *Features) (*Result
 	// High-risk patterns: immediate block regardless of other scores.
 
 	// SQLi
-	if sqliScore, matched := s.checkPatterns(features.URI, features.QueryParams, s.sqliPatterns); sqliScore > 0 {
+	if sqliScore, matched := s.checkPatterns(features.URI, features.QueryParams, features.Body, s.sqliPatterns); sqliScore > 0 {
 		totalScore += sqliScore * 0.80
 		anomalies = append(anomalies, "sqli")
 		reasons = append(reasons, fmt.Sprintf("SQLi pattern detected: %s", matched))
 	}
 
 	// XSS
-	if xssScore, matched := s.checkPatterns(features.URI, features.QueryParams, s.xssPatterns); xssScore > 0 {
+	if xssScore, matched := s.checkPatterns(features.URI, features.QueryParams, features.Body, s.xssPatterns); xssScore > 0 {
 		totalScore += xssScore * 0.80
 		anomalies = append(anomalies, "xss")
 		reasons = append(reasons, fmt.Sprintf("XSS pattern detected: %s", matched))
 	}
 
 	// Path traversal
-	if ptScore, matched := s.checkPatterns(features.URI, features.QueryParams, s.pathTraversal); ptScore > 0 {
+	if ptScore, matched := s.checkPatterns(features.URI, features.QueryParams, features.Body, s.pathTraversal); ptScore > 0 {
 		totalScore += ptScore * 0.75
 		anomalies = append(anomalies, "path-traversal")
 		reasons = append(reasons, fmt.Sprintf("Path traversal detected: %s", matched))
 	}
 
 	// Command injection
-	if cmdScore, matched := s.checkPatterns(features.URI, features.QueryParams, s.cmdInjection); cmdScore > 0 {
+	if cmdScore, matched := s.checkPatterns(features.URI, features.QueryParams, features.Body, s.cmdInjection); cmdScore > 0 {
 		totalScore += cmdScore * 0.80
 		anomalies = append(anomalies, "cmd-injection")
 		reasons = append(reasons, fmt.Sprintf("Command injection detected: %s", matched))
@@ -145,8 +145,14 @@ func (s *BasicScorer) Evaluate(ctx context.Context, features *Features) (*Result
 
 	// === 2. Entropy analysis (unsupervised ML simulation) ===
 
-	// High entropy in URI = possible encoded payload
+	// High entropy in URI or body = possible encoded payload
 	entropy := calculateEntropy(features.URI)
+	if len(features.Body) > 0 {
+		bodyEntropy := calculateEntropy(string(features.Body))
+		if bodyEntropy > entropy {
+			entropy = bodyEntropy
+		}
+	}
 	if entropy > 4.5 {
 		entropyScore := (entropy - 4.5) / 3.5 // normalize 4.5-8.0 -> 0.0-1.0
 		if entropyScore > 1.0 {
@@ -162,6 +168,12 @@ func (s *BasicScorer) Evaluate(ctx context.Context, features *Features) (*Result
 	// === 3. Character distribution anomalies ===
 
 	charScore := analyzeCharDistribution(features.URI)
+	if len(features.Body) > 0 {
+		bodyCharScore := analyzeCharDistribution(string(features.Body))
+		if bodyCharScore > charScore {
+			charScore = bodyCharScore
+		}
+	}
 	totalScore += charScore * 0.10
 	if charScore > 0.5 {
 		anomalies = append(anomalies, "char-distribution")
@@ -221,24 +233,27 @@ func (s *BasicScorer) Evaluate(ctx context.Context, features *Features) (*Result
 	}, nil
 }
 
-// checkPatterns scans URI and query parameters for known attack patterns.
+// checkPatterns scans URI, query parameters, and body for known attack patterns.
 // Returns a score (0-1) and the first matched pattern.
-func (s *BasicScorer) checkPatterns(uri string, params map[string]string, patterns []string) (float64, string) {
+func (s *BasicScorer) checkPatterns(uri string, params map[string]string, body []byte, patterns []string) (float64, string) {
 	lowerURI := strings.ToLower(uri)
+	bodyStr := strings.ToLower(string(body))
 
 	for _, pattern := range patterns {
 		lowerPat := strings.ToLower(pattern)
 
-		// Check in URI
 		if strings.Contains(lowerURI, lowerPat) {
 			return 0.9, pattern
 		}
 
-		// Check in query params
 		for _, val := range params {
 			if strings.Contains(strings.ToLower(val), lowerPat) {
 				return 0.9, pattern
 			}
+		}
+
+		if len(body) > 0 && strings.Contains(bodyStr, lowerPat) {
+			return 0.9, pattern
 		}
 	}
 	return 0.0, ""
