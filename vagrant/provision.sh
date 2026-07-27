@@ -240,6 +240,11 @@ plugins:
     enabled: true
     config:
       mode: "block"
+  - name: "rate-limit"
+    enabled: true
+    config:
+      requests_per_second: 100
+      burst: 200
 YAML
 
 systemctl start waffynx
