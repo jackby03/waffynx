@@ -226,6 +226,10 @@ firewall:
   enabled: false
 api:
   enabled: false
+  listen: ":9090"
+  auth:
+    jwt_secret: "change-me-in-production"
+    token_ttl: 3600
 routes: []
 plugins:
   - name: "request-validation"
