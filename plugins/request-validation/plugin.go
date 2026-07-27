@@ -3,6 +3,7 @@ package requestvalidation
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/jackby03/waffynx/internal/plugin"
@@ -76,7 +77,13 @@ func (p *RequestValidationPlugin) Execute(ctx *plugin.Context) (*plugin.Context,
 		return ctx, nil
 	}
 
-	contentType := ctx.Request.Header.Get("Content-Type")
+	// Get original Content-Type from the nginx-sidecar bridge context
+	contentType := ""
+	if ct, ok := ctx.Values["wn_ct"]; ok {
+		if s, ok := ct.(string); ok {
+			contentType = s
+		}
+	}
 	if len(p.allowedContentTypes) > 0 {
 		allowed := false
 		for _, ct := range p.allowedContentTypes {
@@ -94,8 +101,21 @@ func (p *RequestValidationPlugin) Execute(ctx *plugin.Context) (*plugin.Context,
 		}
 	}
 
-	// SQLi/XSS pattern check in URL
-	urlPath := ctx.Request.URL.Path + "?" + ctx.Request.URL.RawQuery
+	// SQLi/XSS pattern check in the ORIGINAL URL (from nginx, via ctx.Values)
+	// URL-decode to catch encoded payloads (%20, %27, etc.)
+	urlPath := ""
+	if uri, ok := ctx.Values["wn_uri"]; ok {
+		if s, ok := uri.(string); ok {
+			decoded, err := url.QueryUnescape(s)
+			if err == nil {
+				urlPath = decoded
+			} else {
+				urlPath = s
+			}
+		}
+	}
+	// Also normalize + to space (nginx sends + for space in query strings)
+	urlPath = strings.ReplaceAll(urlPath, "+", " ")
 	for _, pattern := range p.blockPatterns {
 		if strings.Contains(strings.ToLower(urlPath), strings.ToLower(pattern)) {
 			ctx.StatusCode = 403

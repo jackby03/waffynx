@@ -92,9 +92,9 @@ func (s *Sidecar) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 func (s *Sidecar) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 	req := &policy.Request{
-		Method:  r.Header.Get("X-WN-M"),
-		Host:    r.Header.Get("X-WN-H"),
-		Path:    r.Header.Get("X-WN-U"),
+		Method:   r.Header.Get("X-WN-M"),
+		Host:     r.Header.Get("X-WN-H"),
+		Path:     r.Header.Get("X-WN-U"),
 		RemoteIP: r.Header.Get("X-WN-IP"),
 		Headers: map[string][]string{
 			"User-Agent":  {r.Header.Get("X-WN-UA")},
@@ -110,8 +110,17 @@ func (s *Sidecar) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 		Str("ip", req.RemoteIP).
 		Msg("evaluating request")
 
-	// Run through plugin chain first
+	// Plugins look at ctx.Request which is the SIDECAR request (/evaluate),
+	// not the ORIGINAL. We inject the original request data into ctx.Values
+	// so plugins can access it.
 	ctx := plugin.NewContext(context.Background(), w, r)
+	ctx.Values["wn_method"]   = req.Method
+	ctx.Values["wn_uri"]      = req.Path
+	ctx.Values["wn_host"]     = req.Host
+	ctx.Values["wn_ip"]       = req.RemoteIP
+	ctx.Values["wn_ua"]       = r.Header.Get("X-WN-UA")
+	ctx.Values["wn_ct"]       = r.Header.Get("X-WN-CT")
+	ctx.Values["wn_ref"]      = r.Header.Get("X-WN-Ref")
 	ctx, err := s.chain.Execute(ctx, plugin.PhasePreRequest)
 	if err != nil {
 		logging.Warn().Err(err).Msg("plugin chain blocked request")

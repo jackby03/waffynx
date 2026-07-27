@@ -10,6 +10,7 @@
  *   location / {
  *       waffynx on;
  *       waffynx_socket /var/run/waffynx.sock;
+ *       waffynx_fail_open on;
  *       proxy_pass http://backend;
  *   }
  */
@@ -24,6 +25,10 @@
 #include <unistd.h>
 #include <errno.h>
 
+/* Forward declaration -- needed because access_handler references it
+ * before the ngx_module_t definition at the bottom of this file. */
+extern ngx_module_t ngx_http_waffynx_module;
+
 /* ------------------------------------------------------------------ */
 /*  Configuration struct                                               */
 /* ------------------------------------------------------------------ */
@@ -31,7 +36,7 @@ typedef struct {
     ngx_flag_t  enabled;
     ngx_str_t   socket_path;
     ngx_msec_t  timeout;
-    ngx_uint_t  fail_open;    /* 1 = allow request if sidecar is down */
+    ngx_flag_t  fail_open;    /* 1 = allow request if sidecar is down */
 } ngx_http_waffynx_loc_conf_t;
 
 /* ------------------------------------------------------------------ */
@@ -349,10 +354,12 @@ static ngx_command_t ngx_http_waffynx_commands[] = {
       offsetof(ngx_http_waffynx_loc_conf_t, timeout),
       NULL },
 
-    { ngx_string("waffynx_fail_mode"),
-      NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
-      NULL, /* handled inline, simpler */
-      0, 0, NULL },
+    { ngx_string("waffynx_fail_open"),
+      NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_FLAG,
+      ngx_conf_set_flag_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_waffynx_loc_conf_t, fail_open),
+      NULL },
 
     ngx_null_command
 };
