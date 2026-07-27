@@ -59,6 +59,30 @@ assert_status_unix() {
     fi
 }
 
+assert_status_unix_post() {
+    local desc="$1" expected="$2" uri="$3" body="$4"
+    TESTS=$((TESTS + 1))
+
+    status=$(echo -n "$body" | curl -s -o /dev/null -w "%{http_code}" --max-time 5 \
+        --unix-socket "$SIDECAR_SOCK" \
+        -H "X-WN-M: POST" \
+        -H "X-WN-U: $uri" \
+        -H "X-WN-H: example.com" \
+        -H "X-WN-IP: 1.2.3.4" \
+        -H "X-WN-UA: Mozilla/5.0" \
+        -H "Content-Type: application/json" \
+        --data-binary @- \
+        http://localhost/evaluate)
+
+    if [ "$status" = "$expected" ]; then
+        PASSED=$((PASSED + 1))
+        green "  [PASS] $desc (expected $expected, got $status)"
+    else
+        FAILED=$((FAILED + 1))
+        red "  [FAIL] $desc (expected $expected, got $status)"
+    fi
+}
+
 echo ""
 bold "============================================"
 bold "  Waffynx Automated Test Suite"
@@ -121,6 +145,13 @@ assert_status_unix "SQL injection blocked"    403 "/api/users?q=UNION+SELECT+1,2
 assert_status_unix "XSS blocked"             403 "/page?x=<script>alert(1)</script>"
 assert_status_unix "Path traversal blocked"  403 "/?file=../../../etc/passwd"
 assert_status_unix "Command injection blocked" 403 "/?cmd=;cat+/etc/passwd"
+
+# ---- 3.5 Body inspection ----
+echo ""
+bold "--- Body Inspection (POST) ---"
+assert_status_unix_post "Normal POST body"          204 "/api/login" '{"user":"admin","pass":"secret"}'
+assert_status_unix_post "SQLi in POST body"         403 "/api/login" '{"user":"admin","pass":"'"'"' OR 1=1--"}'
+assert_status_unix_post "XSS in POST body"          403 "/api/review" '{"comment":"<script>alert(1)</script>"}'
 
 # ---- 4. Bridge connectivity ----
 echo ""
