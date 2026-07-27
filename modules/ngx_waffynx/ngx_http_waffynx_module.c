@@ -180,10 +180,12 @@ ngx_http_waffynx_parse_status(u_char *data, ssize_t len, ngx_uint_t *status)
     if (p + 3 > end) {
         return NGX_ERROR;
     }
-    code = (p[0] - '0') * 100 + (p[1] - '0') * 10 + (p[2] - '0');
-    if (code > 999) {
+    if (p[0] < '0' || p[0] > '9'
+        || p[1] < '0' || p[1] > '9'
+        || p[2] < '0' || p[2] > '9') {
         return NGX_ERROR;
     }
+    code = (p[0] - '0') * 100 + (p[1] - '0') * 10 + (p[2] - '0');
 
     *status = code;
     return NGX_OK;
@@ -196,8 +198,8 @@ static ngx_int_t
 ngx_http_waffynx_access_handler(ngx_http_request_t *r)
 {
     ngx_http_waffynx_loc_conf_t  *wlcf;
-    u_char                        request_buf[4096];
-    u_char                        response_buf[4096];
+    u_char                        request_buf[8192];
+    u_char                        response_buf[8192];
     ssize_t                       req_len, resp_len;
     ngx_int_t                     fd;
     ngx_uint_t                    status;
@@ -234,8 +236,29 @@ ngx_http_waffynx_access_handler(ngx_http_request_t *r)
         return wlcf->fail_open ? NGX_OK : NGX_HTTP_FORBIDDEN;
     }
 
-    /* ---- 5. Read the response ---- */
-    resp_len = recv(fd, response_buf, sizeof(response_buf) - 1, 0);
+    /* Signal EOF so sidecar knows we are done sending */
+    (void) shutdown(fd, SHUT_WR);
+
+    /* ---- 5. Read the response (loop to handle TCP fragmentation) ---- */
+    resp_len = 0;
+    while (resp_len < (ssize_t)(sizeof(response_buf) - 1)) {
+        ssize_t n = recv(fd, response_buf + resp_len,
+                         sizeof(response_buf) - 1 - resp_len, 0);
+        if (n == 0) {
+            break; /* EOF */
+        }
+        if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            resp_len = -1;
+            break;
+        }
+        resp_len += n;
+        if (resp_len >= 12) {
+            break; /* enough to parse status line */
+        }
+    }
     (void) close(fd);
 
     if (resp_len <= 0) {
@@ -322,7 +345,11 @@ ngx_http_waffynx_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_conf_merge_value(conf->fail_open, prev->fail_open, 1);
 
     if (conf->socket_path.len == 0) {
-        ngx_str_set(&conf->socket_path, "/var/run/waffynx.sock");
+        if (prev->socket_path.len > 0) {
+            conf->socket_path = prev->socket_path;
+        } else {
+            ngx_str_set(&conf->socket_path, "/var/run/waffynx.sock");
+        }
     }
 
     return NGX_CONF_OK;
