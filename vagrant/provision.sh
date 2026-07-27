@@ -71,6 +71,7 @@ echo "==> Building nginx with waffynx module..."
 # Copy source to a local directory first.
 rm -rf "$NGINX_BUILD_DIR"
 cp -r "$WAFFYNX_ROOT/third_party/nginx" "$NGINX_BUILD_DIR"
+cp -r "$WAFFYNX_ROOT/third_party/open-appsec" "$NGINX_BUILD_DIR/appsec"
 cp -r "$WAFFYNX_ROOT/modules" "$NGINX_BUILD_DIR/modules"
 
 cd "$NGINX_BUILD_DIR"
@@ -78,7 +79,7 @@ cd "$NGINX_BUILD_DIR"
 # Strip CRLF from all files (Windows -> Linux)
 find . -type f -exec sed -i 's/\r$//' {} \; 2>/dev/null || true
 
-bash auto/configure \
+if ! bash auto/configure \
     --prefix="$WAFFYNX_HOME/nginx" \
     --with-http_ssl_module \
     --with-http_v2_module \
@@ -94,9 +95,8 @@ bash auto/configure \
     --without-mail_imap_module \
     --without-mail_smtp_module \
     --add-module="$NGINX_BUILD_DIR/modules/ngx_waffynx" \
-    > /tmp/nginx-configure.log 2>&1
-
-if [ $? -ne 0 ]; then
+    --add-module="$NGINX_BUILD_DIR/appsec/modules/nginx" \
+    > /tmp/nginx-configure.log 2>&1; then
     echo "ERROR: nginx configure failed:"
     cat /tmp/nginx-configure.log
     exit 1
@@ -115,7 +115,7 @@ cd "$WAFFYNX_ROOT"
 for cmd in waffynx waf-agent waf-api appsec-bridge; do
     echo "     Building $cmd..."
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-        go build -ldflags="-s -w" -o "bin/$cmd" "./cmd/$cmd" 2>/dev/null
+        go build -ldflags="-s -w" -o "bin/$cmd" "./cmd/$cmd"
 done
 
 echo "==> Go build complete"
@@ -142,13 +142,6 @@ cp "$NGINX_BUILD_DIR/conf/mime.types" "$WAFFYNX_HOME/nginx/conf/"
 # Copy Go binaries
 cp "$WAFFYNX_ROOT/bin/"* "$WAFFYNX_HOME/bin/"
 chmod +x "$WAFFYNX_HOME/bin/"*
-
-# Copy and patch waffynx config
-sed -e "s|/var/run/waffynx.sock|$WAFFYNX_HOME/waffynx.sock|g" \
-    -e "s|/var/run/open-appsec.sock|$WAFFYNX_HOME/open-appsec.sock|g" \
-    -e "s|/opt/waffynx|$WAFFYNX_HOME|g" \
-    "$WAFFYNX_ROOT/configs/waffynx.yaml" \
-    > "$WAFFYNX_HOME/config/waffynx.yaml"
 
 # Copy and render nginx.conf
 cp "$WAFFYNX_ROOT/configs/nginx.conf" "$WAFFYNX_HOME/nginx/conf/nginx.conf"
@@ -200,7 +193,7 @@ systemctl start appsec-bridge
 sleep 1
 
 # Update config: enable appsec with bridge mode
-cat > "$WAFFYNX_HOME/config/waffynx.yaml" << 'YAML'
+cat > "$WAFFYNX_HOME/config/waffynx.yaml" << YAML
 name: "waffynx"
 version: "1"
 listen: ":8443"
@@ -209,19 +202,19 @@ logging:
   format: "console"
   output: "stdout"
 sidecar:
-  socket_path: "/opt/waffynx/waffynx.sock"
+  socket_path: "${WAFFYNX_HOME}/waffynx.sock"
   fail_open: true
   timeout_ms: 100
 nginx:
-  binary_path: "/opt/waffynx/nginx/sbin/nginx"
-  config_path: "/opt/waffynx/nginx/conf"
+  binary_path: "${WAFFYNX_HOME}/nginx/sbin/nginx"
+  config_path: "${WAFFYNX_HOME}/nginx/conf"
   worker_processes: 1
   worker_connections: 1024
   enable_http2: false
 appsec:
   enabled: true
   engine: "open-appsec"
-  bridge_socket: "/opt/waffynx/open-appsec.sock"
+  bridge_socket: "${WAFFYNX_HOME}/open-appsec.sock"
   timeout_ms: 200
 gateway:
   max_connections: 1024
