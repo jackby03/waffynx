@@ -122,6 +122,10 @@ var runCmd = func(name string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
+func SetRunCmd(fn func(string, ...string) (string, error)) {
+	runCmd = fn
+}
+
 // -- NFTables Backend --
 type NFTablesBackend struct{}
 

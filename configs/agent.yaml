@@ -1,4 +1,6 @@
 name: "waf-agent"
+listen: ":9099"
+api_key: "change-me-in-production"
 firewall:
   enabled: true
   backend: "nftables"

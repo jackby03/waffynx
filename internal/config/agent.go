@@ -8,12 +8,15 @@ import (
 
 type AgentConfig struct {
 	Name     string         `yaml:"name"`
+	Listen   string         `yaml:"listen"`
+	APIKey   string         `yaml:"api_key"`
 	Firewall FirewallConfig `yaml:"firewall"`
 }
 
 func LoadAgent(path string) (*AgentConfig, error) {
 	cfg := &AgentConfig{
-		Name: "waf-agent",
+		Name:   "waf-agent",
+		Listen: ":9099",
 		Firewall: FirewallConfig{
 			Enabled:    true,
 			Backend:    "nftables",
