@@ -18,6 +18,7 @@ import (
 	"github.com/jackby03/waffynx/internal/logging"
 	"github.com/jackby03/waffynx/internal/plugin"
 	"github.com/jackby03/waffynx/internal/policy"
+	wrules "github.com/jackby03/waffynx/internal/rules"
 )
 
 // Sidecar is the Unix socket HTTP server that nginx's waffynx module
@@ -49,9 +50,10 @@ type Sidecar struct {
 	scorer     appsec.Scorer
 	learning   *learning.Engine
 	audit      *audit.Store
+	rules      *wrules.Engine
 }
 
-func NewSidecar(socketPath string, eval policy.Evaluator, chain *plugin.Chain, scorer appsec.Scorer, learn *learning.Engine, a *audit.Store) *Sidecar {
+func NewSidecar(socketPath string, eval policy.Evaluator, chain *plugin.Chain, scorer appsec.Scorer, learn *learning.Engine, a *audit.Store, r *wrules.Engine) *Sidecar {
 	return &Sidecar{
 		socketPath: socketPath,
 		chain:      chain,
@@ -59,6 +61,7 @@ func NewSidecar(socketPath string, eval policy.Evaluator, chain *plugin.Chain, s
 		scorer:     scorer,
 		learning:   learn,
 		audit:      a,
+		rules:      r,
 	}
 }
 
@@ -82,6 +85,10 @@ func (s *Sidecar) Start() error {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/learning/suggestions", s.handleLearningSuggestions)
 	mux.HandleFunc("/learning/stats", s.handleLearningStats)
+	mux.HandleFunc("/learning/dataset", s.handleLearningDataset)
+	mux.HandleFunc("/rules", s.handleRulesList)
+	mux.HandleFunc("/rules/add", s.handleRulesAdd)
+	mux.HandleFunc("/rules/delete", s.handleRulesDelete)
 
 	s.server = &http.Server{Handler: mux}
 
@@ -162,6 +169,16 @@ func (s *Sidecar) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 		}
 		s.recordLearning(req, "block", "plugin-chain", err.Error(), start)
 		return
+	}
+
+	if s.rules != nil {
+		rulesResult := s.rules.Evaluate(req)
+		if rulesResult.Action != wrules.ActionAllow && rulesResult.Action != wrules.ActionLog {
+			logging.Warn().Str("rule_id", rulesResult.RuleID).Msg("custom rule blocked request")
+			s.respondDeny(w, rulesResult.RuleID, rulesResult.Reason)
+			s.recordLearning(req, "block", rulesResult.RuleID, rulesResult.Reason, start)
+			return
+		}
 	}
 
 	// Stage 2: Run through policy engine
@@ -297,6 +314,67 @@ func (s *Sidecar) handleLearningStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(stats)
+}
+
+func (s *Sidecar) handleRulesList(w http.ResponseWriter, r *http.Request) {
+	if s.rules == nil {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`[]`))
+		return
+	}
+	rules := s.rules.List()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(rules)
+}
+
+func (s *Sidecar) handleRulesAdd(w http.ResponseWriter, r *http.Request) {
+	if s.rules == nil {
+		s.writeSidecarError(w, "rules engine not available", http.StatusServiceUnavailable)
+		return
+	}
+	var rule wrules.CustomRule
+	if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
+		s.writeSidecarError(w, "invalid rule JSON", http.StatusBadRequest)
+		return
+	}
+	rule.ID = fmt.Sprintf("custom-%d", time.Now().UnixNano())
+	s.rules.AddRule(rule)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(rule)
+}
+
+func (s *Sidecar) handleRulesDelete(w http.ResponseWriter, r *http.Request) {
+	if s.rules == nil {
+		s.writeSidecarError(w, "rules engine not available", http.StatusServiceUnavailable)
+		return
+	}
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		s.writeSidecarError(w, "missing id parameter", http.StatusBadRequest)
+		return
+	}
+	s.rules.RemoveRule(id)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Sidecar) writeSidecarError(w http.ResponseWriter, msg string, code int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+func (s *Sidecar) handleLearningDataset(w http.ResponseWriter, r *http.Request) {
+	if s.learning == nil {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`[]`))
+		return
+	}
+	dataset := s.learning.ExportDataset()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(dataset)
 }
 
 func (s *Sidecar) recordLearning(req *policy.Request, verdict, ruleID, reason string, start time.Time) {

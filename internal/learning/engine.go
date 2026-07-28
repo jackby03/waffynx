@@ -260,6 +260,52 @@ func (e *Engine) analyzeRate() []Suggestion {
 	return suggestions
 }
 
+type DatasetRecord struct {
+	URI          string  `json:"uri"`
+	Method       string  `json:"method"`
+	Host         string  `json:"host"`
+	RemoteIP     string  `json:"remote_ip"`
+	ContentType  string  `json:"content_type"`
+	URILength    int     `json:"uri_length"`
+	BodyLength   int     `json:"body_length"`
+	HasQuery     bool    `json:"has_query"`
+	QueryParams  int     `json:"query_params"`
+	Label        string  `json:"label"`
+	RuleID       string  `json:"rule_id,omitempty"`
+	Reason       string  `json:"reason,omitempty"`
+	Timestamp    string  `json:"timestamp"`
+}
+
+func (e *Engine) ExportDataset() []DatasetRecord {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	var dataset []DatasetRecord
+	for _, r := range e.records {
+		entry := DatasetRecord{
+			URI:        r.Path,
+			Method:     r.Method,
+			Host:       r.Host,
+			RemoteIP:   r.RemoteIP,
+			ContentType: r.ContentType,
+			URILength:  len(r.Path),
+			BodyLength: len(r.BodySnippet),
+			HasQuery:   strings.Contains(r.Path, "?"),
+			QueryParams: strings.Count(r.Path, "&") + 1,
+			Label:      string(r.Verdict),
+			RuleID:     r.RuleID,
+			Reason:     r.Reason,
+			Timestamp:  r.Timestamp.Format(time.RFC3339),
+		}
+		if entry.HasQuery && !strings.Contains(r.Path, "=") {
+			entry.QueryParams = 0
+		}
+		dataset = append(dataset, entry)
+	}
+
+	return dataset
+}
+
 func normalizePath(path string) string {
 	idx := strings.Index(path, "?")
 	if idx >= 0 {

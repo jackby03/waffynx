@@ -10,6 +10,7 @@ import (
 	"github.com/jackby03/waffynx/internal/learning"
 	"github.com/jackby03/waffynx/internal/plugin"
 	"github.com/jackby03/waffynx/internal/policy"
+	wrules "github.com/jackby03/waffynx/internal/rules"
 )
 
 // Engine orchestrates the WAF runtime:
@@ -30,6 +31,7 @@ type Engine struct {
 	scorer   appsec.Scorer
 	learning *learning.Engine
 	audit    *audit.Store
+	rules    *wrules.Engine
 
 	policies *PolicyStore
 }
@@ -43,6 +45,7 @@ func New(cfg *config.Config) *Engine {
 		policies: NewPolicyStore(),
 		learning: learning.NewEngine(2000),
 		audit:    a,
+		rules:   wrules.NewEngine(),
 	}
 }
 
