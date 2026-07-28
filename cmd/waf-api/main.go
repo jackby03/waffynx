@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackby03/waffynx/internal/events"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/spf13/cobra"
@@ -59,6 +60,7 @@ type apiServer struct {
 	oidcMgr    *auth.OIDCManager
 	store      *marketplace.InMemoryStore
 	audit      *audit.Store
+	broker     *events.Broker
 }
 
 func runAPI(cfg *config.Config, configPath string) error {
@@ -81,6 +83,7 @@ func runAPI(cfg *config.Config, configPath string) error {
 		oidcMgr:    auth.NewOIDCManager(),
 		store:      marketplace.NewInMemoryStore(),
 		audit:      auditStore,
+		broker:     events.NewBroker(),
 	}
 
 	if len(cfg.API.Auth.OIDC) > 0 {
@@ -103,6 +106,7 @@ func runAPI(cfg *config.Config, configPath string) error {
 	mux.HandleFunc("GET /api/v1/plugins", withCORS(withAuth(srv.handleListPlugins)))
 	mux.HandleFunc("GET /api/v1/plugins/{name}", withCORS(withAuth(srv.handleGetPlugin)))
 	mux.HandleFunc("GET /api/v1/audit", withCORS(withAuth(srv.handleAuditQuery)))
+	mux.HandleFunc("POST /api/v1/events", withCORS(withAuth(srv.handleIngestEvent)))
 	mux.HandleFunc("GET /api/v1/events", withCORS(srv.handleSSE))
 	mux.HandleFunc("GET /metrics", metrics.Handler().ServeHTTP)
 	mux.HandleFunc("GET /debug/pprof/", pprof.Index)
@@ -497,6 +501,26 @@ func (s *apiServer) handleGetPlugin(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, r, http.StatusOK, meta)
 }
 
+func (s *apiServer) handleIngestEvent(w http.ResponseWriter, r *http.Request) {
+	if s.broker == nil {
+		s.writeError(w, r, http.StatusServiceUnavailable, "event broker not available")
+		return
+	}
+
+	var evt events.WafEvent
+	if err := json.NewDecoder(r.Body).Decode(&evt); err != nil {
+		s.writeError(w, r, http.StatusBadRequest, "invalid event body")
+		return
+	}
+	if evt.Type == "" {
+		s.writeError(w, r, http.StatusBadRequest, "event type is required")
+		return
+	}
+
+	s.broker.Publish(evt)
+	s.writeJSON(w, r, http.StatusAccepted, map[string]string{"status": "ingested"})
+}
+
 func (s *apiServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -515,27 +539,48 @@ func (s *apiServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
+	var eventCh <-chan []byte
+	if s.broker != nil {
+		ch := s.broker.Subscribe()
+		defer s.broker.Unsubscribe(ch)
+		eventCh = ch
+	}
+
+	s.writeSSEStats(w, flusher)
+
 	ctx := r.Context()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			var mem runtime.MemStats
-			runtime.ReadMemStats(&mem)
-			cfg := s.readConfig()
-
-			data, _ := json.Marshal(map[string]interface{}{
-				"type": "stats",
-				"timestamp": time.Now().UTC().Format(time.RFC3339),
-				"goroutines": runtime.NumGoroutine(),
-				"heap_mb": float64(mem.Alloc) / 1024 / 1024,
-				"engine": cfg.AppSec.Engine,
-			})
+		case data := <-eventCh:
 			w.Write([]byte("data: "))
 			w.Write(data)
 			w.Write([]byte("\n\n"))
 			flusher.Flush()
+		case <-ticker.C:
+			s.writeSSEStats(w, flusher)
 		}
 	}
+}
+
+func (s *apiServer) writeSSEStats(w http.ResponseWriter, flusher http.Flusher) {
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+	cfg := s.readConfig()
+	if cfg == nil {
+		cfg = &config.Config{}
+	}
+
+	data, _ := json.Marshal(map[string]interface{}{
+		"type":       "stats",
+		"timestamp":  time.Now().UTC().Format(time.RFC3339),
+		"goroutines": runtime.NumGoroutine(),
+		"heap_mb":    float64(mem.Alloc) / 1024 / 1024,
+		"engine":     cfg.AppSec.Engine,
+	})
+	w.Write([]byte("data: "))
+	w.Write(data)
+	w.Write([]byte("\n\n"))
+	flusher.Flush()
 }
