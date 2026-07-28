@@ -1,17 +1,19 @@
 package ratelimit
 
 import (
+	"context"
 	"fmt"
 	"net/http"
-	"sync"
 	"time"
 
+	"github.com/jackby03/waffynx/internal/logging"
 	"github.com/jackby03/waffynx/internal/plugin"
+	wratelimit "github.com/jackby03/waffynx/internal/ratelimit"
 )
 
 var (
 	PluginName = "rate-limit"
-	Version    = "1.0.0"
+	Version    = "1.1.0"
 )
 
 func init() {
@@ -20,12 +22,12 @@ func init() {
 	}, &plugin.Metadata{
 		Name:        PluginName,
 		Version:     Version,
-		Description: "Rate limiting based on client IP and configurable thresholds",
+		Description: "Rate limiting (in-memory token bucket or Redis shared state)",
 		Author:      "Waffynx",
 		License:     "MIT",
 		Phase:       plugin.PhasePreRequest,
 		Priority:    100,
-		Tags:        []string{"security", "rate-limiting", "ddos"},
+		Tags:        []string{"security", "rate-limiting", "ddos", "redis"},
 	})
 }
 
@@ -34,13 +36,8 @@ type RateLimitPlugin struct {
 	requestsPerSecond int
 	burst             int
 
-	mu      sync.Mutex
-	clients map[string]*clientBucket
-}
-
-type clientBucket struct {
-	tokens    float64
-	lastCheck time.Time
+	limiter wratelimit.Limiter
+	redis   *wratelimit.RedisLimiter
 }
 
 func (p *RateLimitPlugin) Name() string        { return PluginName }
@@ -64,10 +61,43 @@ func (p *RateLimitPlugin) Init(config map[string]interface{}) error {
 		p.burst = 200
 	}
 
-	p.clients = make(map[string]*clientBucket)
+	redisCfg := parseRedisConfig(config)
+	if redisCfg.Enabled {
+		limiter, err := wratelimit.NewRedisLimiter(redisCfg)
+		if err != nil {
+			logging.Warn().Err(err).Msg("redis rate limiter unavailable, falling back to in-memory")
+			p.limiter = wratelimit.NewMemoryLimiter()
+		} else {
+			p.limiter = limiter
+			p.redis = limiter
+			logging.Info().Str("addr", redisCfg.Addr).Msg("redis rate limiter enabled")
+		}
+	} else {
+		p.limiter = wratelimit.NewMemoryLimiter()
+	}
 
-	go p.cleanup()
 	return nil
+}
+
+func parseRedisConfig(config map[string]interface{}) wratelimit.Config {
+	cfg := wratelimit.Config{}
+	if redisRaw, ok := config["redis"]; ok {
+		if redisMap, ok := redisRaw.(map[string]interface{}); ok {
+			if v, ok := redisMap["enabled"].(bool); ok {
+				cfg.Enabled = v
+			}
+			if v, ok := redisMap["addr"].(string); ok {
+				cfg.Addr = v
+			}
+			if v, ok := redisMap["password"].(string); ok {
+				cfg.Password = v
+			}
+			if v, ok := redisMap["db"].(int); ok {
+				cfg.DB = v
+			}
+		}
+	}
+	return cfg
 }
 
 func (p *RateLimitPlugin) Execute(ctx *plugin.Context) (*plugin.Context, error) {
@@ -80,7 +110,13 @@ func (p *RateLimitPlugin) Execute(ctx *plugin.Context) (*plugin.Context, error) 
 		return ctx, nil
 	}
 
-	if !p.allow(clientIP) {
+	allowed, err := p.limiter.Allow(context.Background(), clientIP, p.requestsPerSecond, time.Second)
+	if err != nil {
+		logging.Warn().Err(err).Str("ip", clientIP).Msg("rate limit check failed, allowing")
+		return ctx, nil
+	}
+
+	if !allowed {
 		ctx.StatusCode = http.StatusTooManyRequests
 		ctx.ResponseWriter.Header().Set("Retry-After", "1")
 		ctx.ResponseWriter.Header().Set("Content-Type", "application/json")
@@ -93,6 +129,9 @@ func (p *RateLimitPlugin) Execute(ctx *plugin.Context) (*plugin.Context, error) 
 }
 
 func (p *RateLimitPlugin) Close() error {
+	if p.limiter != nil {
+		return p.limiter.Close()
+	}
 	return nil
 }
 
@@ -108,48 +147,4 @@ func (p *RateLimitPlugin) extractIP(ctx *plugin.Context) string {
 		return ip
 	}
 	return ""
-}
-
-func (p *RateLimitPlugin) allow(ip string) bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	bucket, ok := p.clients[ip]
-	if !ok {
-		bucket = &clientBucket{
-			tokens:    float64(p.burst),
-			lastCheck: time.Now(),
-		}
-		p.clients[ip] = bucket
-	}
-
-	now := time.Now()
-	elapsed := now.Sub(bucket.lastCheck).Seconds()
-	bucket.tokens += elapsed * float64(p.requestsPerSecond)
-	if bucket.tokens > float64(p.burst) {
-		bucket.tokens = float64(p.burst)
-	}
-	bucket.lastCheck = now
-
-	if bucket.tokens >= 1 {
-		bucket.tokens--
-		return true
-	}
-
-	return false
-}
-
-func (p *RateLimitPlugin) cleanup() {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-	for range ticker.C {
-		p.mu.Lock()
-		cutoff := time.Now().Add(-60 * time.Second)
-		for ip, bucket := range p.clients {
-			if bucket.lastCheck.Before(cutoff) {
-				delete(p.clients, ip)
-			}
-		}
-		p.mu.Unlock()
-	}
 }

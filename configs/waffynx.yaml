@@ -95,6 +95,12 @@ plugins:
     config:
       requests_per_second: 100
       burst: 200
+      # Redis backend for shared rate limiting across instances:
+      # redis:
+      #   enabled: true
+      #   addr: "localhost:6379"
+      #   password: ""
+      #   db: 0
 
   - name: "geo-block"
     enabled: false
