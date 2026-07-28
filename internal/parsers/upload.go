@@ -46,9 +46,6 @@ func InspectFileUpload(r *http.Request, body []byte) *FileUploadResult {
 		Size:        len(body),
 	}
 
-	isMultipart := strings.HasPrefix(result.ContentType, "multipart/form-data")
-	_ = isMultipart
-
 	if !isUpload(result.ContentType, body) {
 		return result
 	}

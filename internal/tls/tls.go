@@ -9,6 +9,7 @@ import (
 	"os"
 	"sync"
 
+	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/jackby03/waffynx/internal/logging"
@@ -54,14 +55,13 @@ func (m *Manager) EnableACME(cfg ACMEConfig) error {
 	if cfg.Staging {
 		directory = "https://acme-staging-v02.api.letsencrypt.org/directory"
 	}
-	_ = directory
 
 	m.acmeManager = &autocert.Manager{
 		Cache:      autocert.DirCache(cacheDir),
 		Prompt:     autocert.AcceptTOS,
 		HostPolicy: autocert.HostWhitelist(cfg.Domains...),
 		Email:      cfg.Email,
-		Client:     nil,
+		Client:     &acme.Client{DirectoryURL: directory},
 	}
 
 	m.autoCert = true
