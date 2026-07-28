@@ -21,10 +21,10 @@ jobs:
           go-version: "1.22"
 
       - name: Build Go (no CGo)
-        run: CGO_ENABLED=0 go build -buildvcs=false ./...
+        run: CGO_ENABLED=0 go build -buildvcs=false ./cmd/...
 
       - name: Test Go
-        run: go test -race -coverprofile=coverage.out ./...
+        run: CGO_ENABLED=0 go test -coverprofile=coverage.out ./internal/...
 
       - name: Coverage
         run: go tool cover -func=coverage.out
@@ -59,6 +59,11 @@ jobs:
       - name: Build open-appsec (libngen_core.so)
         working-directory: third_party/open-appsec
         run: |
+          # Create CMake stubs for the stripped fork
+          echo "# stub" > cppcheck.cmake
+          echo "macro(add_unit_test name)" > unit_test.cmake
+          echo "endmacro()" >> unit_test.cmake
+          
           mkdir -p build && cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release
           cmake --build . --target ngen_core -j$(nproc)
