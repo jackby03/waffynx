@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackby03/waffynx/internal/auth"
+	"github.com/jackby03/waffynx/internal/config"
 	"github.com/jackby03/waffynx/internal/events"
 	"github.com/jackby03/waffynx/internal/marketplace"
 )
@@ -282,5 +285,63 @@ func TestHandleMarketplaceCategories(t *testing.T) {
 	cats, ok := body["categories"].([]interface{})
 	if !ok || len(cats) == 0 {
 		t.Error("expected non-empty categories")
+	}
+}
+
+func TestHandleUpdateConfig_AppSecEnabled(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := dir + "/waffynx.yaml"
+	os.WriteFile(cfgPath, []byte("name: test\nlisten: :8443\nfirewall:\n  backend: nftables\napi:\n  listen: :9090\n  auth:\n    token_ttl: 3600\n"), 0644)
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("loading config: %v", err)
+	}
+	srv := &apiServer{cfg: cfg, configPath: cfgPath, authMgr: auth.NewManager("", 3600), oidcMgr: auth.NewOIDCManager()}
+
+	body := map[string]interface{}{"appsec": map[string]interface{}{"enabled": true, "engine": "open-appsec"}}
+	data, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("PUT", "/api/v1/config", bytes.NewReader(data))
+	rec := httptest.NewRecorder()
+	srv.handleUpdateConfig(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	updated, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("reloading config: %v", err)
+	}
+	if !updated.AppSec.Enabled {
+		t.Error("expected appsec enabled")
+	}
+	if updated.AppSec.Engine != "open-appsec" {
+		t.Errorf("expected open-appsec engine, got %s", updated.AppSec.Engine)
+	}
+}
+
+func TestHandleUpdateConfig_EmptyBody(t *testing.T) {
+	srv := &apiServer{cfg: &config.Config{}}
+
+	req := httptest.NewRequest("PUT", "/api/v1/config", bytes.NewReader([]byte("{}")))
+	rec := httptest.NewRecorder()
+	srv.handleUpdateConfig(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestHandleUpdateConfig_InvalidJSON(t *testing.T) {
+	srv := &apiServer{cfg: &config.Config{}}
+
+	req := httptest.NewRequest("PUT", "/api/v1/config", bytes.NewReader([]byte("not json")))
+	rec := httptest.NewRecorder()
+	srv.handleUpdateConfig(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
 	}
 }

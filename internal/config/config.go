@@ -136,7 +136,11 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("reading config file: %w", err)
 	}
 
-	cfg := &Config{
+	return Parse(data)
+}
+
+func defaultConfig() *Config {
+	return &Config{
 		Name:    "waffynx",
 		Version: "1",
 		Listen:  ":8443",
@@ -181,6 +185,10 @@ func Load(path string) (*Config, error) {
 			},
 		},
 	}
+}
+
+func Parse(data []byte) (*Config, error) {
+	cfg := defaultConfig()
 
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parsing config file: %w", err)

@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/jackby03/waffynx/internal/events"
 	"golang.org/x/crypto/bcrypt"
 
@@ -445,25 +447,70 @@ func (s *apiServer) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(updates) == 0 {
+		s.writeError(w, r, http.StatusBadRequest, "empty update body")
+		return
+	}
+
 	s.configMu.Lock()
-	cfg := s.cfg
+	defer s.configMu.Unlock()
 
-	if v, ok := updates["appsec_enabled"]; ok {
-		if b, ok := v.(bool); ok {
-			cfg.AppSec.Enabled = b
-		}
-	}
-	if v, ok := updates["learning_mode"]; ok {
-		if b, ok := v.(bool); ok {
-			cfg.AppSec.LearningMode = b
-		}
+	yamlBytes, err := yaml.Marshal(s.cfg)
+	if err != nil {
+		s.writeError(w, r, http.StatusInternalServerError, "failed to marshal current config")
+		return
 	}
 
-	s.configMu.Unlock()
+	var current map[string]interface{}
+	if err := yaml.Unmarshal(yamlBytes, &current); err != nil {
+		s.writeError(w, r, http.StatusInternalServerError, "failed to unmarshal current config")
+		return
+	}
+
+	deepMerge(current, updates)
+
+	merged, err := yaml.Marshal(current)
+	if err != nil {
+		s.writeError(w, r, http.StatusInternalServerError, "failed to marshal merged config")
+		return
+	}
+
+	newCfg, err := config.Parse(merged)
+	if err != nil {
+		s.writeError(w, r, http.StatusBadRequest, "invalid config: "+err.Error())
+		return
+	}
+
+	if err := os.WriteFile(s.configPath, merged, 0644); err != nil {
+		s.writeError(w, r, http.StatusInternalServerError, "failed to write config file: "+err.Error())
+		return
+	}
+
+	s.cfg = newCfg
+	s.authMgr = auth.NewManager(newCfg.API.Auth.JWTSecret, newCfg.API.Auth.TokenTTL)
+	newOIDC := auth.NewOIDCManager()
+	if len(newCfg.API.Auth.OIDC) > 0 {
+		newOIDC.Configure(newCfg.API.Auth.OIDC)
+	}
+	s.oidcMgr = newOIDC
+
+	logging.Info().Msg("config updated and written to disk")
 
 	s.writeJSON(w, r, http.StatusOK, map[string]string{
 		"status": "config updated",
 	})
+}
+
+func deepMerge(target, source map[string]interface{}) {
+	for key, srcVal := range source {
+		if srcMap, ok := srcVal.(map[string]interface{}); ok {
+			if tgtMap, ok := target[key].(map[string]interface{}); ok {
+				deepMerge(tgtMap, srcMap)
+				continue
+			}
+		}
+		target[key] = srcVal
+	}
 }
 
 func (s *apiServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
