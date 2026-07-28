@@ -147,3 +147,30 @@ func TestUFWBackend_SetDefaultPolicy(t *testing.T) {
 		t.Error("expected input chain")
 	}
 }
+
+func TestNFTablesBackend_SetDefaultPolicy(t *testing.T) {
+	n := &NFTablesBackend{}
+	name, args := captureCmd(t, func() {
+		n.SetDefaultPolicy("input", "drop")
+	})
+
+	if name != "nft" {
+		t.Fatalf("expected nft, got %s", name)
+	}
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "add rule") {
+		t.Error("expected add rule")
+	}
+	if !strings.Contains(joined, "waffynx") {
+		t.Error("expected waffynx table")
+	}
+	if !strings.Contains(joined, "input") {
+		t.Error("expected input chain")
+	}
+	if !strings.Contains(joined, "counter") {
+		t.Error("expected counter")
+	}
+	if !strings.Contains(joined, "drop") {
+		t.Error("expected drop policy")
+	}
+}

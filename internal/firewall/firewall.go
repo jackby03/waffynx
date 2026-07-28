@@ -172,7 +172,8 @@ func (n *NFTablesBackend) ListRules() ([]Rule, error) {
 }
 
 func (n *NFTablesBackend) SetDefaultPolicy(chain string, policy string) error {
-	return nil
+	_, err := runCmd("nft", "add", "rule", "ip", "waffynx", chain, "counter", policy)
+	return err
 }
 
 func (n *NFTablesBackend) Flush() error {
