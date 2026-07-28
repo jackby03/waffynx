@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  build-and-test:
+  go-test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -20,11 +20,75 @@ jobs:
         with:
           go-version: "1.22"
 
-      - name: Build
-        run: go build ./...
+      - name: Build Go (no CGo)
+        run: CGO_ENABLED=0 go build -buildvcs=false ./...
 
-      - name: Test
+      - name: Test Go
         run: go test -race -coverprofile=coverage.out ./...
 
       - name: Coverage
         run: go tool cover -func=coverage.out
+
+  cpp-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Install C++ dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            cmake g++ \
+            libboost-all-dev \
+            libpcre2-dev \
+            libssl-dev \
+            zlib1g-dev \
+            libmaxminddb-dev \
+            libcurl4-openssl-dev \
+            libgtest-dev libgmock-dev \
+            libbrotli-dev libxml2-dev
+
+      - name: Build open-appsec (libngen_core.so)
+        working-directory: third_party/open-appsec
+        run: |
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release
+          cmake --build . --target ngen_core -j$(nproc)
+          ls -lh core/libngen_core.so
+          strip core/libngen_core.so
+          echo "libngen_core.so size: $(ls -lh core/libngen_core.so | awk '{print $5}')"
+
+      - name: Build C bridge (libwaffynx_bridge.so)
+        working-directory: third_party/open-appsec
+        run: |
+          g++ -shared -fPIC -std=c++17 -O2 -DWAFFYNX_REAL_ENGINE \
+            -I core/include/general \
+            -I core/include/internal \
+            -I core/include/services_sdk \
+            -I core/include/services_sdk/interfaces \
+            -I core/include/services_sdk/resources \
+            -I core/include/services_sdk/utilities \
+            -I core/include/attachments \
+            -I components/include \
+            -I components/security_apps/waap/waap_clib \
+            -I events/include \
+            -o libwaffynx_bridge.so waffynx_bridge.cpp \
+            -L build/core -lngen_core -lboost_system -lboost_filesystem \
+            -Wl,-rpath,'$ORIGIN'/build/core
+          ls -lh libwaffynx_bridge.so
+          echo "Bridge built"
+
+      - name: Build Go with CGo (appsec-bridge-cpp)
+        run: |
+          CGO_ENABLED=1 go build -buildvcs=false -ldflags="-s -w" \
+            -o bin/appsec-bridge-cpp ./cmd/appsec-bridge
+          ls -lh bin/appsec-bridge-cpp
+          echo "Go+CGo binary built: $(ldd bin/appsec-bridge-cpp | grep -i bridge)"
