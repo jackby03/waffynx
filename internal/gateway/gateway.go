@@ -100,7 +100,7 @@ func (g *Gateway) Stop(ctx context.Context) error {
 }
 
 func (g *Gateway) handleRequest(w http.ResponseWriter, r *http.Request) {
-	route, params := g.router.Match(r.Host, r.URL.Path)
+	route, params := g.router.Match(r.Host, r.URL.Path, r.Method)
 
 	result := g.engine.Evaluate(r.Context(), policy.PhaseRequest, &policy.Request{
 		Method:  r.Method,

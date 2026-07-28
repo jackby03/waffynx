@@ -59,8 +59,7 @@ func (r *Router) AddRoute(cfg *config.RouteConfig) error {
 	}
 	route.hostPattern = hp
 
-	pathPattern := strings.ReplaceAll(cfg.Path, "/", "\\/")
-	pathPattern = regexp.QuoteMeta(pathPattern)
+	pathPattern := regexp.QuoteMeta(cfg.Path)
 	pathPattern = strings.ReplaceAll(pathPattern, "\\*", ".*")
 	pp, err := regexp.Compile("^" + pathPattern + "$")
 	if err != nil {
@@ -72,7 +71,7 @@ func (r *Router) AddRoute(cfg *config.RouteConfig) error {
 	return nil
 }
 
-func (r *Router) Match(host, path string) (*Route, map[string]string) {
+func (r *Router) Match(host, path, method string) (*Route, map[string]string) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -81,6 +80,9 @@ func (r *Router) Match(host, path string) (*Route, map[string]string) {
 			continue
 		}
 		if matches := route.pathPattern.FindStringSubmatch(path); matches != nil {
+			if len(route.Methods) > 0 && !route.Methods[strings.ToUpper(method)] {
+				continue
+			}
 			params := make(map[string]string)
 			names := route.pathPattern.SubexpNames()
 			for i, name := range names {
