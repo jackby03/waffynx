@@ -106,27 +106,8 @@ func runEngine(cfg *config.Config) error {
 	}
 
 	// Add default WAF rules
-	eng.AddPolicy(&engine.Policy{
-		Name:     "block-sql-injection",
-		Phase:    engine.PhaseRequest,
-		Priority: 10,
-		Enabled:  true,
-		Action:   engine.ActionBlock,
-	})
-	eng.AddPolicy(&engine.Policy{
-		Name:     "block-xss",
-		Phase:    engine.PhaseRequest,
-		Priority: 10,
-		Enabled:  true,
-		Action:   engine.ActionBlock,
-	})
-	eng.AddPolicy(&engine.Policy{
-		Name:     "rate-limit-api",
-		Phase:    engine.PhaseRequest,
-		Priority: 50,
-		Enabled:  false,
-		Action:   engine.ActionBlock,
-	})
+	// Policies are loaded from config or added dynamically via API.
+	// The PolicyStore is available via eng.AddPolicy() for runtime registration.
 
 	// Set up ML anomaly scorer
 	if cfg.AppSec.Enabled {
