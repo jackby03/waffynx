@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -9,8 +10,10 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/jackby03/waffynx/internal/appsec"
+	"github.com/jackby03/waffynx/internal/learning"
 	"github.com/jackby03/waffynx/internal/logging"
 	"github.com/jackby03/waffynx/internal/plugin"
 	"github.com/jackby03/waffynx/internal/policy"
@@ -42,15 +45,17 @@ type Sidecar struct {
 	server     *http.Server
 	chain      *plugin.Chain
 	engine     policy.Evaluator
-	scorer     appsec.Scorer // ML anomaly scorer (may be nil)
+	scorer     appsec.Scorer
+	learning   *learning.Engine
 }
 
-func NewSidecar(socketPath string, eval policy.Evaluator, chain *plugin.Chain, scorer appsec.Scorer) *Sidecar {
+func NewSidecar(socketPath string, eval policy.Evaluator, chain *plugin.Chain, scorer appsec.Scorer, learn *learning.Engine) *Sidecar {
 	return &Sidecar{
 		socketPath: socketPath,
 		chain:      chain,
 		engine:     eval,
 		scorer:     scorer,
+		learning:   learn,
 	}
 }
 
@@ -72,6 +77,8 @@ func (s *Sidecar) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/evaluate", s.handleEvaluate)
 	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/learning/suggestions", s.handleLearningSuggestions)
+	mux.HandleFunc("/learning/stats", s.handleLearningStats)
 
 	s.server = &http.Server{Handler: mux}
 
@@ -120,6 +127,8 @@ func (s *Sidecar) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 		req.Body = bodyBytes
 	}
 
+	start := time.Now()
+
 	logging.Debug().
 		Str("method", req.Method).
 		Str("host", req.Host).
@@ -148,6 +157,7 @@ func (s *Sidecar) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 		if ctx.StatusCode == 0 {
 			s.respondDeny(w, "plugin-chain", err.Error())
 		}
+		s.recordLearning(req, "block", "plugin-chain", err.Error(), start)
 		return
 	}
 
@@ -161,6 +171,7 @@ func (s *Sidecar) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 			Str("reason", policyResult.Reason).
 			Msg("policy blocked request")
 		s.respondDeny(w, policyResult.RuleID, policyResult.Reason)
+		s.recordLearning(req, "block", policyResult.RuleID, policyResult.Reason, start)
 		return
 	}
 
@@ -198,6 +209,7 @@ func (s *Sidecar) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 					Msg("appsec blocked request")
 				reason := fmt.Sprintf("ML anomaly: %s", strings.Join(appsecResult.Reasons, "; "))
 				s.respondDeny(w, "appsec-"+appsecResult.ModelName, reason)
+				s.recordLearning(req, "block", "appsec-"+appsecResult.ModelName, reason, start)
 				return
 			}
 
@@ -212,6 +224,7 @@ func (s *Sidecar) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 
 	// All stages passed: allow
 	s.respondAllow(w)
+	s.recordLearning(req, "allow", "", "", start)
 }
 
 // parseQueryParams extracts query parameters from a URI string.
@@ -257,4 +270,56 @@ func (s *Sidecar) respondDeny(w http.ResponseWriter, ruleID, reason string) {
 	w.WriteHeader(http.StatusForbidden)
 
 	fmt.Fprintf(w, `{"error":"blocked by WAF","rule_id":"%s","reason":"%s"}`, ruleID, reason)
+}
+
+func (s *Sidecar) handleLearningSuggestions(w http.ResponseWriter, r *http.Request) {
+	if s.learning == nil {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`[]`))
+		return
+	}
+	suggestions := s.learning.Suggestions()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(suggestions)
+}
+
+func (s *Sidecar) handleLearningStats(w http.ResponseWriter, r *http.Request) {
+	if s.learning == nil {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{}`))
+		return
+	}
+	stats := s.learning.Stats()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(stats)
+}
+
+func (s *Sidecar) recordLearning(req *policy.Request, verdict, ruleID, reason string, start time.Time) {
+	if s.learning == nil {
+		return
+	}
+
+	bodySnippet := ""
+	if len(req.Body) > 0 {
+		body := string(req.Body)
+		if len(body) > 100 {
+			bodySnippet = body[:100]
+		} else {
+			bodySnippet = body
+		}
+	}
+
+	s.learning.Record(learning.Record{
+		Method:      req.Method,
+		Path:        req.Path,
+		Host:        req.Host,
+		RemoteIP:    req.RemoteIP,
+		BodySnippet: bodySnippet,
+		Verdict:     learning.Verdict(verdict),
+		RuleID:      ruleID,
+		Reason:      reason,
+		Duration:    time.Since(start),
+	})
 }

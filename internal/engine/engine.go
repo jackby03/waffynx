@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackby03/waffynx/internal/appsec"
 	"github.com/jackby03/waffynx/internal/config"
+	"github.com/jackby03/waffynx/internal/learning"
 	"github.com/jackby03/waffynx/internal/plugin"
 	"github.com/jackby03/waffynx/internal/policy"
 )
@@ -26,6 +27,7 @@ type Engine struct {
 	chain    *plugin.Chain
 	policy   policy.Evaluator
 	scorer   appsec.Scorer
+	learning *learning.Engine
 
 	policies *PolicyStore
 }
@@ -36,6 +38,7 @@ func New(cfg *config.Config) *Engine {
 		chain:    plugin.NewChain(),
 		policy:   policy.NewRuleEngine(),
 		policies: NewPolicyStore(),
+		learning: learning.NewEngine(2000),
 	}
 }
 
@@ -73,6 +76,10 @@ func (e *Engine) SetAppSecScorer(s appsec.Scorer) {
 
 func (e *Engine) AppSecScorer() appsec.Scorer {
 	return e.scorer
+}
+
+func (e *Engine) Learning() *learning.Engine {
+	return e.learning
 }
 
 func (e *Engine) PluginChain() *plugin.Chain {
