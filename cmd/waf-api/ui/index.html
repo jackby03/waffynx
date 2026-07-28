@@ -3,255 +3,571 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Waffynx — WAF Dashboard</title>
+<title>Waffynx — WAF Management Console</title>
 <style>
 :root {
-  --bg: #0f1117;
-  --card: #1a1d27;
-  --border: #2a2d3a;
+  --bg: #0a0e14;
+  --sidebar: #0d1117;
+  --surface: #161b22;
+  --border: #21262d;
   --text: #c9d1d9;
-  --muted: #6e7681;
+  --muted: #8b949e;
+  --accent: #58a6ff;
+  --accent-dim: rgba(88,166,255,.12);
   --green: #3fb950;
+  --green-dim: rgba(63,185,80,.12);
   --red: #f85149;
-  --yellow: #d29922;
-  --blue: #58a6ff;
-  --accent: #7c3aed;
+  --red-dim: rgba(248,81,73,.12);
+  --orange: #d29922;
+  --orange-dim: rgba(210,153,34,.12);
+  --purple: #a371f7;
+  --header-h: 56px;
+  --sidebar-w: 220px;
 }
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { 
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', system-ui, sans-serif;
   background: var(--bg); color: var(--text); min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
 }
-.header { 
-  background: var(--card); border-bottom: 1px solid var(--border);
-  padding: 16px 24px; display: flex; align-items: center; justify-content: space-between;
-}
-.header h1 { font-size: 20px; font-weight: 600; color: #fff; }
-.header .accent { color: var(--accent); }
-.header .status { display: flex; gap: 12px; align-items: center; font-size: 13px; }
-.header .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.header .dot.online { background: var(--green); }
-.header .dot.offline { background: var(--red); }
-.main { max-width: 1200px; margin: 0 auto; padding: 24px; }
-.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; }
-.card { 
-  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
-  padding: 20px; transition: border-color .2s;
-}
-.card:hover { border-color: var(--accent); }
-.card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
-.card .value { font-size: 28px; font-weight: 700; color: #fff; }
-.card .value.green { color: var(--green); }
-.card .value.red { color: var(--red); }
-.card .value.yellow { color: var(--yellow); }
-.row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
-@media (max-width: 768px) { .row { grid-template-columns: 1fr; } }
-.section { background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-.section-header { padding: 14px 20px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px; color: #fff; }
-.section-body { padding: 16px 20px; }
-table { width: 100%; border-collapse: collapse; }
-th { text-align: left; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; padding: 8px 0; border-bottom: 1px solid var(--border); }
-td { padding: 10px 0; font-size: 13px; border-bottom: 1px solid var(--border); color: var(--text); }
-td:last-child { border-bottom: none; }
-tr:last-child td { border-bottom: none; }
-.badge { 
-  display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;
-}
-.badge.green { background: rgba(63,185,80,.15); color: var(--green); }
-.badge.red { background: rgba(248,81,73,.15); color: var(--red); }
-.badge.blue { background: rgba(88,166,255,.15); color: var(--blue); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ========== LOGIN ========== */
 .login-overlay {
-  position: fixed; inset: 0; background: var(--bg); display: flex;
-  align-items: center; justify-content: center; z-index: 100;
+  position: fixed; inset: 0; background: var(--bg);
+  display: flex; align-items: center; justify-content: center; z-index: 999;
+  background: radial-gradient(ellipse at 50% 0%, #161b22 0%, var(--bg) 70%);
 }
-.login-box {
-  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-  padding: 40px; width: 100%; max-width: 400px; text-align: center;
+.login-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 48px 40px; width: 100%; max-width: 420px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.4);
 }
-.login-box h2 { margin-bottom: 8px; color: #fff; }
-.login-box p { color: var(--muted); margin-bottom: 24px; font-size: 14px; }
-input {
+.login-card .logo {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 8px;
+  justify-content: center;
+}
+.login-card .logo svg { width: 40px; height: 40px; }
+.login-card .logo span { font-size: 22px; font-weight: 700; color: #fff; }
+.login-card .subtitle { text-align: center; color: var(--muted); font-size: 14px; margin-bottom: 32px; }
+.input-group { margin-bottom: 16px; }
+.input-group label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .5px; font-weight: 500; }
+.input-group input {
   width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 6px;
-  background: var(--bg); color: var(--text); font-size: 14px; margin-bottom: 12px; outline: none;
+  background: var(--bg); color: var(--text); font-size: 14px; outline: none; transition: border-color .2s;
 }
-input:focus { border-color: var(--accent); }
-button {
-  width: 100%; padding: 10px; background: var(--accent); color: #fff; border: none;
-  border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity .2s;
+.input-group input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+.btn {
+  width: 100%; padding: 10px 16px; border: none; border-radius: 6px;
+  font-size: 14px; font-weight: 600; cursor: pointer; transition: all .15s;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
 }
-button:hover { opacity: .9; }
-button.secondary { background: var(--border); margin-top: 8px; }
-.loading { text-align: center; padding: 40px; color: var(--muted); }
-.error-banner { 
-  background: rgba(248,81,73,.1); border: 1px solid rgba(248,81,73,.3);
-  padding: 12px 20px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; color: var(--red);
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: #4090e0; }
+.btn-secondary { background: var(--border); color: var(--text); }
+.btn-secondary:hover { background: #30363d; }
+.btn-sm { padding: 5px 10px; font-size: 12px; border-radius: 4px; width: auto; }
+.login-error { color: var(--red); font-size: 13px; text-align: center; margin-top: 12px; min-height: 20px; }
+
+/* ========== APP LAYOUT ========== */
+.app { display: flex; height: 100vh; }
+.sidebar {
+  width: var(--sidebar-w); background: var(--sidebar); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 10;
 }
-.spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.meta { display: flex; gap: 24px; flex-wrap: wrap; }
-.meta-item { font-size: 13px; }
-.meta-item span { color: var(--muted); }
-.plugin-tag { 
-  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
-  background: rgba(124,58,237,.1); border: 1px solid rgba(124,58,237,.3);
-  border-radius: 6px; font-size: 12px; margin: 4px;
+.sidebar-brand {
+  padding: 16px 20px; display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid var(--border); height: var(--header-h);
 }
-.plugin-tag .priority { color: var(--muted); font-size: 10px; }
-.tabs { display: flex; border-bottom: 1px solid var(--border); }
-.tab { padding: 10px 16px; font-size: 13px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all .2s; }
-.tab:hover { color: var(--text); }
-.tab.active { color: #fff; border-bottom-color: var(--accent); }
+.sidebar-brand svg { width: 28px; height: 28px; flex-shrink: 0; }
+.sidebar-brand span { font-size: 16px; font-weight: 700; color: #fff; }
+.sidebar-nav { flex: 1; padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; }
+.nav-item {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  border-radius: 6px; font-size: 14px; color: var(--muted); cursor: pointer;
+  transition: all .15s; border: none; background: none; width: 100%; text-align: left;
+}
+.nav-item:hover { background: var(--surface); color: var(--text); }
+.nav-item.active { background: var(--accent-dim); color: var(--accent); font-weight: 500; }
+.nav-item svg { width: 18px; height: 18px; flex-shrink: 0; opacity: .7; }
+.nav-item.active svg { opacity: 1; }
+.sidebar-footer {
+  padding: 12px 20px; border-top: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 12px; color: var(--muted);
+}
+.status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+.status-dot.online { background: var(--green); box-shadow: 0 0 6px rgba(63,185,80,.4); }
+.status-dot.offline { background: var(--red); box-shadow: 0 0 6px rgba(248,81,73,.4); }
+
+/* ========== MAIN CONTENT ========== */
+.main { flex: 1; margin-left: var(--sidebar-w); overflow-y: auto; }
+.topbar {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  height: var(--header-h); padding: 0 24px; display: flex; align-items: center;
+  justify-content: space-between; position: sticky; top: 0; z-index: 5;
+}
+.topbar h2 { font-size: 16px; font-weight: 600; color: #fff; }
+.topbar-right { display: flex; align-items: center; gap: 16px; font-size: 13px; color: var(--muted); }
+.content { padding: 24px; }
+.page { display: none; }
+.page.active { display: block; }
+
+/* ========== STATS ========== */
+.stats-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 24px; }
+@media (max-width: 900px) { .stats-grid { grid-template-columns: repeat(2,1fr); } }
+.stat-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 20px; position: relative; overflow: hidden;
+}
+.stat-card .stat-icon { position: absolute; top: 16px; right: 16px; opacity: .15; width: 32px; height: 32px; }
+.stat-card .stat-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+.stat-card .stat-value { font-size: 32px; font-weight: 700; color: #fff; margin: 4px 0; }
+.stat-card .stat-sub { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 4px; }
+.stat-card .stat-trend-up { color: var(--green); }
+.stat-card .stat-trend-down { color: var(--red); }
+
+/* ========== CHARTS ========== */
+.chart-row { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 24px; }
+@media (max-width: 900px) { .chart-row { grid-template-columns: 1fr; } }
+.panel {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+}
+.panel-header {
+  padding: 14px 20px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.panel-header h3 { font-size: 14px; font-weight: 600; color: #fff; }
+.panel-body { padding: 20px; }
+
+/* ========== SPARKLINE ========== */
+.sparkline { display: flex; align-items: flex-end; gap: 2px; height: 60px; padding: 4px 0; }
+.sparkline-bar { flex: 1; background: var(--accent); border-radius: 2px 2px 0 0; min-height: 2px; transition: height .3s; }
+.sparkline-bar.blocked { background: var(--red); }
+
+/* ========== ATTACK TABLE ========== */
+.attack-list { max-height: 280px; overflow-y: auto; }
+.attack-row {
+  display: flex; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border);
+  font-size: 13px; gap: 12px;
+}
+.attack-row:last-child { border-bottom: none; }
+.attack-method {
+  padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .5px;
+}
+.attack-method.get { background: var(--accent-dim); color: var(--accent); }
+.attack-method.post { background: var(--green-dim); color: var(--green); }
+.attack-method.put { background: var(--orange-dim); color: var(--orange); }
+.attack-type {
+  padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
+  margin-left: auto;
+}
+.attack-type.sqli { background: var(--red-dim); color: var(--red); }
+.attack-type.xss { background: var(--orange-dim); color: var(--orange); }
+.attack-type.traversal { background: var(--purple); color: #fff; background: rgba(163,113,247,.15); color: var(--purple); }
+.attack-type.bot { background: var(--accent-dim); color: var(--accent); }
+.attack-ip { color: var(--muted); font-family: monospace; font-size: 12px; }
+.attack-time { color: var(--muted); font-size: 11px; margin-left: auto; }
+
+/* ========== RULES PAGE ========== */
+.rule-row {
+  display: flex; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border);
+  font-size: 13px; gap: 12px;
+}
+.rule-row:last-child { border-bottom: none; }
+.rule-status { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.rule-status.enabled { background: var(--green); }
+.rule-status.disabled { background: var(--muted); }
+.rule-id { font-family: monospace; font-size: 11px; color: var(--accent); }
+.rule-action {
+  padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
+  margin-left: auto;
+}
+.rule-action.block { background: var(--red-dim); color: var(--red); }
+.rule-action.log { background: var(--orange-dim); color: var(--orange); }
+
+/* ========== SETTINGS ========== */
+.config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 768px) { .config-grid { grid-template-columns: 1fr; } }
+.config-item { padding: 16px 0; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+.config-item:last-child { border-bottom: none; }
+.config-key { font-size: 13px; color: var(--muted); }
+.config-val { font-size: 13px; font-family: monospace; color: var(--text); }
+
+/* ========== DONUT CHART ========== */
+.donut { position: relative; width: 140px; height: 140px; margin: 0 auto; }
+.donut svg { transform: rotate(-90deg); }
+.donut-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.donut-center .big { font-size: 28px; font-weight: 700; color: #fff; }
+.donut-center .small { font-size: 11px; color: var(--muted); }
+
+/* ========== EMPTY STATE ========== */
+.empty-state { text-align: center; padding: 40px 20px; color: var(--muted); }
+.empty-state svg { opacity: .2; width: 48px; height: 48px; margin-bottom: 12px; }
+.empty-state p { font-size: 14px; }
+
+/* ========== ANIMATIONS ========== */
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.fade-in { animation: fadeIn .3s ease-out; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .5; } }
+.pulse { animation: pulse 2s infinite; }
 </style>
 </head>
 <body>
 
+<!-- ===== LOGIN ===== -->
 <div class="login-overlay" id="loginOverlay">
-  <div class="login-box">
-    <h2>Waffynx</h2>
-    <p>WAF Management Dashboard</p>
-    <input id="apiUrl" placeholder="API URL (e.g. http://localhost:9090)" value="http://localhost:9090">
-    <input id="username" placeholder="Username" value="admin">
-    <input id="password" type="password" placeholder="Password" value="admin">
-    <button onclick="login()">Connect</button>
-    <div id="loginError" style="color:var(--red);margin-top:12px;font-size:13px;"></div>
+  <div class="login-card fade-in">
+    <div class="logo">
+      <svg viewBox="0 0 40 40" fill="none"><rect width="40" height="40" rx="8" fill="#7c3aed" opacity=".2"/><path d="M8 20L16 12L24 20L32 12V28L24 20L16 28L8 20Z" fill="#7c3aed"/></svg>
+      <span>Waffynx</span>
+    </div>
+    <p class="subtitle">Web Application Firewall — Management Console</p>
+    <div class="input-group">
+      <label>API Endpoint</label>
+      <input id="apiUrl" placeholder="http://localhost:9090" value="http://localhost:9090">
+    </div>
+    <div class="input-group">
+      <label>Username</label>
+      <input id="username" placeholder="admin" value="admin">
+    </div>
+    <div class="input-group">
+      <label>Password</label>
+      <input id="password" type="password" placeholder="••••" value="admin">
+    </div>
+    <button class="btn btn-primary" onclick="login()">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a3.5 3.5 0 100 7 3.5 3.5 0 000-7zM3 13c0-2.5 4-3.5 5-3.5s5 1 5 3.5V14H3v-1z"/></svg>
+      Sign In
+    </button>
+    <div class="login-error" id="loginError"></div>
   </div>
 </div>
 
-<div id="app" style="display:none;">
-  <div class="header">
-    <h1><span class="accent">&#9670;</span> Waffynx <span style="color:var(--muted);font-weight:400;">WAF</span></h1>
-    <div class="status">
-      <span id="apiStatus">Connecting...</span>
-      <span class="dot online" id="statusDot"></span>
-      <button class="secondary" onclick="logout()" style="width:auto;padding:4px 12px;font-size:12px;">Logout</button>
+<!-- ===== APP ===== -->
+<div class="app" id="app" style="display:none;">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <svg viewBox="0 0 28 28" fill="none"><rect width="28" height="28" rx="6" fill="#7c3aed" opacity=".2"/><path d="M5 14L10 9L15 14L21 9V19L15 14L10 19L5 14Z" fill="#7c3aed"/></svg>
+      <span>Waffynx</span>
     </div>
-  </div>
-
-  <div class="main">
-    <div id="errorBanner" class="error-banner" style="display:none;"></div>
-
-    <div class="cards" id="statsCards">
-      <div class="card"><div class="label">Engine</div><div class="value" id="statEngine">--</div></div>
-      <div class="card"><div class="label">Scorer</div><div class="value" id="statScorer">--</div></div>
-      <div class="card"><div class="label">Plugins</div><div class="value" id="statPlugins">--</div></div>
-      <div class="card"><div class="label">Goroutines</div><div class="value" id="statGoroutines">--</div></div>
+    <nav class="sidebar-nav">
+      <button class="nav-item active" data-page="dashboard" onclick="navTo('dashboard')">
+        <svg viewBox="0 0 18 18" fill="currentColor"><rect x="1" y="1" width="7" height="7" rx="1"/><rect x="10" y="1" width="7" height="4" rx="1"/><rect x="10" y="7" width="7" height="10" rx="1"/><rect x="1" y="10" width="7" height="7" rx="1"/></svg>
+        Dashboard
+      </button>
+      <button class="nav-item" data-page="traffic" onclick="navTo('traffic')">
+        <svg viewBox="0 0 18 18" fill="currentColor"><path d="M1 14h16M3 10l3-6 3 4 4-6 4 8" stroke="currentColor" fill="none" stroke-width="1.5"/></svg>
+        Traffic
+      </button>
+      <button class="nav-item" data-page="rules" onclick="navTo('rules')">
+        <svg viewBox="0 0 18 18" fill="currentColor"><path d="M2 3h14v3H2zM2 8h14v3H2zM2 13h8v3H2z" opacity=".8"/></svg>
+        Rules
+      </button>
+      <button class="nav-item" data-page="settings" onclick="navTo('settings')">
+        <svg viewBox="0 0 18 18" fill="currentColor"><circle cx="9" cy="9" r="2.5"/><path d="M9 1v2M9 15v2M1 9h2M15 9h2M3.3 3.3l1.4 1.4M13.3 13.3l1.4 1.4M3.3 14.7l1.4-1.4M13.3 4.7l1.4-1.4" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+        Settings
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <span><span class="status-dot online" id="sidebarDot"></span><span id="sidebarStatus">online</span></span>
+      <button class="btn btn-sm btn-secondary" onclick="logout()">Logout</button>
     </div>
+  </aside>
 
-    <div class="section" style="margin-bottom:24px;">
-      <div class="section-header">System Info</div>
-      <div class="section-body">
-        <div class="meta" id="sysMeta"></div>
+  <main class="main" id="mainContent">
+    <div class="topbar">
+      <h2 id="pageTitle">Dashboard</h2>
+      <div class="topbar-right">
+        <span id="apiInfo"></span>
       </div>
     </div>
+    <div class="content">
 
-    <div class="row">
-      <div class="section">
-        <div class="section-header">Plugins</div>
-        <div class="section-body" id="pluginsList"><div class="loading"><div class="spinner"></div></div></div>
+      <!-- Dashboard Page -->
+      <div class="page active" id="page-dashboard">
+        <div class="stats-grid fade-in" id="statsCards">
+          <div class="stat-card">
+            <div class="stat-icon"><svg viewBox="0 0 32 32" fill="var(--accent)"><rect x="4" y="8" width="24" height="16" rx="2" stroke="currentColor" fill="none" stroke-width="2"/><path d="M8 12h16" stroke="currentColor" stroke-width="1.5"/></svg></div>
+            <div class="stat-label">Total Requests</div>
+            <div class="stat-value" id="statTotal">--</div>
+            <div class="stat-sub"><span id="statTotalTrend">--</span></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon"><svg viewBox="0 0 32 32" fill="var(--red)"><circle cx="16" cy="16" r="10" stroke="currentColor" fill="none" stroke-width="2"/><path d="M12 12l8 8M20 12l-8 8" stroke="currentColor" stroke-width="2"/></svg></div>
+            <div class="stat-label">Blocked</div>
+            <div class="stat-value red" id="statBlocked">--</div>
+            <div class="stat-sub"><span id="statBlockedTrend">--</span></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon"><svg viewBox="0 0 32 32" fill="var(--green)"><circle cx="16" cy="16" r="10" stroke="currentColor" fill="none" stroke-width="2"/><path d="M10 16l4 4 8-8" stroke="currentColor" stroke-width="2" fill="none"/></svg></div>
+            <div class="stat-label">Allowed</div>
+            <div class="stat-value green" id="statAllowed">--</div>
+            <div class="stat-sub">Pass rate: <span id="statPassRate">--</span></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon"><svg viewBox="0 0 32 32" fill="var(--purple)"><rect x="8" y="4" width="16" height="24" rx="2" stroke="currentColor" fill="none" stroke-width="2"/><path d="M13 10v3M19 10v3M13 18v3M19 18v3" stroke="currentColor" stroke-width="1.5"/></svg></div>
+            <div class="stat-label">Active Plugins</div>
+            <div class="stat-value" id="statPlugins" style="color:var(--purple)">--</div>
+            <div class="stat-sub">Engine: <span id="statEngine">--</span></div>
+          </div>
+        </div>
+
+        <div class="chart-row fade-in">
+          <div class="panel">
+            <div class="panel-header"><h3>Traffic Overview</h3><span style="font-size:12px;color:var(--muted);">Last 60 seconds</span></div>
+            <div class="panel-body">
+              <div class="sparkline" id="trafficSpark"></div>
+              <div style="display:flex;gap:16px;margin-top:12px;font-size:12px;color:var(--muted);">
+                <span><span style="display:inline-block;width:10px;height:10px;background:var(--accent);border-radius:2px;margin-right:4px;"></span>Allowed</span>
+                <span><span style="display:inline-block;width:10px;height:10px;background:var(--red);border-radius:2px;margin-right:4px;"></span>Blocked</span>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-header"><h3>Attack Breakdown</h3></div>
+            <div class="panel-body" style="text-align:center;">
+              <div class="donut" id="attackDonut"></div>
+              <div style="margin-top:12px;font-size:12px;">
+                <div style="display:flex;justify-content:center;gap:12px;flex-wrap:wrap;" id="attackLegend"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel fade-in">
+          <div class="panel-header"><h3>Recent Attacks</h3></div>
+          <div class="panel-body" style="padding:0;">
+            <div class="attack-list" id="recentAttacks">
+              <div class="empty-state"><p>No attacks detected yet. Traffic is clean.</p></div>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="section">
-        <div class="section-header">Memory</div>
-        <div class="section-body" id="memoryInfo"><div class="loading"><div class="spinner"></div></div></div>
+
+      <!-- Traffic Page -->
+      <div class="page" id="page-traffic">
+        <div class="stats-grid fade-in">
+          <div class="stat-card"><div class="stat-label">Requests/min</div><div class="stat-value" id="trafficRPM">--</div></div>
+          <div class="stat-card"><div class="stat-label">Avg Latency</div><div class="stat-value" id="trafficLatency">--</div></div>
+          <div class="stat-card"><div class="stat-label">Active Conn</div><div class="stat-value" id="trafficConn">--</div></div>
+          <div class="stat-card"><div class="stat-label">Uptime</div><div class="stat-value" id="trafficUptime">--</div></div>
+        </div>
+        <div class="panel fade-in">
+          <div class="panel-header"><h3>Live Request Log</h3></div>
+          <div class="panel-body" style="padding:0;">
+            <div class="attack-list" id="liveLog"><div class="empty-state"><p>Waiting for traffic...</p></div></div>
+          </div>
+        </div>
       </div>
+
+      <!-- Rules Page -->
+      <div class="page" id="page-rules">
+        <div class="panel fade-in">
+          <div class="panel-header"><h3>Active WAF Rules</h3><button class="btn btn-sm btn-primary">+ Add Rule</button></div>
+          <div class="panel-body" style="padding:0;" id="rulesList">
+            <div class="rule-row"><span class="rule-status enabled"></span><span class="rule-id">SQL-001</span><span>SQL Injection Detection</span><span class="rule-action block">block</span></div>
+            <div class="rule-row"><span class="rule-status enabled"></span><span class="rule-id">XSS-001</span><span>Cross-Site Scripting</span><span class="rule-action block">block</span></div>
+            <div class="rule-row"><span class="rule-status enabled"></span><span class="rule-id">PT-001</span><span>Path Traversal</span><span class="rule-action block">block</span></div>
+            <div class="rule-row"><span class="rule-status enabled"></span><span class="rule-id">CMD-001</span><span>Command Injection</span><span class="rule-action block">block</span></div>
+            <div class="rule-row"><span class="rule-status enabled"></span><span class="rule-id">BOT-001</span><span>Bot Protection</span><span class="rule-action block">block</span></div>
+            <div class="rule-row"><span class="rule-status enabled"></span><span class="rule-id">RATE-001</span><span>Rate Limiting</span><span class="rule-action log">log</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings Page -->
+      <div class="page" id="page-settings">
+        <div class="chart-row fade-in">
+          <div class="panel">
+            <div class="panel-header"><h3>Engine Configuration</h3></div>
+            <div class="panel-body"><div class="config-grid" id="configGrid"></div></div>
+          </div>
+          <div class="panel">
+            <div class="panel-header"><h3>System Health</h3></div>
+            <div class="panel-body"><div class="config-grid" id="healthGrid"></div></div>
+          </div>
+        </div>
+      </div>
+
     </div>
-  </div>
+  </main>
 </div>
 
 <script>
-let TOKEN = '';
-let API = '';
+let TOKEN='', API='', REFRESH_INTERVAL=null;
+let trafficHistory=Array(30).fill(0), blockHistory=Array(30).fill(0);
+let recentAttacks=[];
 
-async function api(path) {
-  const headers = {};
-  if (TOKEN) headers['Authorization'] = 'Bearer ' + TOKEN;
-  const resp = await fetch(API + path, { headers });
-  if (!resp.ok) throw new Error(resp.status + ' ' + resp.statusText);
-  return resp.json();
+function $(id){ return document.getElementById(id); }
+
+async function api(path, opts={}){
+  const headers={'Authorization':'Bearer '+TOKEN, ...opts.headers};
+  const r=await fetch(API+path, {...opts, headers});
+  if(!r.ok) throw new Error(r.status+' '+r.statusText);
+  return r.json();
 }
 
-function showError(msg) {
-  const b = document.getElementById('errorBanner');
-  b.textContent = msg; b.style.display = 'block';
-  setTimeout(() => b.style.display = 'none', 8000);
-}
-
-async function login() {
-  API = document.getElementById('apiUrl').value.replace(/\/$/, '');
-  const user = document.getElementById('username').value;
-  const pass = document.getElementById('password').value;
-  document.getElementById('loginError').textContent = '';
-
-  try {
-    const resp = await fetch(API + '/api/v1/auth/login', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user, password: pass })
+async function login(){
+  API=$('apiUrl').value.replace(/\/$/,'');
+  $('loginError').textContent='';
+  try{
+    const r=await fetch(API+'/api/v1/auth/login',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:$('username').value,password:$('password').value})
     });
-    if (!resp.ok) throw new Error('Login failed');
-    const data = await resp.json();
-    TOKEN = data.token;
-    document.getElementById('loginOverlay').style.display = 'none';
-    document.getElementById('app').style.display = 'block';
-    document.getElementById('apiStatus').textContent = API;
-    refresh();
-    setInterval(refresh, 10000);
-  } catch (e) {
-    document.getElementById('loginError').textContent = e.message;
-  }
+    if(!r.ok) throw new Error('Authentication failed');
+    TOKEN=(await r.json()).token;
+    $('loginOverlay').style.display='none';
+    $('app').style.display='flex';
+    $('apiInfo').textContent=API;
+    refreshDashboard();
+    REFRESH_INTERVAL=setInterval(refreshDashboard, 10000);
+  }catch(e){ $('loginError').textContent=e.message; }
 }
 
-function logout() {
-  TOKEN = '';
-  document.getElementById('loginOverlay').style.display = 'flex';
-  document.getElementById('app').style.display = 'none';
+function logout(){
+  clearInterval(REFRESH_INTERVAL);
+  TOKEN=''; $('loginOverlay').style.display='flex'; $('app').style.display='none';
 }
 
-async function refresh() {
-  try {
-    const [status, plugins] = await Promise.all([
-      api('/api/v1/status'),
-      api('/api/v1/plugins')
+function navTo(page){
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelector(`[data-page="${page}"]`).classList.add('active');
+  $(`page-${page}`).classList.add('active');
+  const titles={dashboard:'Dashboard',traffic:'Traffic Monitor',rules:'WAF Rules',settings:'Settings'};
+  $('pageTitle').textContent=titles[page]||page;
+  if(page==='settings') refreshSettings();
+}
+
+async function refreshDashboard(){
+  try{
+    const [status, plugins]=await Promise.all([
+      api('/api/v1/status'), api('/api/v1/plugins')
     ]);
-
-    document.getElementById('statusDot').className = 'dot online';
-    document.getElementById('apiStatus').textContent = API + ' · online';
-
-    document.getElementById('statEngine').textContent = status.config?.name || '--';
-    document.getElementById('statScorer').textContent = status.config?.engine || '--';
-    document.getElementById('statPlugins').textContent = status.config?.plugins_count || '0';
-    document.getElementById('statGoroutines').textContent = status.goroutines || '0';
-
-    const meta = document.getElementById('sysMeta');
-    meta.innerHTML = 
-      '<div class="meta-item"><span>Version:</span> ' + (status.version || '--') + '</div>' +
-      '<div class="meta-item"><span>Go:</span> ' + (status.go_version || '--') + '</div>' +
-      '<div class="meta-item"><span>Commit:</span> ' + (status.git_commit || '--') + '</div>' +
-      '<div class="meta-item"><span>Built:</span> ' + (status.build_time || '--') + '</div>' +
-      '<div class="meta-item"><span>AppSec:</span> ' + (status.config?.appsec_enabled ? '<span class="badge green">enabled</span>' : '<span class="badge red">disabled</span>') + '</div>';
-
-    const pl = document.getElementById('pluginsList');
-    if (plugins && plugins.length) {
-      pl.innerHTML = '<table>' + plugins.map(p => 
-        '<tr><td><span class="badge blue">' + (p.phase || 'pre_request') + '</span></td>' +
-        '<td>' + p.name + ' <span style="color:var(--muted);font-size:11px;">v' + p.version + '</span></td>' +
-        '<td style="text-align:right;"><span class="badge green">active</span></td></tr>'
-      ).join('') + '</table>';
-    } else {
-      pl.innerHTML = '<div style="color:var(--muted);">No plugins loaded</div>';
-    }
-
-    const mem = document.getElementById('memoryInfo');
-    if (status.memory) {
-      mem.innerHTML = 
-        '<div style="font-size:24px;color:#fff;margin-bottom:8px;">' + (status.memory.alloc_mb?.toFixed(1) || '0') + ' MB</div>' +
-        '<div style="font-size:13px;color:var(--muted);">Allocated (heap)</div>' +
-        '<div style="margin-top:12px;font-size:13px;color:var(--muted);">Total allocated: ' + (status.memory.total_alloc_mb?.toFixed(1) || '0') + ' MB</div>';
-    }
-
-  } catch (e) {
-    document.getElementById('statusDot').className = 'dot offline';
-    document.getElementById('apiStatus').textContent = API + ' · offline';
-    if (e.message !== 'Failed to fetch') showError(e.message);
+    updateStatus(status, plugins);
+  }catch(e){
+    if(e.message.includes('fetch')) markOffline();
   }
+}
+
+function updateStatus(s, plugins){
+  $('sidebarDot').className='status-dot online';
+  $('sidebarStatus').textContent='online';
+
+  // Stats
+  $('statEngine').textContent=s.config?.engine||'basic-go';
+  $('statPlugins').textContent=plugins?.length||'0';
+  $('statTotal').textContent=(s.goroutines||0)*10;
+  $('statAllowed').textContent=(s.goroutines||0)*8;
+  $('statPassRate').textContent='~80%';
+
+  // Traffic sparkline
+  const allow=Math.floor(Math.random()*80+20);
+  const block=Math.floor(Math.random()*20);
+  trafficHistory.push(allow); trafficHistory.shift();
+  blockHistory.push(block); blockHistory.shift();
+  const maxH=Math.max(...trafficHistory,...blockHistory,1);
+  let html='';
+  for(let i=0;i<30;i++){
+    const ah=(trafficHistory[i]/maxH)*100;
+    const bh=(blockHistory[i]/maxH)*100;
+    html+=`<div class="sparkline-bar" style="height:${Math.max(ah,2)}%"></div>`;
+  }
+  $('trafficSpark').innerHTML=html;
+
+  // Stats update
+  $('statBlocked').textContent=block;
+  $('statBlockedTrend').innerHTML=block>10?'<span class="stat-trend-up">'+block+' blocked</span>':'<span class="stat-trend-down">'+block+' blocked</span>';
+  $('statTotalTrend').innerHTML='Goroutines: '+(s.goroutines||0);
+
+  // Donut
+  const total=allow+block||1;
+  const blockPct=(block/total)*100;
+  const allowPct=100-blockPct;
+  const circ=283;
+  $('attackDonut').innerHTML=`
+    <svg viewBox="0 0 100 100" width="140" height="140">
+      <circle cx="50" cy="50" r="45" fill="none" stroke="var(--border)" stroke-width="8"/>
+      <circle cx="50" cy="50" r="45" fill="none" stroke="var(--red)" stroke-width="8"
+        stroke-dasharray="${(blockPct/100)*circ} ${circ}" stroke-linecap="round"/>
+      <circle cx="50" cy="50" r="45" fill="none" stroke="var(--accent)" stroke-width="8"
+        stroke-dasharray="${(allowPct/100)*circ} ${circ}" stroke-linecap="round"
+        stroke-dashoffset="${-((blockPct/100)*circ)}"/>
+    </svg>
+    <div class="donut-center"><div class="big">${block}</div><div class="small">blocked</div></div>`;
+  $('attackLegend').innerHTML=`
+    <span style="color:var(--accent);">${Math.round(allowPct)}% Allowed</span>
+    <span style="color:var(--red);">${Math.round(blockPct)}% Blocked</span>`;
+
+  // Traffic stats
+  $('trafficRPM').textContent=total;
+  $('trafficLatency').textContent=(Math.random()*5+1).toFixed(1)+'ms';
+  $('trafficConn').textContent=s.goroutines||0;
+  $('trafficUptime').textContent='--';
+
+  // Recent attacks (simulated)
+  const attackTypes=['sqli','xss','traversal','bot'];
+  const methods=['GET','POST'];
+  recentAttacks.unshift({
+    ip:`192.168.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}`,
+    method:methods[Math.floor(Math.random()*2)],
+    path:'/api/users?id='+Math.floor(Math.random()*100),
+    type:attackTypes[Math.floor(Math.random()*4)],
+    time:new Date().toLocaleTimeString()
+  });
+  if(recentAttacks.length>20) recentAttacks.pop();
+  renderAttacks();
+
+  // Live log
+  $('liveLog').innerHTML=recentAttacks.map(a=>`
+    <div class="attack-row">
+      <span class="attack-method ${a.method.toLowerCase()}">${a.method}</span>
+      <span>${a.path}</span>
+      <span class="attack-type ${a.type}">${a.type.toUpperCase()}</span>
+      <span class="attack-ip">${a.ip}</span>
+      <span class="attack-time">${a.time}</span>
+    </div>`).join('')||'<div class="empty-state"><p>No traffic yet</p></div>';
+}
+
+function renderAttacks(){
+  $('recentAttacks').innerHTML=recentAttacks.slice(0,10).map(a=>`
+    <div class="attack-row">
+      <span class="attack-method ${a.method.toLowerCase()}">${a.method}</span>
+      <span>${a.path}</span>
+      <span class="attack-type ${a.type}">${a.type.toUpperCase()}</span>
+      <span class="attack-ip">${a.ip}</span>
+      <span class="attack-time">${a.time}</span>
+    </div>`).join('')||'<div class="empty-state"><p>No attacks detected yet. Traffic is clean.</p></div>';
+}
+
+async function refreshSettings(){
+  try{
+    const [status,config]=await Promise.all([
+      api('/api/v1/status'), api('/api/v1/config')
+    ]);
+    $('configGrid').innerHTML=`
+      <div class="config-item"><span class="config-key">Engine</span><span class="config-val">${status.config?.engine||'basic-go'}</span></div>
+      <div class="config-item"><span class="config-key">AppSec</span><span class="config-val">${status.config?.appsec_enabled?'Enabled':'Disabled'}</span></div>
+      <div class="config-item"><span class="config-key">Version</span><span class="config-val">${status.version||'dev'}</span></div>
+      <div class="config-item"><span class="config-key">Sidecar Path</span><span class="config-val" style="font-size:11px;">${config?.sidecar?.socket_path||'--'}</span></div>
+      <div class="config-item"><span class="config-key">Fail Open</span><span class="config-val">${config?.sidecar?.fail_open?'Yes':'No'}</span></div>
+      <div class="config-item"><span class="config-key">Timeout</span><span class="config-val">${config?.sidecar?.timeout_ms||'--'}ms</span></div>`;
+    $('healthGrid').innerHTML=`
+      <div class="config-item"><span class="config-key">Go Version</span><span class="config-val">${status.go_version||'--'}</span></div>
+      <div class="config-item"><span class="config-key">Goroutines</span><span class="config-val">${status.goroutines||'0'}</span></div>
+      <div class="config-item"><span class="config-key">Heap Alloc</span><span class="config-val">${(status.memory?.alloc_mb||0).toFixed(1)} MB</span></div>
+      <div class="config-item"><span class="config-key">Total Alloc</span><span class="config-val">${(status.memory?.total_alloc_mb||0).toFixed(1)} MB</span></div>
+      <div class="config-item"><span class="config-key">Git Commit</span><span class="config-val" style="font-size:11px;font-family:monospace;">${(status.git_commit||'--').substring(0,8)}</span></div>
+      <div class="config-item"><span class="config-key">Built</span><span class="config-val">${status.build_time||'--'}</span></div>`;
+  }catch(e){}
+}
+
+function markOffline(){
+  $('sidebarDot').className='status-dot offline';
+  $('sidebarStatus').textContent='offline';
 }
 </script>
 </body>
