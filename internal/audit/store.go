@@ -115,7 +115,7 @@ func (s *Store) Stats() map[string]interface{} {
 	actions := make(map[string]int)
 
 	for _, e := range s.events {
-		if e.Result == "allow" || e.Result == "allowed" {
+		if e.Result == "allowed" {
 			allowed++
 		} else {
 			blocked++
