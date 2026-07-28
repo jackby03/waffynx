@@ -2,8 +2,20 @@
 
 ## Dev environment
 
-**Linux is the only supported runtime.** `engine_windows.go` is a stub that errors. On Windows, use Vagrant:
+**Linux is the only supported runtime.** `engine_windows.go` is a stub that errors. On Windows, use WSL (Windows Subsystem for Linux) or Vagrant:
 
+### WSL (Windows Subsystem for Linux)
+Since WSL provides a native Linux environment, you can run normal Linux build and test commands directly within your WSL shell (e.g., Ubuntu):
+```bash
+# Build Go binaries
+make build
+
+# Run Go tests
+go test ./...
+```
+
+### Vagrant
+Alternatively, you can run a full VirtualBox VM via Vagrant:
 ```bash
 # Full test cycle: destroy old VM, create fresh, provision, run tests
 make vagrant-full-test
