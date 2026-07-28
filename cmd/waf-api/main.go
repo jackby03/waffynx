@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"embed"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -27,9 +25,6 @@ import (
 	"github.com/jackby03/waffynx/internal/plugin"
 	"github.com/jackby03/waffynx/internal/version"
 )
-
-//go:embed ui/*
-var uiFiles embed.FS
 
 func main() {
 	var cfgFile string
@@ -108,12 +103,7 @@ func runAPI(cfg *config.Config) error {
 	mux.HandleFunc("GET /debug/pprof/symbol", pprof.Symbol)
 	mux.HandleFunc("GET /debug/pprof/trace", pprof.Trace)
 
-	uiFS, _ := fs.Sub(uiFiles, "ui")
-	uiHandler := http.FileServer(http.FS(uiFS))
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		uiHandler.ServeHTTP(w, r)
-	})
+	mux.HandleFunc("GET /", srv.handleRoot)
 
 	server := &http.Server{
 		Addr:         cfg.API.Listen,
@@ -311,6 +301,15 @@ func (s *apiServer) writeError(w http.ResponseWriter, r *http.Request, status in
 	s.writeJSON(w, r, status, map[string]interface{}{
 		"error":   http.StatusText(status),
 		"message": message,
+	})
+}
+
+func (s *apiServer) handleRoot(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	s.writeJSON(w, r, http.StatusOK, map[string]interface{}{
+		"service":   "waf-api",
+		"version":   version.Version,
+		"endpoints": []string{"/health", "/metrics", "/api/v1/status", "/api/v1/config", "/api/v1/plugins", "/api/v1/audit", "/api/v1/events", "/debug/pprof/"},
 	})
 }
 
