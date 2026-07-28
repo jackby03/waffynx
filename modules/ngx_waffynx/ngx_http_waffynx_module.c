@@ -49,6 +49,7 @@ typedef struct {
     ngx_http_waffynx_loc_conf_t  *wlcf;
     u_char                       *request_buf;
     size_t                        header_len;
+    ngx_uint_t                    evaluated;  /* 1 = already done */
 } ngx_http_waffynx_ctx_t;
 
 /* ------------------------------------------------------------------ */
@@ -204,9 +205,9 @@ ngx_http_waffynx_parse_status(u_char *data, ssize_t len, ngx_uint_t *status)
 }
 
 /* ------------------------------------------------------------------ */
-/*  Send request to sidecar, read response, enforce verdict            */
+/*  Send request to sidecar, read response, return verdict             */
 /* ------------------------------------------------------------------ */
-static void
+static ngx_int_t
 ngx_http_waffynx_send_and_enforce(ngx_http_request_t *r,
     ngx_http_waffynx_loc_conf_t *wlcf,
     u_char *request_buf, ssize_t req_len)
@@ -221,12 +222,7 @@ ngx_http_waffynx_send_and_enforce(ngx_http_request_t *r,
         ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
                       "waffynx: cannot connect to sidecar at %V (errno=%d)",
                       &wlcf->socket_path, errno);
-        if (wlcf->fail_open) {
-            ngx_http_finalize_request(r, NGX_OK);
-        } else {
-            ngx_http_finalize_request(r, NGX_HTTP_FORBIDDEN);
-        }
-        return;
+        return wlcf->fail_open ? NGX_OK : NGX_HTTP_FORBIDDEN;
     }
 
     /* Send */
@@ -234,12 +230,7 @@ ngx_http_waffynx_send_and_enforce(ngx_http_request_t *r,
         ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
                       "waffynx: send() failed (errno=%d)", errno);
         (void) close(fd);
-        if (wlcf->fail_open) {
-            ngx_http_finalize_request(r, NGX_OK);
-        } else {
-            ngx_http_finalize_request(r, NGX_HTTP_FORBIDDEN);
-        }
-        return;
+        return wlcf->fail_open ? NGX_OK : NGX_HTTP_FORBIDDEN;
     }
 
     /* Signal EOF so sidecar knows we are done sending */
@@ -270,38 +261,50 @@ ngx_http_waffynx_send_and_enforce(ngx_http_request_t *r,
     if (resp_len <= 0) {
         ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
                       "waffynx: recv() failed (errno=%d)", errno);
-        if (wlcf->fail_open) {
-            ngx_http_finalize_request(r, NGX_OK);
-        } else {
-            ngx_http_finalize_request(r, NGX_HTTP_FORBIDDEN);
-        }
-        return;
+        return wlcf->fail_open ? NGX_OK : NGX_HTTP_FORBIDDEN;
     }
     response_buf[resp_len] = '\0';
+    ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                  "waffynx: sidecar response: \"%s\"", response_buf);
 
     /* Parse the HTTP status code */
     if (ngx_http_waffynx_parse_status(response_buf, resp_len,
                                        &status) != NGX_OK) {
         ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
                       "waffynx: could not parse sidecar response");
-        if (wlcf->fail_open) {
-            ngx_http_finalize_request(r, NGX_OK);
-        } else {
-            ngx_http_finalize_request(r, NGX_HTTP_FORBIDDEN);
-        }
-        return;
+        return wlcf->fail_open ? NGX_OK : NGX_HTTP_FORBIDDEN;
     }
 
     /* Enforce verdict */
     if (status == 204) {
         ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                        "waffynx: allowed request to %V", &r->uri);
-        ngx_http_finalize_request(r, NGX_OK);
+        return NGX_OK;
+    }
+
+    ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                  "waffynx: blocked request to %V (status=%ui)",
+                  &r->uri, status);
+    return NGX_HTTP_FORBIDDEN;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Send + enforce from a body handler callback (must finalize)        */
+/* ------------------------------------------------------------------ */
+static void
+ngx_http_waffynx_send_and_finalize(ngx_http_request_t *r,
+    ngx_http_waffynx_loc_conf_t *wlcf,
+    u_char *request_buf, ssize_t req_len)
+{
+    ngx_int_t  rc;
+
+    rc = ngx_http_waffynx_send_and_enforce(r, wlcf, request_buf, req_len);
+
+    if (rc == NGX_OK) {
+        r->phase_handler++;
+        ngx_http_core_run_phases(r);
     } else {
-        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
-                      "waffynx: blocked request to %V (status=%ui)",
-                      &r->uri, status);
-        ngx_http_finalize_request(r, NGX_HTTP_FORBIDDEN);
+        ngx_http_finalize_request(r, rc);
     }
 }
 
@@ -362,7 +365,8 @@ ngx_http_waffynx_body_handler(ngx_http_request_t *r)
         }
     }
 
-    ngx_http_waffynx_send_and_enforce(r, ctx->wlcf, buf, total);
+    ctx->evaluated = 1;
+    ngx_http_waffynx_send_and_finalize(r, ctx->wlcf, buf, total);
 }
 
 /* ------------------------------------------------------------------ */
@@ -384,6 +388,12 @@ ngx_http_waffynx_access_handler(ngx_http_request_t *r)
         return NGX_DECLINED; /* module disabled, pass through */
     }
 
+    /* Already evaluated via body handler callback — skip re-processing */
+    ctx = ngx_http_get_module_ctx(r, ngx_http_waffynx_module);
+    if (ctx != NULL && ctx->evaluated) {
+        return NGX_DECLINED;
+    }
+
     /* ---- 2. Build the HTTP headers ---- */
     buf_size = 8192 + wlcf->max_body_size;
     buf = ngx_pcalloc(r->pool, buf_size);
@@ -399,6 +409,10 @@ ngx_http_waffynx_access_handler(ngx_http_request_t *r)
                       "waffynx: request buffer overflow");
         return wlcf->fail_open ? NGX_OK : NGX_HTTP_FORBIDDEN;
     }
+
+    ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                  "waffynx: cl=%O, method=%V, uri=%V",
+                  r->headers_in.content_length_n, &r->method_name, &r->uri);
 
     /* ---- 3. Read body if present, then evaluate ---- */
     if (r->headers_in.content_length_n > 0) {
@@ -423,8 +437,10 @@ ngx_http_waffynx_access_handler(ngx_http_request_t *r)
     }
 
     /* No body: send immediately */
-    ngx_http_waffynx_send_and_enforce(r, wlcf, buf, header_len);
-    return NGX_OK;
+    rc = ngx_http_waffynx_send_and_enforce(r, wlcf, buf, header_len);
+    ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                  "waffynx: access handler returning %i for %V", rc, &r->uri);
+    return rc;
 }
 
 /* ------------------------------------------------------------------ */
