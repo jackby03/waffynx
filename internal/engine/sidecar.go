@@ -145,7 +145,9 @@ func (s *Sidecar) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 	ctx, err = s.chain.Execute(ctx, plugin.PhasePreRequest)
 	if err != nil {
 		logging.Warn().Err(err).Msg("plugin chain blocked request")
-		s.respondDeny(w, "plugin-chain", err.Error())
+		if ctx.StatusCode == 0 {
+			s.respondDeny(w, "plugin-chain", err.Error())
+		}
 		return
 	}
 

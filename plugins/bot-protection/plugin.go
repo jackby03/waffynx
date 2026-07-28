@@ -68,7 +68,13 @@ func (p *BotProtectionPlugin) Execute(ctx *plugin.Context) (*plugin.Context, err
 		return ctx, nil
 	}
 
-	ua := ctx.Request.Header.Get("User-Agent")
+	ua := ""
+	if v, ok := ctx.Values["wn_ua"].(string); ok {
+		ua = v
+	}
+	if ua == "" {
+		ua = ctx.Request.Header.Get("User-Agent")
+	}
 	for _, bot := range p.knownBots {
 		if strings.Contains(strings.ToLower(ua), strings.ToLower(bot)) {
 			if p.mode == "block" {
