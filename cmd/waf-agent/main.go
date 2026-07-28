@@ -1,18 +1,23 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/jackby03/waffynx/internal/config"
+	"github.com/jackby03/waffynx/internal/events"
 	"github.com/jackby03/waffynx/internal/firewall"
 	"github.com/jackby03/waffynx/internal/logging"
 )
@@ -42,8 +47,64 @@ func main() {
 }
 
 type agentServer struct {
-	cfg *config.AgentConfig
-	mgr *firewall.Manager
+	cfg     *config.AgentConfig
+	mgr     *firewall.Manager
+	tracker *eventTracker
+}
+
+type eventTracker struct {
+	mu        sync.Mutex
+	counts    map[string][]time.Time
+	threshold int
+	window    time.Duration
+}
+
+func newEventTracker(threshold int, windowSec int) *eventTracker {
+	return &eventTracker{
+		counts:    make(map[string][]time.Time),
+		threshold: threshold,
+		window:    time.Duration(windowSec) * time.Second,
+	}
+}
+
+func (t *eventTracker) record(ip string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	now := time.Now()
+	cutoff := now.Add(-t.window)
+
+	events := t.counts[ip]
+	valid := events[:0]
+	for _, ts := range events {
+		if ts.After(cutoff) {
+			valid = append(valid, ts)
+		}
+	}
+	valid = append(valid, now)
+	t.counts[ip] = valid
+
+	return len(valid) >= t.threshold
+}
+
+func (t *eventTracker) cleanup() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	cutoff := time.Now().Add(-t.window)
+	for ip, events := range t.counts {
+		valid := events[:0]
+		for _, ts := range events {
+			if ts.After(cutoff) {
+				valid = append(valid, ts)
+			}
+		}
+		if len(valid) == 0 {
+			delete(t.counts, ip)
+		} else {
+			t.counts[ip] = valid
+		}
+	}
 }
 
 func runAgent(cfg *config.AgentConfig) error {
@@ -58,7 +119,8 @@ func runAgent(cfg *config.AgentConfig) error {
 		return fmt.Errorf("starting firewall manager: %w", err)
 	}
 
-	srv := &agentServer{cfg: cfg, mgr: mgr}
+	tracker := newEventTracker(cfg.EventBroker.BlockThreshold, cfg.EventBroker.WindowSeconds)
+	srv := &agentServer{cfg: cfg, mgr: mgr, tracker: tracker}
 
 	if cfg.APIKey == "change-me-in-production" {
 		logging.Warn().Msg("agent API key is set to default value, change it in production")
@@ -84,6 +146,27 @@ func runAgent(cfg *config.AgentConfig) error {
 		}
 	}()
 
+	var brokerCtx context.Context
+	var brokerCancel context.CancelFunc
+	if cfg.EventBroker.Enabled {
+		brokerCtx, brokerCancel = context.WithCancel(context.Background())
+		defer brokerCancel()
+		go srv.connectEventBroker(brokerCtx)
+
+		go func() {
+			ticker := time.NewTicker(time.Duration(cfg.EventBroker.WindowSeconds) * time.Second / 2)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-brokerCtx.Done():
+					return
+				case <-ticker.C:
+					tracker.cleanup()
+				}
+			}
+		}()
+	}
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
@@ -96,6 +179,98 @@ func runAgent(cfg *config.AgentConfig) error {
 	server.Shutdown(ctx)
 
 	return nil
+}
+
+func (s *agentServer) connectEventBroker(ctx context.Context) {
+	url := strings.TrimRight(s.cfg.EventBroker.Address, "/") + "/api/v1/events"
+	logging.Info().Str("url", url).Msg("connecting to event broker")
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			logging.Error().Err(err).Msg("event broker request failed")
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
+			}
+			continue
+		}
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			logging.Error().Err(err).Msg("event broker connection failed, retrying")
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
+			}
+			continue
+		}
+
+		s.readSSEStream(ctx, resp.Body)
+		resp.Body.Close()
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
+	}
+}
+
+func (s *agentServer) readSSEStream(ctx context.Context, body io.ReadCloser) {
+	defer body.Close()
+	reader := bufio.NewReader(body)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err != io.EOF {
+				logging.Error().Err(err).Msg("event broker stream error")
+			}
+			return
+		}
+
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+
+		payload := strings.TrimPrefix(line, "data: ")
+		var evt events.WafEvent
+		if err := json.Unmarshal([]byte(payload), &evt); err != nil {
+			continue
+		}
+
+		if evt.Type != events.TypeBlocked {
+			continue
+		}
+
+		ip := evt.RemoteIP
+		if ip == "" {
+			continue
+		}
+
+		if s.tracker.record(ip) {
+			logging.Warn().Str("ip", ip).Msg("attack threshold exceeded, auto-blocking")
+			if err := s.mgr.BlockIP(ip); err != nil {
+				logging.Error().Err(err).Str("ip", ip).Msg("auto-block failed")
+			}
+		}
+	}
 }
 
 func (s *agentServer) authMiddleware(next http.HandlerFunc) http.HandlerFunc {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/jackby03/waffynx/internal/config"
 	"github.com/jackby03/waffynx/internal/firewall"
@@ -176,5 +177,49 @@ func TestAuthMiddleware_WrongKey(t *testing.T) {
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d", rec.Code)
+	}
+}
+
+func TestEventTracker_BelowThreshold(t *testing.T) {
+	tracker := newEventTracker(3, 60)
+	for i := 0; i < 2; i++ {
+		if tracker.record("10.0.0.1") {
+			t.Errorf("expected below threshold at record %d", i+1)
+		}
+	}
+}
+
+func TestEventTracker_ExceedThreshold(t *testing.T) {
+	tracker := newEventTracker(3, 60)
+	for i := 0; i < 2; i++ {
+		tracker.record("10.0.0.1")
+	}
+	if !tracker.record("10.0.0.1") {
+		t.Error("expected threshold exceeded on 3rd event")
+	}
+}
+
+func TestEventTracker_SeparateIPs(t *testing.T) {
+	tracker := newEventTracker(3, 60)
+	tracker.record("10.0.0.1")
+	tracker.record("10.0.0.1")
+	tracker.record("10.0.0.1")
+
+	tracker.record("10.0.0.2")
+	if tracker.record("10.0.0.2") {
+		t.Error("expected IP B to still be below threshold at 2 events with threshold 3")
+	}
+}
+
+func TestEventTracker_Cleanup(t *testing.T) {
+	tracker := newEventTracker(3, 1)
+	tracker.record("10.0.0.1")
+	tracker.record("10.0.0.1")
+	time.Sleep(1100 * time.Millisecond)
+	tracker.cleanup()
+
+	tracker.record("10.0.0.1")
+	if tracker.record("10.0.0.1") {
+		t.Error("expected below threshold after old events cleaned up (only 2 new events with threshold 3)")
 	}
 }

@@ -1,6 +1,11 @@
 name: "waf-agent"
 listen: ":9099"
 api_key: "change-me-in-production"
+event_broker:
+  enabled: false
+  address: "http://localhost:9090"
+  block_threshold: 10
+  window_seconds: 60
 firewall:
   enabled: true
   backend: "nftables"
