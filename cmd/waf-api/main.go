@@ -39,7 +39,7 @@ func main() {
 			if err != nil {
 				return fmt.Errorf("loading config: %w", err)
 			}
-			return runAPI(cfg)
+			return runAPI(cfg, cfgFile)
 		},
 	}
 
@@ -52,15 +52,16 @@ func main() {
 }
 
 type apiServer struct {
-	configMu sync.RWMutex
-	cfg      *config.Config
-	authMgr  *auth.Manager
-	oidcMgr  *auth.OIDCManager
-	store    *marketplace.InMemoryStore
-	audit    *audit.Store
+	configMu   sync.RWMutex
+	cfg        *config.Config
+	configPath string
+	authMgr    *auth.Manager
+	oidcMgr    *auth.OIDCManager
+	store      *marketplace.InMemoryStore
+	audit      *audit.Store
 }
 
-func runAPI(cfg *config.Config) error {
+func runAPI(cfg *config.Config, configPath string) error {
 	logging.Info().Str("listen", cfg.API.Listen).Msg("starting management API")
 
 	if cfg.API.Auth.JWTSecret == "" || cfg.API.Auth.JWTSecret == "change-me-in-production" {
@@ -74,11 +75,12 @@ func runAPI(cfg *config.Config) error {
 	}
 
 	srv := &apiServer{
-		cfg:     cfg,
-		authMgr: auth.NewManager(cfg.API.Auth.JWTSecret, cfg.API.Auth.TokenTTL),
-		oidcMgr: auth.NewOIDCManager(),
-		store:   marketplace.NewInMemoryStore(),
-		audit:   auditStore,
+		cfg:        cfg,
+		configPath: configPath,
+		authMgr:    auth.NewManager(cfg.API.Auth.JWTSecret, cfg.API.Auth.TokenTTL),
+		oidcMgr:    auth.NewOIDCManager(),
+		store:      marketplace.NewInMemoryStore(),
+		audit:      auditStore,
 	}
 
 	if len(cfg.API.Auth.OIDC) > 0 {
@@ -133,7 +135,7 @@ func runAPI(cfg *config.Config) error {
 		switch sig {
 		case syscall.SIGHUP:
 			logging.Info().Msg("reloading config")
-			newCfg, err := config.Load(cfg.API.Listen)
+			newCfg, err := config.Load(srv.configPath)
 			if err != nil {
 				logging.Error().Err(err).Msg("reload failed")
 				continue
