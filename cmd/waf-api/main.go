@@ -61,6 +61,10 @@ type apiServer struct {
 func runAPI(cfg *config.Config) error {
 	logging.Info().Str("listen", cfg.API.Listen).Msg("starting management API")
 
+	if cfg.API.Auth.JWTSecret == "" || cfg.API.Auth.JWTSecret == "change-me-in-production" {
+		logging.Warn().Msg("JWT secret is set to default value, change it in production")
+	}
+
 	auditStore, err := audit.NewStore(2000, "/opt/waffynx/logs/audit.jsonl")
 	if err != nil {
 		logging.Warn().Err(err).Msg("audit log file unavailable, using memory-only")
