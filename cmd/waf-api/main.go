@@ -55,6 +55,7 @@ type apiServer struct {
 	configMu sync.RWMutex
 	cfg      *config.Config
 	authMgr  *auth.Manager
+	oidcMgr  *auth.OIDCManager
 	store    *marketplace.InMemoryStore
 }
 
@@ -64,7 +65,14 @@ func runAPI(cfg *config.Config) error {
 	srv := &apiServer{
 		cfg:     cfg,
 		authMgr: auth.NewManager(cfg.API.Auth.JWTSecret, cfg.API.Auth.TokenTTL),
+		oidcMgr: auth.NewOIDCManager(),
 		store:   marketplace.NewInMemoryStore(),
+	}
+
+	if len(cfg.API.Auth.OIDC) > 0 {
+		if err := srv.oidcMgr.Configure(cfg.API.Auth.OIDC); err != nil {
+			logging.Warn().Err(err).Msg("OIDC configuration incomplete")
+		}
 	}
 
 	mux := http.NewServeMux()
@@ -118,6 +126,11 @@ func runAPI(cfg *config.Config) error {
 			srv.configMu.Lock()
 			srv.cfg = newCfg
 			srv.authMgr = auth.NewManager(newCfg.API.Auth.JWTSecret, newCfg.API.Auth.TokenTTL)
+			newOIDC := auth.NewOIDCManager()
+			if len(newCfg.API.Auth.OIDC) > 0 {
+				newOIDC.Configure(newCfg.API.Auth.OIDC)
+			}
+			srv.oidcMgr = newOIDC
 			srv.configMu.Unlock()
 		case syscall.SIGINT, syscall.SIGTERM:
 			logging.Info().Msg("shutting down API server")
@@ -152,12 +165,6 @@ func (s *apiServer) loggingMiddleware(next http.Handler) http.Handler {
 func (s *apiServer) authMiddleware(mux *http.ServeMux) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			cfg := s.readConfig()
-			if cfg.API.Auth.JWTSecret == "" {
-				next(w, r)
-				return
-			}
-
 			header := r.Header.Get("Authorization")
 			if header == "" {
 				s.writeError(w, r, http.StatusUnauthorized, "missing authorization header")
@@ -168,6 +175,22 @@ func (s *apiServer) authMiddleware(mux *http.ServeMux) func(http.HandlerFunc) ht
 			if token == header {
 				s.writeError(w, r, http.StatusUnauthorized, "invalid authorization format")
 				return
+			}
+
+			if s.oidcMgr.Enabled() {
+				username, role, provider, err := s.oidcMgr.ValidateToken(r.Context(), token)
+				if err == nil {
+					claims := &auth.Claims{
+						Username: username,
+						Role:     role,
+						Scopes:   []string{"read", "write"},
+					}
+					ctx := context.WithValue(r.Context(), "claims", claims)
+					logging.Debug().Str("user", username).Str("provider", provider).Msg("OIDC authenticated")
+					next(w, r.WithContext(ctx))
+					return
+				}
+				logging.Debug().Err(err).Msg("OIDC validation failed, trying local JWT")
 			}
 
 			claims, err := s.authMgr.ValidateToken(token)

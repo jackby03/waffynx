@@ -112,8 +112,16 @@ type APIConfig struct {
 }
 
 type AuthConfig struct {
-	JWTSecret string `yaml:"jwt_secret"`
-	TokenTTL  int    `yaml:"token_ttl"`
+	JWTSecret string        `yaml:"jwt_secret"`
+	TokenTTL  int           `yaml:"token_ttl"`
+	OIDC      []OIDCProvider `yaml:"oidc"`
+}
+
+type OIDCProvider struct {
+	Name         string `yaml:"name"`
+	IssuerURL    string `yaml:"issuer_url"`
+	ClientID     string `yaml:"client_id"`
+	ClientSecret string `yaml:"client_secret"`
 }
 
 func Load(path string) (*Config, error) {
