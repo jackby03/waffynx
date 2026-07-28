@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,6 +24,9 @@ import (
 	"github.com/jackby03/waffynx/internal/plugin"
 	"github.com/jackby03/waffynx/internal/version"
 )
+
+//go:embed ui/*
+var uiFiles embed.FS
 
 func main() {
 	var cfgFile string
@@ -65,16 +70,23 @@ func runAPI(cfg *config.Config) error {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", srv.handleHealth)
+	mux.HandleFunc("POST /api/v1/auth/login", srv.handleLogin)
 
 	withAuth := srv.authMiddleware(mux)
-	mux.HandleFunc("GET /api/v1/status", withAuth(srv.handleStatus))
-	mux.HandleFunc("GET /api/v1/config", withAuth(srv.handleGetConfig))
-	mux.HandleFunc("PUT /api/v1/config", withAuth(srv.handleUpdateConfig))
-	mux.HandleFunc("GET /api/v1/metrics", withAuth(srv.handleMetrics))
-	mux.HandleFunc("GET /api/v1/plugins", withAuth(srv.handleListPlugins))
-	mux.HandleFunc("GET /api/v1/plugins/{name}", withAuth(srv.handleGetPlugin))
+	withCORS := srv.corsMiddleware
+	mux.HandleFunc("GET /api/v1/status", withCORS(withAuth(srv.handleStatus)))
+	mux.HandleFunc("GET /api/v1/config", withCORS(withAuth(srv.handleGetConfig)))
+	mux.HandleFunc("PUT /api/v1/config", withCORS(withAuth(srv.handleUpdateConfig)))
+	mux.HandleFunc("GET /api/v1/metrics", withCORS(withAuth(srv.handleMetrics)))
+	mux.HandleFunc("GET /api/v1/plugins", withCORS(withAuth(srv.handleListPlugins)))
+	mux.HandleFunc("GET /api/v1/plugins/{name}", withCORS(withAuth(srv.handleGetPlugin)))
 
-	mux.HandleFunc("POST /api/v1/auth/login", srv.handleLogin)
+	uiFS, _ := fs.Sub(uiFiles, "ui")
+	uiHandler := http.FileServer(http.FS(uiFS))
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		uiHandler.ServeHTTP(w, r)
+	})
 
 	server := &http.Server{
 		Addr:         cfg.API.Listen,
@@ -167,6 +179,19 @@ func (s *apiServer) authMiddleware(mux *http.ServeMux) func(http.HandlerFunc) ht
 			ctx := context.WithValue(r.Context(), "claims", claims)
 			next(w, r.WithContext(ctx))
 		}
+	}
+}
+
+func (s *apiServer) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next(w, r)
 	}
 }
 

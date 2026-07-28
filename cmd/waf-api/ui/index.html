@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Waffynx — WAF Dashboard</title>
+<style>
+:root {
+  --bg: #0f1117;
+  --card: #1a1d27;
+  --border: #2a2d3a;
+  --text: #c9d1d9;
+  --muted: #6e7681;
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --blue: #58a6ff;
+  --accent: #7c3aed;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { 
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg); color: var(--text); min-height: 100vh;
+}
+.header { 
+  background: var(--card); border-bottom: 1px solid var(--border);
+  padding: 16px 24px; display: flex; align-items: center; justify-content: space-between;
+}
+.header h1 { font-size: 20px; font-weight: 600; color: #fff; }
+.header .accent { color: var(--accent); }
+.header .status { display: flex; gap: 12px; align-items: center; font-size: 13px; }
+.header .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.header .dot.online { background: var(--green); }
+.header .dot.offline { background: var(--red); }
+.main { max-width: 1200px; margin: 0 auto; padding: 24px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.card { 
+  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 20px; transition: border-color .2s;
+}
+.card:hover { border-color: var(--accent); }
+.card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+.card .value { font-size: 28px; font-weight: 700; color: #fff; }
+.card .value.green { color: var(--green); }
+.card .value.red { color: var(--red); }
+.card .value.yellow { color: var(--yellow); }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+@media (max-width: 768px) { .row { grid-template-columns: 1fr; } }
+.section { background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.section-header { padding: 14px 20px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px; color: #fff; }
+.section-body { padding: 16px 20px; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+td { padding: 10px 0; font-size: 13px; border-bottom: 1px solid var(--border); color: var(--text); }
+td:last-child { border-bottom: none; }
+tr:last-child td { border-bottom: none; }
+.badge { 
+  display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;
+}
+.badge.green { background: rgba(63,185,80,.15); color: var(--green); }
+.badge.red { background: rgba(248,81,73,.15); color: var(--red); }
+.badge.blue { background: rgba(88,166,255,.15); color: var(--blue); }
+.login-overlay {
+  position: fixed; inset: 0; background: var(--bg); display: flex;
+  align-items: center; justify-content: center; z-index: 100;
+}
+.login-box {
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  padding: 40px; width: 100%; max-width: 400px; text-align: center;
+}
+.login-box h2 { margin-bottom: 8px; color: #fff; }
+.login-box p { color: var(--muted); margin-bottom: 24px; font-size: 14px; }
+input {
+  width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg); color: var(--text); font-size: 14px; margin-bottom: 12px; outline: none;
+}
+input:focus { border-color: var(--accent); }
+button {
+  width: 100%; padding: 10px; background: var(--accent); color: #fff; border: none;
+  border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity .2s;
+}
+button:hover { opacity: .9; }
+button.secondary { background: var(--border); margin-top: 8px; }
+.loading { text-align: center; padding: 40px; color: var(--muted); }
+.error-banner { 
+  background: rgba(248,81,73,.1); border: 1px solid rgba(248,81,73,.3);
+  padding: 12px 20px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; color: var(--red);
+}
+.spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.meta { display: flex; gap: 24px; flex-wrap: wrap; }
+.meta-item { font-size: 13px; }
+.meta-item span { color: var(--muted); }
+.plugin-tag { 
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+  background: rgba(124,58,237,.1); border: 1px solid rgba(124,58,237,.3);
+  border-radius: 6px; font-size: 12px; margin: 4px;
+}
+.plugin-tag .priority { color: var(--muted); font-size: 10px; }
+.tabs { display: flex; border-bottom: 1px solid var(--border); }
+.tab { padding: 10px 16px; font-size: 13px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all .2s; }
+.tab:hover { color: var(--text); }
+.tab.active { color: #fff; border-bottom-color: var(--accent); }
+</style>
+</head>
+<body>
+
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-box">
+    <h2>Waffynx</h2>
+    <p>WAF Management Dashboard</p>
+    <input id="apiUrl" placeholder="API URL (e.g. http://localhost:9090)" value="http://localhost:9090">
+    <input id="username" placeholder="Username" value="admin">
+    <input id="password" type="password" placeholder="Password" value="admin">
+    <button onclick="login()">Connect</button>
+    <div id="loginError" style="color:var(--red);margin-top:12px;font-size:13px;"></div>
+  </div>
+</div>
+
+<div id="app" style="display:none;">
+  <div class="header">
+    <h1><span class="accent">&#9670;</span> Waffynx <span style="color:var(--muted);font-weight:400;">WAF</span></h1>
+    <div class="status">
+      <span id="apiStatus">Connecting...</span>
+      <span class="dot online" id="statusDot"></span>
+      <button class="secondary" onclick="logout()" style="width:auto;padding:4px 12px;font-size:12px;">Logout</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div id="errorBanner" class="error-banner" style="display:none;"></div>
+
+    <div class="cards" id="statsCards">
+      <div class="card"><div class="label">Engine</div><div class="value" id="statEngine">--</div></div>
+      <div class="card"><div class="label">Scorer</div><div class="value" id="statScorer">--</div></div>
+      <div class="card"><div class="label">Plugins</div><div class="value" id="statPlugins">--</div></div>
+      <div class="card"><div class="label">Goroutines</div><div class="value" id="statGoroutines">--</div></div>
+    </div>
+
+    <div class="section" style="margin-bottom:24px;">
+      <div class="section-header">System Info</div>
+      <div class="section-body">
+        <div class="meta" id="sysMeta"></div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="section">
+        <div class="section-header">Plugins</div>
+        <div class="section-body" id="pluginsList"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+      <div class="section">
+        <div class="section-header">Memory</div>
+        <div class="section-body" id="memoryInfo"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let TOKEN = '';
+let API = '';
+
+async function api(path) {
+  const headers = {};
+  if (TOKEN) headers['Authorization'] = 'Bearer ' + TOKEN;
+  const resp = await fetch(API + path, { headers });
+  if (!resp.ok) throw new Error(resp.status + ' ' + resp.statusText);
+  return resp.json();
+}
+
+function showError(msg) {
+  const b = document.getElementById('errorBanner');
+  b.textContent = msg; b.style.display = 'block';
+  setTimeout(() => b.style.display = 'none', 8000);
+}
+
+async function login() {
+  API = document.getElementById('apiUrl').value.replace(/\/$/, '');
+  const user = document.getElementById('username').value;
+  const pass = document.getElementById('password').value;
+  document.getElementById('loginError').textContent = '';
+
+  try {
+    const resp = await fetch(API + '/api/v1/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: user, password: pass })
+    });
+    if (!resp.ok) throw new Error('Login failed');
+    const data = await resp.json();
+    TOKEN = data.token;
+    document.getElementById('loginOverlay').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    document.getElementById('apiStatus').textContent = API;
+    refresh();
+    setInterval(refresh, 10000);
+  } catch (e) {
+    document.getElementById('loginError').textContent = e.message;
+  }
+}
+
+function logout() {
+  TOKEN = '';
+  document.getElementById('loginOverlay').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+}
+
+async function refresh() {
+  try {
+    const [status, plugins] = await Promise.all([
+      api('/api/v1/status'),
+      api('/api/v1/plugins')
+    ]);
+
+    document.getElementById('statusDot').className = 'dot online';
+    document.getElementById('apiStatus').textContent = API + ' · online';
+
+    document.getElementById('statEngine').textContent = status.config?.name || '--';
+    document.getElementById('statScorer').textContent = status.config?.engine || '--';
+    document.getElementById('statPlugins').textContent = status.config?.plugins_count || '0';
+    document.getElementById('statGoroutines').textContent = status.goroutines || '0';
+
+    const meta = document.getElementById('sysMeta');
+    meta.innerHTML = 
+      '<div class="meta-item"><span>Version:</span> ' + (status.version || '--') + '</div>' +
+      '<div class="meta-item"><span>Go:</span> ' + (status.go_version || '--') + '</div>' +
+      '<div class="meta-item"><span>Commit:</span> ' + (status.git_commit || '--') + '</div>' +
+      '<div class="meta-item"><span>Built:</span> ' + (status.build_time || '--') + '</div>' +
+      '<div class="meta-item"><span>AppSec:</span> ' + (status.config?.appsec_enabled ? '<span class="badge green">enabled</span>' : '<span class="badge red">disabled</span>') + '</div>';
+
+    const pl = document.getElementById('pluginsList');
+    if (plugins && plugins.length) {
+      pl.innerHTML = '<table>' + plugins.map(p => 
+        '<tr><td><span class="badge blue">' + (p.phase || 'pre_request') + '</span></td>' +
+        '<td>' + p.name + ' <span style="color:var(--muted);font-size:11px;">v' + p.version + '</span></td>' +
+        '<td style="text-align:right;"><span class="badge green">active</span></td></tr>'
+      ).join('') + '</table>';
+    } else {
+      pl.innerHTML = '<div style="color:var(--muted);">No plugins loaded</div>';
+    }
+
+    const mem = document.getElementById('memoryInfo');
+    if (status.memory) {
+      mem.innerHTML = 
+        '<div style="font-size:24px;color:#fff;margin-bottom:8px;">' + (status.memory.alloc_mb?.toFixed(1) || '0') + ' MB</div>' +
+        '<div style="font-size:13px;color:var(--muted);">Allocated (heap)</div>' +
+        '<div style="margin-top:12px;font-size:13px;color:var(--muted);">Total allocated: ' + (status.memory.total_alloc_mb?.toFixed(1) || '0') + ' MB</div>';
+    }
+
+  } catch (e) {
+    document.getElementById('statusDot').className = 'dot offline';
+    document.getElementById('apiStatus').textContent = API + ' · offline';
+    if (e.message !== 'Failed to fetch') showError(e.message);
+  }
+}
+</script>
+</body>
+</html>
