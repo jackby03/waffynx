@@ -59,10 +59,8 @@ jobs:
       - name: Build open-appsec (libngen_core.so)
         working-directory: third_party/open-appsec
         run: |
-          # Create CMake stubs for the stripped fork
-          echo "# stub" > cppcheck.cmake
-          echo "macro(add_unit_test name)" > unit_test.cmake
-          echo "endmacro()" >> unit_test.cmake
+          # Fix bison version requirement for newer bison
+          sed -i 's/%require "3"/%require "3.0"/' external/graphqlparser/parser.ypp 2>/dev/null || true
           
           mkdir -p build && cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release
