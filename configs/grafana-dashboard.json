@@ -1,0 +1,41 @@
+{
+  "title": "Waffynx WAF",
+  "uid": "waffynx",
+  "panels": [
+    {
+      "title": "Requests per Second",
+      "type": "graph",
+      "targets": [{"expr": "rate(waffynx_requests_total[1m])", "legendFormat": "{{method}} {{status}}"}]
+    },
+    {
+      "title": "Blocked Requests",
+      "type": "graph",
+      "targets": [{"expr": "rate(waffynx_requests_blocked_total[1m])", "legendFormat": "{{rule_id}}"}]
+    },
+    {
+      "title": "Request Duration (p95)",
+      "type": "graph",
+      "targets": [{"expr": "histogram_quantile(0.95, rate(waffynx_request_duration_seconds_bucket[1m]))", "legendFormat": "{{method}}"}]
+    },
+    {
+      "title": "Active Connections",
+      "type": "stat",
+      "targets": [{"expr": "waffynx_active_connections"}]
+    },
+    {
+      "title": "Firewall Rules",
+      "type": "stat",
+      "targets": [{"expr": "waffynx_firewall_rules_total"}]
+    },
+    {
+      "title": "Plugin Executions",
+      "type": "graph",
+      "targets": [{"expr": "rate(waffynx_plugin_executions_total[1m])", "legendFormat": "{{plugin}}"}]
+    },
+    {
+      "title": "Upstream Health",
+      "type": "stat",
+      "targets": [{"expr": "waffynx_upstream_healthy"}]
+    }
+  ]
+}

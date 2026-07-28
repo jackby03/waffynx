@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackby03/waffynx/internal/appsec"
 	"github.com/jackby03/waffynx/internal/audit"
+	"github.com/jackby03/waffynx/internal/events"
 	"github.com/jackby03/waffynx/internal/learning"
 	"github.com/jackby03/waffynx/internal/logging"
 	"github.com/jackby03/waffynx/internal/plugin"
@@ -51,9 +52,10 @@ type Sidecar struct {
 	learning   *learning.Engine
 	audit      *audit.Store
 	rules      *wrules.Engine
+	broker     *events.Broker
 }
 
-func NewSidecar(socketPath string, eval policy.Evaluator, chain *plugin.Chain, scorer appsec.Scorer, learn *learning.Engine, a *audit.Store, r *wrules.Engine) *Sidecar {
+func NewSidecar(socketPath string, eval policy.Evaluator, chain *plugin.Chain, scorer appsec.Scorer, learn *learning.Engine, a *audit.Store, r *wrules.Engine, b *events.Broker) *Sidecar {
 	return &Sidecar{
 		socketPath: socketPath,
 		chain:      chain,
@@ -62,6 +64,7 @@ func NewSidecar(socketPath string, eval policy.Evaluator, chain *plugin.Chain, s
 		learning:   learn,
 		audit:      a,
 		rules:      r,
+		broker:     b,
 	}
 }
 
@@ -89,6 +92,7 @@ func (s *Sidecar) Start() error {
 	mux.HandleFunc("/rules", s.handleRulesList)
 	mux.HandleFunc("/rules/add", s.handleRulesAdd)
 	mux.HandleFunc("/rules/delete", s.handleRulesDelete)
+	mux.HandleFunc("/events", s.handleSSE)
 
 	s.server = &http.Server{Handler: mux}
 
@@ -359,6 +363,46 @@ func (s *Sidecar) handleRulesDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Sidecar) handleSSE(w http.ResponseWriter, r *http.Request) {
+	if s.broker == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	ch := s.broker.Subscribe()
+	defer s.broker.Unsubscribe(ch)
+
+	w.Write([]byte(": connected\n\n"))
+	flusher.Flush()
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case data, ok := <-ch:
+			if !ok {
+				return
+			}
+			w.Write([]byte("data: "))
+			w.Write(data)
+			w.Write([]byte("\n\n"))
+			flusher.Flush()
+		}
+	}
+}
+
 func (s *Sidecar) writeSidecarError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
@@ -412,6 +456,17 @@ func (s *Sidecar) recordLearning(req *policy.Request, verdict, ruleID, reason st
 			Resource: req.Host,
 			Result:  "blocked",
 			Details: fmt.Sprintf("rule=%s reason=%s", ruleID, reason),
+		})
+	}
+
+	if s.broker != nil && verdict == "block" {
+		s.broker.Publish(events.WafEvent{
+			Type:     events.TypeBlocked,
+			Method:   req.Method,
+			Path:     req.Path,
+			RemoteIP: req.RemoteIP,
+			RuleID:   ruleID,
+			Reason:   reason,
 		})
 	}
 }

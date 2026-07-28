@@ -22,6 +22,7 @@ import (
 	"github.com/jackby03/waffynx/internal/config"
 	"github.com/jackby03/waffynx/internal/logging"
 	"github.com/jackby03/waffynx/internal/marketplace"
+	"github.com/jackby03/waffynx/internal/metrics"
 	"github.com/jackby03/waffynx/internal/plugin"
 	"github.com/jackby03/waffynx/internal/version"
 )
@@ -98,6 +99,8 @@ func runAPI(cfg *config.Config) error {
 	mux.HandleFunc("GET /api/v1/plugins", withCORS(withAuth(srv.handleListPlugins)))
 	mux.HandleFunc("GET /api/v1/plugins/{name}", withCORS(withAuth(srv.handleGetPlugin)))
 	mux.HandleFunc("GET /api/v1/audit", withCORS(withAuth(srv.handleAuditQuery)))
+	mux.HandleFunc("GET /api/v1/events", withCORS(srv.handleSSE))
+	mux.HandleFunc("GET /metrics", metrics.Handler().ServeHTTP)
 
 	uiFS, _ := fs.Sub(uiFiles, "ui")
 	uiHandler := http.FileServer(http.FS(uiFS))
@@ -463,4 +466,47 @@ func (s *apiServer) handleGetPlugin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, r, http.StatusOK, meta)
+}
+
+func (s *apiServer) handleSSE(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		s.writeError(w, r, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	w.Write([]byte(": connected\n\n"))
+	flusher.Flush()
+
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			var mem runtime.MemStats
+			runtime.ReadMemStats(&mem)
+			cfg := s.readConfig()
+
+			data, _ := json.Marshal(map[string]interface{}{
+				"type": "stats",
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"goroutines": runtime.NumGoroutine(),
+				"heap_mb": float64(mem.Alloc) / 1024 / 1024,
+				"engine": cfg.AppSec.Engine,
+			})
+			w.Write([]byte("data: "))
+			w.Write(data)
+			w.Write([]byte("\n\n"))
+			flusher.Flush()
+		}
+	}
 }

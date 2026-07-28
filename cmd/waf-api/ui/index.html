@@ -424,11 +424,13 @@ async function login(){
     $('apiInfo').textContent=API;
     refreshDashboard();
     REFRESH_INTERVAL=setInterval(refreshDashboard, 10000);
+    connectSSE();
   }catch(e){ $('loginError').textContent=e.message; }
 }
 
 function logout(){
   clearInterval(REFRESH_INTERVAL);
+  if(eventSource) eventSource.close();
   TOKEN=''; $('loginOverlay').style.display='flex'; $('app').style.display='none';
 }
 
@@ -568,6 +570,22 @@ async function refreshSettings(){
 function markOffline(){
   $('sidebarDot').className='status-dot offline';
   $('sidebarStatus').textContent='offline';
+}
+
+let eventSource=null;
+function connectSSE(){
+  if(eventSource) eventSource.close();
+  eventSource=new EventSource(API+'/api/v1/events');
+  eventSource.onmessage=function(e){
+    try{
+      const data=JSON.parse(e.data);
+      if(data.type==='stats'){
+        $('statGoroutines')?.textContent=data.goroutines||'--';
+        $('trafficConn')?.textContent=data.goroutines||'--';
+      }
+    }catch(ex){}
+  };
+  eventSource.onerror=function(){setTimeout(connectSSE,5000);};
 }
 </script>
 </body>

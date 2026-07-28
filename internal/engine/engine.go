@@ -7,6 +7,7 @@ import (
 	"github.com/jackby03/waffynx/internal/appsec"
 	"github.com/jackby03/waffynx/internal/audit"
 	"github.com/jackby03/waffynx/internal/config"
+	"github.com/jackby03/waffynx/internal/events"
 	"github.com/jackby03/waffynx/internal/learning"
 	"github.com/jackby03/waffynx/internal/plugin"
 	"github.com/jackby03/waffynx/internal/policy"
@@ -32,6 +33,7 @@ type Engine struct {
 	learning *learning.Engine
 	audit    *audit.Store
 	rules    *wrules.Engine
+	broker   *events.Broker
 
 	policies *PolicyStore
 }
@@ -45,7 +47,8 @@ func New(cfg *config.Config) *Engine {
 		policies: NewPolicyStore(),
 		learning: learning.NewEngine(2000),
 		audit:    a,
-		rules:   wrules.NewEngine(),
+		rules:    wrules.NewEngine(),
+		broker:   events.NewBroker(),
 	}
 }
 
@@ -91,6 +94,10 @@ func (e *Engine) Learning() *learning.Engine {
 
 func (e *Engine) PluginChain() *plugin.Chain {
 	return e.chain
+}
+
+func (e *Engine) Events() *events.Broker {
+	return e.broker
 }
 
 // GetPluginRegistry returns the global plugin registry so the CLI
