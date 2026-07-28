@@ -16,6 +16,7 @@ type Config struct {
 	Nginx    NginxConfig     `yaml:"nginx"`
 	AppSec   AppSecConfig    `yaml:"appsec"`
 	Gateway  GatewayConfig   `yaml:"gateway"`
+	TLS      TLSGlobalConfig `yaml:"tls"`
 	Routes   []RouteConfig   `yaml:"routes"`
 	Plugins  []PluginConfig  `yaml:"plugins"`
 	Firewall FirewallConfig  `yaml:"firewall"`
@@ -75,6 +76,18 @@ type RouteConfig struct {
 type TLSConfig struct {
 	CertFile string `yaml:"cert_file"`
 	KeyFile  string `yaml:"key_file"`
+}
+
+type TLSGlobalConfig struct {
+	StaticCert string `yaml:"static_cert"`
+	StaticKey  string `yaml:"static_key"`
+	ACME       struct {
+		Enabled  bool     `yaml:"enabled"`
+		Domains  []string `yaml:"domains"`
+		Email    string   `yaml:"email"`
+		CacheDir string   `yaml:"cache_dir"`
+		Staging  bool     `yaml:"staging"`
+	} `yaml:"acme"`
 }
 
 type PluginConfig struct {
