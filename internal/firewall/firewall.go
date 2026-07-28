@@ -116,7 +116,7 @@ func (m *Manager) Rules() ([]Rule, error) {
 	return m.backend.ListRules()
 }
 
-func runCmd(name string, args ...string) (string, error) {
+var runCmd = func(name string, args ...string) (string, error) {
 	cmd := exec.Command(name, args...)
 	out, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(out)), err
@@ -222,8 +222,17 @@ func (u *UFWBackend) RemoveRule(rule Rule) error {
 	case "drop", "deny":
 		args = append(args, "deny")
 	}
+	if rule.Source != "" {
+		args = append(args, "from", rule.Source)
+	}
 	if rule.Port > 0 {
 		args = append(args, strconv.Itoa(rule.Port))
+		if rule.Protocol != "" {
+			args = append(args, "proto", rule.Protocol)
+		}
+	}
+	if rule.Comment != "" {
+		args = append(args, "comment", rule.Comment)
 	}
 	_, err := runCmd("ufw", args...)
 	return err
