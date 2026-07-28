@@ -90,18 +90,54 @@ func (r *RedisLimiter) Close() error {
 // MemoryLimiter is the in-process token bucket implementation.
 // It implements the same Limiter interface for swapping backends.
 type MemoryLimiter struct {
-	mu      sync.Mutex
-	buckets map[string]*bucket
+	mu              sync.Mutex
+	buckets         map[string]*bucket
+	done            chan struct{}
+	bucketTTL       time.Duration
+	cleanupInterval time.Duration
 }
 
 type bucket struct {
-	tokens    float64
-	lastCheck time.Time
+	tokens     float64
+	lastCheck  time.Time
+	lastAccess time.Time
 }
 
 func NewMemoryLimiter() *MemoryLimiter {
-	return &MemoryLimiter{
-		buckets: make(map[string]*bucket),
+	m := &MemoryLimiter{
+		buckets:         make(map[string]*bucket),
+		done:            make(chan struct{}),
+		bucketTTL:       30 * time.Minute,
+		cleanupInterval: 5 * time.Minute,
+	}
+
+	go m.runCleanup()
+
+	return m
+}
+
+func (m *MemoryLimiter) runCleanup() {
+	ticker := time.NewTicker(m.cleanupInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-m.done:
+			return
+		case <-ticker.C:
+			m.cleanup()
+		}
+	}
+}
+
+func (m *MemoryLimiter) cleanup() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	now := time.Now()
+	for key, b := range m.buckets {
+		if now.Sub(b.lastAccess) > m.bucketTTL {
+			delete(m.buckets, key)
+		}
 	}
 }
 
@@ -112,13 +148,15 @@ func (m *MemoryLimiter) Allow(ctx context.Context, key string, limit int, window
 	b, ok := m.buckets[key]
 	if !ok {
 		b = &bucket{
-			tokens:    float64(limit),
-			lastCheck: time.Now(),
+			tokens:     float64(limit),
+			lastCheck:  time.Now(),
+			lastAccess: time.Now(),
 		}
 		m.buckets[key] = b
 	}
 
 	now := time.Now()
+	b.lastAccess = now
 	elapsed := now.Sub(b.lastCheck).Seconds()
 	rate := float64(limit) / window.Seconds()
 	b.tokens += elapsed * rate
@@ -136,5 +174,6 @@ func (m *MemoryLimiter) Allow(ctx context.Context, key string, limit int, window
 }
 
 func (m *MemoryLimiter) Close() error {
+	close(m.done)
 	return nil
 }

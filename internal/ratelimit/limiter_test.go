@@ -113,3 +113,52 @@ func TestConfig_Defaults(t *testing.T) {
 		defer limiter.Close()
 	}
 }
+
+func TestMemoryLimiter_Cleanup(t *testing.T) {
+	m := &MemoryLimiter{
+		buckets:         make(map[string]*bucket),
+		done:            make(chan struct{}),
+		bucketTTL:       50 * time.Millisecond,
+		cleanupInterval: 10 * time.Millisecond,
+	}
+	defer m.Close()
+
+	go m.runCleanup()
+	m.buckets["stale"] = &bucket{lastAccess: time.Now().Add(-time.Hour)}
+	m.buckets["fresh"] = &bucket{lastAccess: time.Now().Add(time.Hour)}
+
+	time.Sleep(100 * time.Millisecond)
+
+	m.mu.Lock()
+	_, staleExists := m.buckets["stale"]
+	_, freshExists := m.buckets["fresh"]
+	m.mu.Unlock()
+
+	if staleExists {
+		t.Error("stale bucket should have been cleaned up")
+	}
+	if !freshExists {
+		t.Error("fresh bucket should not have been cleaned up")
+	}
+}
+
+func TestMemoryLimiter_Concurrent(t *testing.T) {
+	limiter := NewMemoryLimiter()
+	defer limiter.Close()
+
+	ctx := context.Background()
+	done := make(chan struct{})
+
+	for i := 0; i < 10; i++ {
+		go func(id int) {
+			for j := 0; j < 50; j++ {
+				limiter.Allow(ctx, "concurrent-key", 100, time.Second)
+			}
+			done <- struct{}{}
+		}(i)
+	}
+
+	for i := 0; i < 10; i++ {
+		<-done
+	}
+}
