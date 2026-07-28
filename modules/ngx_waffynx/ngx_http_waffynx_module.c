@@ -264,8 +264,6 @@ ngx_http_waffynx_send_and_enforce(ngx_http_request_t *r,
         return wlcf->fail_open ? NGX_OK : NGX_HTTP_FORBIDDEN;
     }
     response_buf[resp_len] = '\0';
-    ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
-                  "waffynx: sidecar response: \"%s\"", response_buf);
 
     /* Parse the HTTP status code */
     if (ngx_http_waffynx_parse_status(response_buf, resp_len,
@@ -410,10 +408,6 @@ ngx_http_waffynx_access_handler(ngx_http_request_t *r)
         return wlcf->fail_open ? NGX_OK : NGX_HTTP_FORBIDDEN;
     }
 
-    ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
-                  "waffynx: cl=%O, method=%V, uri=%V",
-                  r->headers_in.content_length_n, &r->method_name, &r->uri);
-
     /* ---- 3. Read body if present, then evaluate ---- */
     if (r->headers_in.content_length_n > 0) {
         ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_waffynx_ctx_t));
@@ -437,10 +431,7 @@ ngx_http_waffynx_access_handler(ngx_http_request_t *r)
     }
 
     /* No body: send immediately */
-    rc = ngx_http_waffynx_send_and_enforce(r, wlcf, buf, header_len);
-    ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
-                  "waffynx: access handler returning %i for %V", rc, &r->uri);
-    return rc;
+    return ngx_http_waffynx_send_and_enforce(r, wlcf, buf, header_len);
 }
 
 /* ------------------------------------------------------------------ */
