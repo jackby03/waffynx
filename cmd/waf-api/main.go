@@ -86,6 +86,8 @@ func runAPI(cfg *config.Config, configPath string) error {
 		broker:     events.NewBroker(),
 	}
 
+	srv.seedMarketplace()
+
 	if len(cfg.API.Auth.OIDC) > 0 {
 		if err := srv.oidcMgr.Configure(cfg.API.Auth.OIDC); err != nil {
 			logging.Warn().Err(err).Msg("OIDC configuration incomplete")
@@ -108,6 +110,11 @@ func runAPI(cfg *config.Config, configPath string) error {
 	mux.HandleFunc("GET /api/v1/audit", withCORS(withAuth(srv.handleAuditQuery)))
 	mux.HandleFunc("POST /api/v1/events", withCORS(withAuth(srv.handleIngestEvent)))
 	mux.HandleFunc("GET /api/v1/events", withCORS(srv.handleSSE))
+	mux.HandleFunc("GET /api/v1/marketplace", withCORS(withAuth(srv.handleMarketplaceList)))
+	mux.HandleFunc("GET /api/v1/marketplace/categories", withCORS(withAuth(srv.handleMarketplaceCategories)))
+	mux.HandleFunc("GET /api/v1/marketplace/{name}", withCORS(withAuth(srv.handleMarketplaceGet)))
+	mux.HandleFunc("POST /api/v1/marketplace/install/{name}", withCORS(withAuth(srv.handleMarketplaceInstall)))
+	mux.HandleFunc("DELETE /api/v1/marketplace/uninstall/{name}", withCORS(withAuth(srv.handleMarketplaceUninstall)))
 	mux.HandleFunc("GET /metrics", metrics.Handler().ServeHTTP)
 	mux.HandleFunc("GET /debug/pprof/", pprof.Index)
 	mux.HandleFunc("GET /debug/pprof/cmdline", pprof.Cmdline)
@@ -499,6 +506,129 @@ func (s *apiServer) handleGetPlugin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, r, http.StatusOK, meta)
+}
+
+func (s *apiServer) seedMarketplace() {
+	now := time.Now()
+	pkgs := []*marketplace.Package{
+		{
+			ID:          "1",
+			Name:        "rate-limit",
+			Version:     "1.0.0",
+			Description: "Token bucket rate limiting per IP or session with optional Redis backend",
+			Author:      "Waffynx Team",
+			License:     "MIT",
+			Category:    "security",
+			Tags:        []string{"rate-limit", "ddos", "redis"},
+			Status:      marketplace.StatusPublished,
+			PublishedAt: now,
+			UpdatedAt:   now,
+		},
+		{
+			ID:          "2",
+			Name:        "geo-block",
+			Version:     "1.0.0",
+			Description: "Block or allow requests based on geographic location using MaxMind GeoLite2",
+			Author:      "Waffynx Team",
+			License:     "MIT",
+			Category:    "security",
+			Tags:        []string{"geo-block", "geolocation", "maxmind"},
+			Status:      marketplace.StatusPublished,
+			PublishedAt: now,
+			UpdatedAt:   now,
+		},
+		{
+			ID:          "3",
+			Name:        "request-validation",
+			Version:     "1.0.0",
+			Description: "Validate request headers, query parameters, and JSON body schemas",
+			Author:      "Waffynx Team",
+			License:     "MIT",
+			Category:    "validation",
+			Tags:        []string{"validation", "schema", "headers"},
+			Status:      marketplace.StatusPublished,
+			PublishedAt: now,
+			UpdatedAt:   now,
+		},
+	}
+	for _, pkg := range pkgs {
+		s.store.AddPackage(pkg)
+	}
+}
+
+func (s *apiServer) handleMarketplaceList(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	filter := marketplace.Filter{
+		Category: q.Get("category"),
+		Query:    q.Get("q"),
+		Status:   marketplace.PackageStatus(q.Get("status")),
+	}
+	pkgs, err := s.store.List(filter)
+	if err != nil {
+		s.writeError(w, r, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if pkgs == nil {
+		pkgs = []*marketplace.Package{}
+	}
+	s.writeJSON(w, r, http.StatusOK, pkgs)
+}
+
+func (s *apiServer) handleMarketplaceGet(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	version := r.URL.Query().Get("version")
+	if version == "" {
+		version = "1.0.0"
+	}
+	pkg, err := s.store.Get(name, version)
+	if err != nil {
+		s.writeError(w, r, http.StatusNotFound, err.Error())
+		return
+	}
+	s.writeJSON(w, r, http.StatusOK, pkg)
+}
+
+func (s *apiServer) handleMarketplaceInstall(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	version := r.URL.Query().Get("version")
+	if version == "" {
+		version = "1.0.0"
+	}
+	if err := s.store.Install(name, version); err != nil {
+		s.writeError(w, r, http.StatusNotFound, err.Error())
+		return
+	}
+	s.writeJSON(w, r, http.StatusOK, map[string]string{
+		"status":  "installed",
+		"name":    name,
+		"version": version,
+	})
+}
+
+func (s *apiServer) handleMarketplaceUninstall(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if err := s.store.Uninstall(name); err != nil {
+		s.writeError(w, r, http.StatusNotFound, err.Error())
+		return
+	}
+	s.writeJSON(w, r, http.StatusOK, map[string]string{
+		"status": "uninstalled",
+		"name":   name,
+	})
+}
+
+func (s *apiServer) handleMarketplaceCategories(w http.ResponseWriter, r *http.Request) {
+	cats, err := s.store.GetCategories()
+	if err != nil {
+		s.writeError(w, r, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if cats == nil {
+		cats = []string{}
+	}
+	s.writeJSON(w, r, http.StatusOK, map[string]interface{}{
+		"categories": cats,
+	})
 }
 
 func (s *apiServer) handleIngestEvent(w http.ResponseWriter, r *http.Request) {

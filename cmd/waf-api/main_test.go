@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackby03/waffynx/internal/events"
+	"github.com/jackby03/waffynx/internal/marketplace"
 )
 
 func TestHandleSSE_Heartbeat(t *testing.T) {
@@ -142,5 +143,144 @@ func TestHandleIngestEvent_NoBroker(t *testing.T) {
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("expected 503, got %d", rec.Code)
+	}
+}
+
+func TestHandleMarketplaceList(t *testing.T) {
+	srv := &apiServer{store: marketplace.NewInMemoryStore()}
+	srv.seedMarketplace()
+
+	req := httptest.NewRequest("GET", "/api/v1/marketplace", nil)
+	rec := httptest.NewRecorder()
+	srv.handleMarketplaceList(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var pkgs []map[string]interface{}
+	json.NewDecoder(rec.Body).Decode(&pkgs)
+	if len(pkgs) < 3 {
+		t.Errorf("expected at least 3 packages, got %d", len(pkgs))
+	}
+}
+
+func TestHandleMarketplaceList_Empty(t *testing.T) {
+	srv := &apiServer{store: marketplace.NewInMemoryStore()}
+
+	req := httptest.NewRequest("GET", "/api/v1/marketplace", nil)
+	rec := httptest.NewRecorder()
+	srv.handleMarketplaceList(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestHandleMarketplaceGet(t *testing.T) {
+	srv := &apiServer{store: marketplace.NewInMemoryStore()}
+	srv.seedMarketplace()
+
+	req := httptest.NewRequest("GET", "/api/v1/marketplace/rate-limit?version=1.0.0", nil)
+	req.SetPathValue("name", "rate-limit")
+	rec := httptest.NewRecorder()
+	srv.handleMarketplaceGet(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var pkg map[string]interface{}
+	json.NewDecoder(rec.Body).Decode(&pkg)
+	if pkg["name"] != "rate-limit" {
+		t.Errorf("expected rate-limit, got %v", pkg["name"])
+	}
+}
+
+func TestHandleMarketplaceGet_NotFound(t *testing.T) {
+	srv := &apiServer{store: marketplace.NewInMemoryStore()}
+
+	req := httptest.NewRequest("GET", "/api/v1/marketplace/nonexistent", nil)
+	req.SetPathValue("name", "nonexistent")
+	rec := httptest.NewRecorder()
+	srv.handleMarketplaceGet(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestHandleMarketplaceInstall(t *testing.T) {
+	srv := &apiServer{store: marketplace.NewInMemoryStore()}
+	srv.seedMarketplace()
+
+	req := httptest.NewRequest("POST", "/api/v1/marketplace/install/rate-limit?version=1.0.0", nil)
+	req.SetPathValue("name", "rate-limit")
+	rec := httptest.NewRecorder()
+	srv.handleMarketplaceInstall(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestHandleMarketplaceInstall_NotFound(t *testing.T) {
+	srv := &apiServer{store: marketplace.NewInMemoryStore()}
+
+	req := httptest.NewRequest("POST", "/api/v1/marketplace/install/nonexistent", nil)
+	req.SetPathValue("name", "nonexistent")
+	rec := httptest.NewRecorder()
+	srv.handleMarketplaceInstall(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestHandleMarketplaceUninstall(t *testing.T) {
+	srv := &apiServer{store: marketplace.NewInMemoryStore()}
+	srv.seedMarketplace()
+	srv.store.Install("rate-limit", "1.0.0")
+
+	req := httptest.NewRequest("DELETE", "/api/v1/marketplace/uninstall/rate-limit", nil)
+	req.SetPathValue("name", "rate-limit")
+	rec := httptest.NewRecorder()
+	srv.handleMarketplaceUninstall(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestHandleMarketplaceUninstall_NotFound(t *testing.T) {
+	srv := &apiServer{store: marketplace.NewInMemoryStore()}
+
+	req := httptest.NewRequest("DELETE", "/api/v1/marketplace/uninstall/nonexistent", nil)
+	req.SetPathValue("name", "nonexistent")
+	rec := httptest.NewRecorder()
+	srv.handleMarketplaceUninstall(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestHandleMarketplaceCategories(t *testing.T) {
+	srv := &apiServer{store: marketplace.NewInMemoryStore()}
+	srv.seedMarketplace()
+
+	req := httptest.NewRequest("GET", "/api/v1/marketplace/categories", nil)
+	rec := httptest.NewRecorder()
+	srv.handleMarketplaceCategories(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var body map[string]interface{}
+	json.NewDecoder(rec.Body).Decode(&body)
+	cats, ok := body["categories"].([]interface{})
+	if !ok || len(cats) == 0 {
+		t.Error("expected non-empty categories")
 	}
 }
