@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"runtime"
@@ -101,6 +102,11 @@ func runAPI(cfg *config.Config) error {
 	mux.HandleFunc("GET /api/v1/audit", withCORS(withAuth(srv.handleAuditQuery)))
 	mux.HandleFunc("GET /api/v1/events", withCORS(srv.handleSSE))
 	mux.HandleFunc("GET /metrics", metrics.Handler().ServeHTTP)
+	mux.HandleFunc("GET /debug/pprof/", pprof.Index)
+	mux.HandleFunc("GET /debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("GET /debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("GET /debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("GET /debug/pprof/trace", pprof.Trace)
 
 	uiFS, _ := fs.Sub(uiFiles, "ui")
 	uiHandler := http.FileServer(http.FS(uiFS))

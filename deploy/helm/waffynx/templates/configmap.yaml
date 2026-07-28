@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+  labels:
+    app.kubernetes.io/name: waffynx
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  waffynx.yaml: |
+    name: "waffynx"
+    version: "1"
+    logging:
+      level: "info"
+      format: "json"
+      output: "stdout"
+    sidecar:
+      socket_path: "/opt/waffynx/waffynx.sock"
+      fail_open: {{ .Values.waf.failOpen }}
+      timeout_ms: {{ .Values.waf.timeoutMs }}
+    nginx:
+      binary_path: "/opt/waffynx/nginx/sbin/nginx"
+      config_path: "/opt/waffynx/nginx/conf"
+      worker_processes: 1
+      worker_connections: 1024
+      enable_http2: false
+    appsec:
+      enabled: true
+      engine: "{{ .Values.waf.appsecEngine }}"
+    gateway:
+      max_connections: 10240
+      read_timeout: 30
+      write_timeout: 30
+      idle_timeout: 60
+    firewall:
+      enabled: false
+    api:
+      enabled: true
+      listen: ":9090"
+      auth:
+        jwt_secret: "change-me"
+        token_ttl: 3600
+    routes: []
+    plugins:
+      - name: "request-validation"
+        enabled: {{ .Values.plugins.requestValidation.enabled }}
+        config:
+          max_body_size: {{ .Values.plugins.requestValidation.maxBodySize }}
+      - name: "bot-protection"
+        enabled: {{ .Values.plugins.botProtection.enabled }}
+        config:
+          mode: "{{ .Values.plugins.botProtection.mode }}"
+      - name: "rate-limit"
+        enabled: {{ .Values.plugins.rateLimit.enabled }}
+        config:
+          requests_per_second: {{ .Values.plugins.rateLimit.requestsPerSecond }}
+          burst: {{ .Values.plugins.rateLimit.burst }}
+          {{- if .Values.redis.enabled }}
+          redis:
+            enabled: true
+            addr: "{{ .Values.redis.addr }}"
+            password: "{{ .Values.redis.password }}"
+            db: {{ .Values.redis.db }}
+          {{- end }}
+
+  nginx.conf: |
+    worker_processes 1;
+    error_log /dev/stderr warn;
+    pid /tmp/nginx.pid;
+    events { worker_connections 1024; }
+    http {
+      default_type application/octet-stream;
+      sendfile on;
+      keepalive_timeout 65;
+      access_log /dev/stdout;
+      server {
+        listen 8080;
+        location / {
+          waffynx on;
+          waffynx_socket /opt/waffynx/waffynx.sock;
+          waffynx_timeout {{ .Values.waf.timeoutMs }};
+          waffynx_fail_open {{ if .Values.waf.failOpen }}on{{ else }}off{{ end }};
+          waffynx_max_body_size {{ .Values.waf.maxBodySize }};
+          proxy_pass http://{{ .Values.backend.host }}:{{ .Values.backend.port }};
+          proxy_set_header Host $host;
+        }
+        location /health {
+          waffynx off;
+          return 200 '{"status":"ok"}';
+          add_header Content-Type application/json;
+        }
+      }
+    }

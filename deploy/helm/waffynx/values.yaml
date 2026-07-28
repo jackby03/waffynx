@@ -1,0 +1,57 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/jackby03/waffynx
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  httpPort: 8080
+  httpsPort: 8443
+  apiPort: 9090
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+waf:
+  failOpen: true
+  timeoutMs: 100
+  appsecEngine: basic-go
+  maxBodySize: 64k
+
+plugins:
+  requestValidation:
+    enabled: true
+    maxBodySize: 10485760
+  botProtection:
+    enabled: true
+    mode: log
+  rateLimit:
+    enabled: true
+    requestsPerSecond: 100
+    burst: 200
+
+redis:
+  enabled: false
+  addr: "redis:6379"
+  password: ""
+  db: 0
+
+backend:
+  host: backend
+  port: 80
+
+tls:
+  enabled: false
+  certFile: ""
+  keyFile: ""
+
+persistence:
+  enabled: false
+  size: 1Gi

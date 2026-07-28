@@ -1,0 +1,12 @@
+apiVersion: v2
+name: waffynx
+description: Waffynx — Next-generation WAF with nginx native integration
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - waf
+  - nginx
+  - security
+  - firewall
+home: https://github.com/jackby03/waffynx
