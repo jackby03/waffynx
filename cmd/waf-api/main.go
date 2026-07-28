@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/spf13/cobra"
 
 	"github.com/jackby03/waffynx/internal/audit"
@@ -338,15 +340,31 @@ func (s *apiServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := s.authMgr.GenerateToken(req.Username, "admin", []string{"read", "write"})
-	if err != nil {
-		s.writeError(w, r, http.StatusInternalServerError, "token generation failed")
+	cfg := s.readConfig()
+	if len(cfg.API.Auth.Users) == 0 {
+		s.writeError(w, r, http.StatusNotImplemented, "no users configured")
 		return
 	}
 
-	s.writeJSON(w, r, http.StatusOK, map[string]string{
-		"token": token,
-	})
+	for _, u := range cfg.API.Auth.Users {
+		if u.Username == req.Username {
+			if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(req.Password)); err != nil {
+				s.writeError(w, r, http.StatusUnauthorized, "invalid credentials")
+				return
+			}
+			token, err := s.authMgr.GenerateToken(req.Username, "admin", []string{"read", "write"})
+			if err != nil {
+				s.writeError(w, r, http.StatusInternalServerError, "token generation failed")
+				return
+			}
+			s.writeJSON(w, r, http.StatusOK, map[string]string{
+				"token": token,
+			})
+			return
+		}
+	}
+
+	s.writeError(w, r, http.StatusUnauthorized, "invalid credentials")
 }
 
 func (s *apiServer) handleStatus(w http.ResponseWriter, r *http.Request) {

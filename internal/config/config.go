@@ -111,10 +111,16 @@ type APIConfig struct {
 	Auth    AuthConfig `yaml:"auth"`
 }
 
+type UserConfig struct {
+	Username     string `yaml:"username"`
+	PasswordHash string `yaml:"password_hash"`
+}
+
 type AuthConfig struct {
 	JWTSecret string        `yaml:"jwt_secret"`
 	TokenTTL  int           `yaml:"token_ttl"`
 	OIDC      []OIDCProvider `yaml:"oidc"`
+	Users     []UserConfig  `yaml:"users"`
 }
 
 type OIDCProvider struct {

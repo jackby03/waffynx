@@ -62,6 +62,10 @@ api:
   auth:
     jwt_secret: "change-me-in-production"
     token_ttl: 3600
+    users:
+      # Generate with: go run golang.org/x/crypto/bcrypt/cmd/htpasswd@latest -nbB admin <password>
+      - username: admin
+        password_hash: "$2a$10$placeholder_hash_change_me"
 
 # -- Route definitions (API Gateway) --
 routes:
