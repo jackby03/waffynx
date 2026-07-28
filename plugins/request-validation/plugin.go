@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/jackby03/waffynx/internal/parsers"
 	"github.com/jackby03/waffynx/internal/plugin"
 )
 
@@ -140,6 +141,29 @@ func (p *RequestValidationPlugin) Execute(ctx *plugin.Context) (*plugin.Context,
 				ctx.Tags["waf_pattern"] = pattern
 				return ctx, fmt.Errorf("waf pattern matched in body: %s", pattern)
 			}
+		}
+
+		// GraphQL query inspection
+		gqlResult := parsers.InspectGraphQL(contentType, []byte(body))
+		if gqlResult.IsGraphQL && len(gqlResult.Issues) > 0 {
+			ctx.StatusCode = 403
+			ctx.ResponseWriter.Header().Set("Content-Type", "application/json")
+			ctx.ResponseWriter.WriteHeader(http.StatusForbidden)
+			ctx.ResponseWriter.Write([]byte(`{"error":"graphql validation failed: ` + strings.Join(gqlResult.Issues, "; ") + `"}`))
+			ctx.Tags["waf_blocked"] = "true"
+			ctx.Tags["waf_graphql_depth"] = fmt.Sprintf("%d", gqlResult.QueryDepth)
+			return ctx, fmt.Errorf("graphql validation: %s", strings.Join(gqlResult.Issues, "; "))
+		}
+
+		// File upload inspection
+		uploadResult := parsers.InspectFileUpload(ctx.Request, []byte(body))
+		if uploadResult.IsUpload && len(uploadResult.Issues) > 0 {
+			ctx.StatusCode = 403
+			ctx.ResponseWriter.Header().Set("Content-Type", "application/json")
+			ctx.ResponseWriter.WriteHeader(http.StatusForbidden)
+			ctx.ResponseWriter.Write([]byte(`{"error":"file upload validation failed: ` + strings.Join(uploadResult.Issues, "; ") + `"}`))
+			ctx.Tags["waf_blocked"] = "true"
+			return ctx, fmt.Errorf("file upload validation: %s", strings.Join(uploadResult.Issues, "; "))
 		}
 	}
 
