@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackby03/waffynx/internal/appsec"
+	"github.com/jackby03/waffynx/internal/audit"
 	"github.com/jackby03/waffynx/internal/learning"
 	"github.com/jackby03/waffynx/internal/logging"
 	"github.com/jackby03/waffynx/internal/plugin"
@@ -47,15 +48,17 @@ type Sidecar struct {
 	engine     policy.Evaluator
 	scorer     appsec.Scorer
 	learning   *learning.Engine
+	audit      *audit.Store
 }
 
-func NewSidecar(socketPath string, eval policy.Evaluator, chain *plugin.Chain, scorer appsec.Scorer, learn *learning.Engine) *Sidecar {
+func NewSidecar(socketPath string, eval policy.Evaluator, chain *plugin.Chain, scorer appsec.Scorer, learn *learning.Engine, a *audit.Store) *Sidecar {
 	return &Sidecar{
 		socketPath: socketPath,
 		chain:      chain,
 		engine:     eval,
 		scorer:     scorer,
 		learning:   learn,
+		audit:      a,
 	}
 }
 
@@ -322,4 +325,15 @@ func (s *Sidecar) recordLearning(req *policy.Request, verdict, ruleID, reason st
 		Reason:      reason,
 		Duration:    time.Since(start),
 	})
+
+	if s.audit != nil && verdict == "block" {
+		s.audit.Record(audit.Event{
+			Actor:   req.RemoteIP,
+			ActorIP: req.RemoteIP,
+			Action:  req.Method + " " + req.Path,
+			Resource: req.Host,
+			Result:  "blocked",
+			Details: fmt.Sprintf("rule=%s reason=%s", ruleID, reason),
+		})
+	}
 }

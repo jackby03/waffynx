@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/jackby03/waffynx/internal/appsec"
+	"github.com/jackby03/waffynx/internal/audit"
 	"github.com/jackby03/waffynx/internal/config"
 	"github.com/jackby03/waffynx/internal/learning"
 	"github.com/jackby03/waffynx/internal/plugin"
@@ -28,17 +29,20 @@ type Engine struct {
 	policy   policy.Evaluator
 	scorer   appsec.Scorer
 	learning *learning.Engine
+	audit    *audit.Store
 
 	policies *PolicyStore
 }
 
 func New(cfg *config.Config) *Engine {
+	a, _ := audit.NewStore(5000, "/opt/waffynx/logs/waf-audit.jsonl")
 	return &Engine{
 		cfg:      cfg,
 		chain:    plugin.NewChain(),
 		policy:   policy.NewRuleEngine(),
 		policies: NewPolicyStore(),
 		learning: learning.NewEngine(2000),
+		audit:    a,
 	}
 }
 

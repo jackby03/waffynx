@@ -24,7 +24,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	}
 
 	// -- 1. Start the Go sidecar (Unix socket HTTP server) --
-	e.sidecar = NewSidecar(e.cfg.Sidecar.SocketPath, e.policy, e.chain, e.scorer, e.learning)
+	e.sidecar = NewSidecar(e.cfg.Sidecar.SocketPath, e.policy, e.chain, e.scorer, e.learning, e.audit)
 	if err := e.sidecar.Start(); err != nil {
 		return fmt.Errorf("starting sidecar: %w", err)
 	}

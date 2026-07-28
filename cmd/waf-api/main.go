@@ -17,6 +17,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/jackby03/waffynx/internal/audit"
 	"github.com/jackby03/waffynx/internal/auth"
 	"github.com/jackby03/waffynx/internal/config"
 	"github.com/jackby03/waffynx/internal/logging"
@@ -57,16 +58,24 @@ type apiServer struct {
 	authMgr  *auth.Manager
 	oidcMgr  *auth.OIDCManager
 	store    *marketplace.InMemoryStore
+	audit    *audit.Store
 }
 
 func runAPI(cfg *config.Config) error {
 	logging.Info().Str("listen", cfg.API.Listen).Msg("starting management API")
+
+	auditStore, err := audit.NewStore(2000, "/opt/waffynx/logs/audit.jsonl")
+	if err != nil {
+		logging.Warn().Err(err).Msg("audit log file unavailable, using memory-only")
+		auditStore, _ = audit.NewStore(2000, "")
+	}
 
 	srv := &apiServer{
 		cfg:     cfg,
 		authMgr: auth.NewManager(cfg.API.Auth.JWTSecret, cfg.API.Auth.TokenTTL),
 		oidcMgr: auth.NewOIDCManager(),
 		store:   marketplace.NewInMemoryStore(),
+		audit:   auditStore,
 	}
 
 	if len(cfg.API.Auth.OIDC) > 0 {
@@ -88,6 +97,7 @@ func runAPI(cfg *config.Config) error {
 	mux.HandleFunc("GET /api/v1/metrics", withCORS(withAuth(srv.handleMetrics)))
 	mux.HandleFunc("GET /api/v1/plugins", withCORS(withAuth(srv.handleListPlugins)))
 	mux.HandleFunc("GET /api/v1/plugins/{name}", withCORS(withAuth(srv.handleGetPlugin)))
+	mux.HandleFunc("GET /api/v1/audit", withCORS(withAuth(srv.handleAuditQuery)))
 
 	uiFS, _ := fs.Sub(uiFiles, "ui")
 	uiHandler := http.FileServer(http.FS(uiFS))
@@ -98,7 +108,7 @@ func runAPI(cfg *config.Config) error {
 
 	server := &http.Server{
 		Addr:         cfg.API.Listen,
-		Handler:      srv.loggingMiddleware(mux),
+		Handler:      srv.auditMiddleware(srv.loggingMiddleware(mux)),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  30 * time.Second,
@@ -203,6 +213,68 @@ func (s *apiServer) authMiddleware(mux *http.ServeMux) func(http.HandlerFunc) ht
 			next(w, r.WithContext(ctx))
 		}
 	}
+}
+
+func (s *apiServer) auditMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.audit == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		rw := &auditResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		next.ServeHTTP(rw, r)
+
+		actor := "anonymous"
+		actorIP := r.RemoteAddr
+		if claims, ok := r.Context().Value("claims").(*auth.Claims); ok && claims != nil {
+			actor = claims.Username
+		}
+
+		result := "allowed"
+		if rw.statusCode >= 400 {
+			result = "blocked"
+		}
+
+		s.audit.Record(audit.Event{
+			Actor:   actor,
+			ActorIP: actorIP,
+			Action:  r.Method + " " + r.URL.Path,
+			Result:  result,
+			Details: fmt.Sprintf("HTTP %d", rw.statusCode),
+		})
+	})
+}
+
+type auditResponseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (w *auditResponseWriter) WriteHeader(code int) {
+	w.statusCode = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (s *apiServer) handleAuditQuery(w http.ResponseWriter, r *http.Request) {
+	if s.audit == nil {
+		s.writeJSON(w, r, http.StatusOK, []audit.Event{})
+		return
+	}
+
+	limit := 100
+	actor := r.URL.Query().Get("actor")
+	action := r.URL.Query().Get("action")
+	result := r.URL.Query().Get("result")
+
+	events := s.audit.Query(audit.QueryFilter{
+		Limit:  limit,
+		Actor:  actor,
+		Action: action,
+		Result: result,
+	})
+
+	s.writeJSON(w, r, http.StatusOK, events)
 }
 
 func (s *apiServer) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
