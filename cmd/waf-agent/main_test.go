@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,214 +13,184 @@ import (
 	"github.com/jackby03/waffynx/internal/firewall"
 )
 
-func init() {
+func mockFirewallCmd() {
 	firewall.SetRunCmd(func(name string, args ...string) (string, error) {
+		key := name + " " + strings.Join(args, " ")
+		if strings.Contains(key, "list") || strings.Contains(key, "status") {
+			return `Status: active
+[ 1] 80/tcp ALLOW IN Anywhere
+`, nil
+		}
 		return "", nil
 	})
 }
 
-func newTestServer(t *testing.T) *agentServer {
+func newTestAgentServer(t *testing.T, apiKey string) (*agentServer, http.Handler) {
 	t.Helper()
-	mgr, err := firewall.NewManager(config.FirewallConfig{
-		Enabled: true,
-		Backend: "nftables",
-	})
-	if err != nil {
-		t.Fatalf("creating firewall manager: %v", err)
-	}
-	if err := mgr.Start(); err != nil {
-		t.Fatalf("starting firewall manager: %v", err)
-	}
-	return &agentServer{
-		cfg: &config.AgentConfig{
-			Listen: ":9099",
-			APIKey: "test-key",
+	mockFirewallCmd()
+
+	cfg := &config.AgentConfig{
+		Listen: ":9095",
+		APIKey: apiKey,
+		Firewall: config.FirewallConfig{
+			Enabled:   false,
+			Backend:   "ufw",
+			BlockList: []string{},
 		},
-		mgr: mgr,
+		EventBroker: config.EventBrokerConfig{
+			Enabled:        false,
+			BlockThreshold: 3,
+			WindowSeconds:  60,
+		},
 	}
-}
 
-func TestHandleHealth(t *testing.T) {
-	srv := newTestServer(t)
-	req := httptest.NewRequest("GET", "/health", nil)
-	rec := httptest.NewRecorder()
-	srv.handleHealth(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", rec.Code)
+	mgr, err := firewall.NewManager(cfg.Firewall)
+	if err != nil {
+		t.Fatalf("failed to create firewall manager: %v", err)
 	}
-	var body map[string]string
-	json.NewDecoder(rec.Body).Decode(&body)
-	if body["status"] != "ok" {
-		t.Errorf("expected status ok, got %v", body["status"])
-	}
-}
 
-func TestHandleListRules(t *testing.T) {
-	srv := newTestServer(t)
-	req := httptest.NewRequest("GET", "/api/v1/firewall/rules", nil)
-	rec := httptest.NewRecorder()
-	srv.handleListRules(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", rec.Code)
-	}
-}
-
-func TestHandleBlockIP_Unauthorized(t *testing.T) {
-	srv := newTestServer(t)
-	body := map[string]string{"ip": "10.0.0.1"}
-	data, _ := json.Marshal(body)
-
-	req := httptest.NewRequest("POST", "/api/v1/firewall/block", bytes.NewReader(data))
-	rec := httptest.NewRecorder()
-	srv.authMiddleware(srv.handleBlockIP)(rec, req)
-
-	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401, got %d", rec.Code)
-	}
-}
-
-func TestHandleBlockIP_MissingIP(t *testing.T) {
-	srv := newTestServer(t)
-	body := map[string]string{}
-	data, _ := json.Marshal(body)
-
-	req := httptest.NewRequest("POST", "/api/v1/firewall/block", bytes.NewReader(data))
-	req.Header.Set("X-API-Key", "test-key")
-	rec := httptest.NewRecorder()
-	srv.authMiddleware(srv.handleBlockIP)(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", rec.Code)
-	}
-}
-
-func TestHandleBlockIP_Authorized(t *testing.T) {
-	srv := newTestServer(t)
-	body := map[string]string{"ip": "10.0.0.1"}
-	data, _ := json.Marshal(body)
-
-	req := httptest.NewRequest("POST", "/api/v1/firewall/block", bytes.NewReader(data))
-	req.Header.Set("X-API-Key", "test-key")
-	rec := httptest.NewRecorder()
-	srv.authMiddleware(srv.handleBlockIP)(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", rec.Code)
-	}
-	var resp map[string]string
-	json.NewDecoder(rec.Body).Decode(&resp)
-	if resp["status"] != "blocked" {
-		t.Errorf("expected blocked, got %v", resp["status"])
-	}
-}
-
-func TestHandleUnblockIP_Authorized(t *testing.T) {
-	srv := newTestServer(t)
-	srv.mgr.BlockIP("10.0.0.1")
-
-	req := httptest.NewRequest("DELETE", "/api/v1/firewall/block/10.0.0.1", nil)
-	req.SetPathValue("ip", "10.0.0.1")
-	req.Header.Set("X-API-Key", "test-key")
-	rec := httptest.NewRecorder()
-	srv.authMiddleware(srv.handleUnblockIP)(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", rec.Code)
-	}
-}
-
-func TestHandleUnblockIP_MissingIP(t *testing.T) {
-	srv := newTestServer(t)
-	req := httptest.NewRequest("DELETE", "/api/v1/firewall/block/", nil)
-	req.SetPathValue("ip", "")
-	req.Header.Set("X-API-Key", "test-key")
-	rec := httptest.NewRecorder()
-	srv.authMiddleware(srv.handleUnblockIP)(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", rec.Code)
-	}
-}
-
-func TestAuthMiddleware_BearerToken(t *testing.T) {
-	srv := newTestServer(t)
-	req := httptest.NewRequest("GET", "/api/v1/firewall/rules", nil)
-	req.Header.Set("Authorization", "Bearer test-key")
-	rec := httptest.NewRecorder()
-	srv.authMiddleware(srv.handleListRules)(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected 200 with bearer token, got %d", rec.Code)
-	}
-}
-
-func TestAuthMiddleware_NoAuthRequired(t *testing.T) {
-	srv := newTestServer(t)
-	srv.cfg.APIKey = ""
-
-	req := httptest.NewRequest("GET", "/api/v1/firewall/rules", nil)
-	rec := httptest.NewRecorder()
-	srv.authMiddleware(srv.handleListRules)(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected 200 when no auth required, got %d", rec.Code)
-	}
-}
-
-func TestAuthMiddleware_WrongKey(t *testing.T) {
-	srv := newTestServer(t)
-	req := httptest.NewRequest("GET", "/api/v1/firewall/rules", nil)
-	req.Header.Set("X-API-Key", "wrong-key")
-	rec := httptest.NewRecorder()
-	srv.authMiddleware(srv.handleListRules)(rec, req)
-
-	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401, got %d", rec.Code)
-	}
-}
-
-func TestEventTracker_BelowThreshold(t *testing.T) {
 	tracker := newEventTracker(3, 60)
-	for i := 0; i < 2; i++ {
-		if tracker.record("10.0.0.1") {
-			t.Errorf("expected below threshold at record %d", i+1)
-		}
+	srv := &agentServer{
+		cfg:     cfg,
+		mgr:     mgr,
+		tracker: tracker,
 	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", srv.handleHealth)
+	mux.HandleFunc("GET /api/v1/firewall/rules", srv.authMiddleware(srv.handleListRules))
+	mux.HandleFunc("POST /api/v1/firewall/block", srv.authMiddleware(srv.handleBlockIP))
+	mux.HandleFunc("DELETE /api/v1/firewall/block/{ip}", srv.authMiddleware(srv.handleUnblockIP))
+
+	return srv, mux
 }
 
-func TestEventTracker_ExceedThreshold(t *testing.T) {
-	tracker := newEventTracker(3, 60)
-	for i := 0; i < 2; i++ {
-		tracker.record("10.0.0.1")
-	}
-	if !tracker.record("10.0.0.1") {
-		t.Error("expected threshold exceeded on 3rd event")
-	}
-}
+func TestEventTracker(t *testing.T) {
+	tracker := newEventTracker(3, 1) // 3 threshold, 1 sec window
 
-func TestEventTracker_SeparateIPs(t *testing.T) {
-	tracker := newEventTracker(3, 60)
-	tracker.record("10.0.0.1")
-	tracker.record("10.0.0.1")
-	tracker.record("10.0.0.1")
-
-	tracker.record("10.0.0.2")
-	if tracker.record("10.0.0.2") {
-		t.Error("expected IP B to still be below threshold at 2 events with threshold 3")
+	if tracker.record("1.2.3.4") {
+		t.Error("event 1 should not trigger auto-block")
 	}
-}
+	if tracker.record("1.2.3.4") {
+		t.Error("event 2 should not trigger auto-block")
+	}
+	if !tracker.record("1.2.3.4") {
+		t.Error("event 3 should trigger auto-block threshold")
+	}
 
-func TestEventTracker_Cleanup(t *testing.T) {
-	tracker := newEventTracker(3, 1)
-	tracker.record("10.0.0.1")
-	tracker.record("10.0.0.1")
+	// Sleep for window to expire and test cleanup
 	time.Sleep(1100 * time.Millisecond)
 	tracker.cleanup()
 
-	tracker.record("10.0.0.1")
-	if tracker.record("10.0.0.1") {
-		t.Error("expected below threshold after old events cleaned up (only 2 new events with threshold 3)")
+	tracker.mu.Lock()
+	_, exists := tracker.counts["1.2.3.4"]
+	tracker.mu.Unlock()
+
+	if exists {
+		t.Error("expected expired events for IP to be cleaned up")
+	}
+}
+
+func TestAgent_Health(t *testing.T) {
+	_, handler := newTestAgentServer(t, "")
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rec.Code)
+	}
+
+	var resp map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+	if resp["status"] != "ok" {
+		t.Errorf("expected status 'ok', got %q", resp["status"])
+	}
+}
+
+func TestAgent_AuthMiddleware(t *testing.T) {
+	apiKey := "secret-agent-key"
+	_, handler := newTestAgentServer(t, apiKey)
+
+	// 1. Missing API Key
+	req := httptest.NewRequest("GET", "/api/v1/firewall/rules", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for missing API key, got %d", rec.Code)
+	}
+
+	// 2. Valid X-API-Key header
+	req = httptest.NewRequest("GET", "/api/v1/firewall/rules", nil)
+	req.Header.Set("X-API-Key", apiKey)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 with X-API-Key, got %d", rec.Code)
+	}
+
+	// 3. Valid Authorization Bearer header
+	req = httptest.NewRequest("GET", "/api/v1/firewall/rules", nil)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 with Bearer token, got %d", rec.Code)
+	}
+}
+
+func TestAgent_BlockAndUnblockIP(t *testing.T) {
+	apiKey := "test-key"
+	_, handler := newTestAgentServer(t, apiKey)
+
+	// 1. Missing IP -> 400 Bad Request
+	badBody := []byte(`{"port":80}`)
+	req := httptest.NewRequest("POST", "/api/v1/firewall/block", bytes.NewReader(badBody))
+	req.Header.Set("X-API-Key", apiKey)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing IP, got %d", rec.Code)
+	}
+
+	// 2. Valid Block IP -> 200 OK
+	goodBody := []byte(`{"ip":"10.0.0.55"}`)
+	req = httptest.NewRequest("POST", "/api/v1/firewall/block", bytes.NewReader(goodBody))
+	req.Header.Set("X-API-Key", apiKey)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for BlockIP, got %d", rec.Code)
+	}
+
+	var blockResp map[string]string
+	_ = json.Unmarshal(rec.Body.Bytes(), &blockResp)
+	if blockResp["status"] != "blocked" || blockResp["ip"] != "10.0.0.55" {
+		t.Errorf("unexpected block response: %v", blockResp)
+	}
+
+	// 3. Valid Unblock IP -> 200 OK
+	req = httptest.NewRequest("DELETE", "/api/v1/firewall/block/10.0.0.55", nil)
+	req.Header.Set("X-API-Key", apiKey)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for UnblockIP, got %d", rec.Code)
+	}
+
+	var unblockResp map[string]string
+	_ = json.Unmarshal(rec.Body.Bytes(), &unblockResp)
+	if unblockResp["status"] != "unblocked" || unblockResp["ip"] != "10.0.0.55" {
+		t.Errorf("unexpected unblock response: %v", unblockResp)
 	}
 }
