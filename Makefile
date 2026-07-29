@@ -12,7 +12,7 @@ LDFLAGS := -s -w \
 
 GO := go
 GOFLAGS := -trimpath -ldflags "$(LDFLAGS)"
-BIN_DIR := dist
+BIN_DIR := bin
 
 # -- Nginx fork paths --
 NGINX_DIR := third_party/nginx

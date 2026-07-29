@@ -140,7 +140,7 @@ cd "$WAFFYNX_ROOT"
 for cmd in waffynx waf-agent waf-api appsec-bridge; do
     echo "     Building $cmd..."
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-        go build -ldflags="-s -w" -o "dist/$cmd" "./cmd/$cmd"
+        go build -ldflags="-s -w" -o "bin/$cmd" "./cmd/$cmd"
 done
 
 echo "==> Go build complete"
@@ -166,7 +166,7 @@ cp "$NGINX_BUILD_DIR/objs/nginx" "$WAFFYNX_HOME/nginx/sbin/nginx"
 cp "$NGINX_BUILD_DIR/conf/mime.types" "$WAFFYNX_HOME/nginx/conf/"
 
 # Copy binaries and libraries
-cp "$WAFFYNX_ROOT/dist/"* "$WAFFYNX_HOME/bin/" 2>/dev/null || cp "$WAFFYNX_ROOT/bin/"* "$WAFFYNX_HOME/bin/" 2>/dev/null || true
+cp "$WAFFYNX_ROOT/bin/"* "$WAFFYNX_HOME/bin/" 2>/dev/null || true
 chmod +x "$WAFFYNX_HOME/bin/"*
 
 # Copy and render nginx.conf
