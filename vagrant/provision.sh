@@ -125,6 +125,13 @@ make -j$(nproc) > /tmp/nginx-make.log 2>&1
 echo "==> Nginx build complete"
 
 # ================================================================
+# 3.5 Build C++ bridge library
+# ================================================================
+echo "==> Building open-appsec C++ bridge..."
+cd "$WAFFYNX_ROOT"
+make bridge-build || true
+
+# ================================================================
 # 4. Build Go binaries
 # ================================================================
 echo "==> Building Go binaries..."
@@ -133,7 +140,7 @@ cd "$WAFFYNX_ROOT"
 for cmd in waffynx waf-agent waf-api appsec-bridge; do
     echo "     Building $cmd..."
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-        go build -ldflags="-s -w" -o "bin/$cmd" "./cmd/$cmd"
+        go build -ldflags="-s -w" -o "dist/$cmd" "./cmd/$cmd"
 done
 
 echo "==> Go build complete"
@@ -144,6 +151,7 @@ echo "==> Go build complete"
 echo "==> Installing to $WAFFYNX_HOME..."
 
 mkdir -p "$WAFFYNX_HOME/bin"
+mkdir -p "$WAFFYNX_HOME/lib"
 mkdir -p "$WAFFYNX_HOME/config"
 mkdir -p "$WAFFYNX_HOME/logs"
 mkdir -p "$WAFFYNX_HOME/nginx/sbin"
@@ -157,8 +165,8 @@ mkdir -p "$WAFFYNX_HOME/appsec"
 cp "$NGINX_BUILD_DIR/objs/nginx" "$WAFFYNX_HOME/nginx/sbin/nginx"
 cp "$NGINX_BUILD_DIR/conf/mime.types" "$WAFFYNX_HOME/nginx/conf/"
 
-# Copy Go binaries
-cp "$WAFFYNX_ROOT/bin/"* "$WAFFYNX_HOME/bin/"
+# Copy binaries and libraries
+cp "$WAFFYNX_ROOT/dist/"* "$WAFFYNX_HOME/bin/" 2>/dev/null || cp "$WAFFYNX_ROOT/bin/"* "$WAFFYNX_HOME/bin/" 2>/dev/null || true
 chmod +x "$WAFFYNX_HOME/bin/"*
 
 # Copy and render nginx.conf
