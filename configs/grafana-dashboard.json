@@ -1,41 +1,97 @@
 {
   "title": "Waffynx WAF",
   "uid": "waffynx",
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus"
+      },
+      {
+        "name": "namespace",
+        "type": "query",
+        "datasource": "${DS_PROMETHEUS}",
+        "query": "label_values(namespace)"
+      },
+      {
+        "name": "pod",
+        "type": "query",
+        "datasource": "${DS_PROMETHEUS}",
+        "query": "label_values(pod)"
+      },
+      {
+        "name": "backend",
+        "type": "query",
+        "datasource": "${DS_PROMETHEUS}",
+        "query": "label_values(host)"
+      }
+    ]
+  },
   "panels": [
     {
       "title": "Requests per Second",
-      "type": "graph",
-      "targets": [{"expr": "rate(waffynx_requests_total[1m])", "legendFormat": "{{method}} {{status}}"}]
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "targets": [{"expr": "rate(waffynx_requests_total{pod=~\"$pod\"}[1m])", "legendFormat": "{{method}} {{status}}"}]
     },
     {
       "title": "Blocked Requests",
-      "type": "graph",
-      "targets": [{"expr": "rate(waffynx_requests_blocked_total[1m])", "legendFormat": "{{rule_id}}"}]
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "targets": [{"expr": "rate(waffynx_requests_blocked_total{pod=~\"$pod\"}[1m])", "legendFormat": "{{rule_id}} - {{reason}}"}]
     },
     {
-      "title": "Request Duration (p95)",
-      "type": "graph",
-      "targets": [{"expr": "histogram_quantile(0.95, rate(waffynx_request_duration_seconds_bucket[1m]))", "legendFormat": "{{method}}"}]
+      "title": "Rate-limit Hits",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "targets": [{"expr": "rate(waffynx_requests_blocked_total{reason=\"rate_limit\", pod=~\"$pod\"}[1m])", "legendFormat": "Rate Limited"}]
+    },
+    {
+      "title": "Request Duration (Latency)",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "targets": [
+        {"expr": "histogram_quantile(0.50, rate(waffynx_request_duration_seconds_bucket{pod=~\"$pod\"}[1m]))", "legendFormat": "p50 {{method}}"},
+        {"expr": "histogram_quantile(0.95, rate(waffynx_request_duration_seconds_bucket{pod=~\"$pod\"}[1m]))", "legendFormat": "p95 {{method}}"},
+        {"expr": "histogram_quantile(0.99, rate(waffynx_request_duration_seconds_bucket{pod=~\"$pod\"}[1m]))", "legendFormat": "p99 {{method}}"}
+      ]
+    },
+    {
+      "title": "Requests by Plugin",
+      "type": "barchart",
+      "datasource": "${DS_PROMETHEUS}",
+      "targets": [{"expr": "sum by (plugin) (rate(waffynx_plugin_executions_total{pod=~\"$pod\"}[1m]))", "legendFormat": "{{plugin}}"}]
+    },
+    {
+      "title": "Upstream Health Status",
+      "type": "table",
+      "datasource": "${DS_PROMETHEUS}",
+      "targets": [{"expr": "waffynx_upstream_healthy{pod=~\"$pod\"}", "legendFormat": "{{upstream}}", "format": "table"}]
     },
     {
       "title": "Active Connections",
       "type": "stat",
-      "targets": [{"expr": "waffynx_active_connections"}]
+      "datasource": "${DS_PROMETHEUS}",
+      "targets": [{"expr": "waffynx_active_connections{pod=~\"$pod\"}"}]
     },
     {
-      "title": "Firewall Rules",
+      "title": "Active Firewall Rules",
+      "type": "gauge",
+      "datasource": "${DS_PROMETHEUS}",
+      "targets": [{"expr": "waffynx_firewall_rules_total{pod=~\"$pod\"}"}]
+    },
+    {
+      "title": "Memory Alloc (Bytes)",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "targets": [{"expr": "go_memstats_alloc_bytes{pod=~\"$pod\"}", "legendFormat": "Allocated Memory"}]
+    },
+    {
+      "title": "Goroutines",
       "type": "stat",
-      "targets": [{"expr": "waffynx_firewall_rules_total"}]
-    },
-    {
-      "title": "Plugin Executions",
-      "type": "graph",
-      "targets": [{"expr": "rate(waffynx_plugin_executions_total[1m])", "legendFormat": "{{plugin}}"}]
-    },
-    {
-      "title": "Upstream Health",
-      "type": "stat",
-      "targets": [{"expr": "waffynx_upstream_healthy"}]
+      "datasource": "${DS_PROMETHEUS}",
+      "targets": [{"expr": "go_goroutines{pod=~\"$pod\"}", "legendFormat": "Goroutines"}]
     }
   ]
 }

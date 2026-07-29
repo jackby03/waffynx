@@ -57,10 +57,6 @@ nginx-checkout:
 		git submodule update --init --recursive; \
 	fi
 
-nginx-patch:
-	@echo "Applying waffynx patches to nginx..."
-	@cd $(NGINX_DIR) && git apply ../../patches/nginx/*.patch
-
 nginx-configure:
 	@echo "Configuring nginx build..."
 	@cd $(NGINX_DIR) && ./auto/configure \
@@ -123,11 +119,11 @@ bridge-clean:
 
 dev:
 	@echo "Starting development environment..."
-	@docker compose -f deploy/docker/docker-compose.yml up -d postgres redis
+	@# Postgres and Redis are disabled as they are currently unused
 	@$(GO) run ./cmd/waf-api --config configs/waffynx.yaml
 
 proto:
-	@echo "Generating protobuf code..."
+	@echo "Generating protobuf code... (Requires protoc and protoc-gen-go installed)"
 	@protoc --go_out=. --go_opt=paths=source_relative \
 		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
 		pkg/proto/waffynx/v1/*.proto
@@ -136,6 +132,10 @@ lint:
 	@golangci-lint run ./...
 
 test:
+	@$(GO) test -race -coverprofile=coverage.out ./...
+
+test-all:
+	@echo "Running all tests..."
 	@$(GO) test -race -coverprofile=coverage.out ./...
 
 # ============================================================
