@@ -44,7 +44,14 @@ Two forks: `jackby03/ngx_waffynx` (`third_party/nginx`) and `jackby03/appsec_waf
 ```bash
 make build          # build-cli + build-agent + build-api (CGO_ENABLED=0)
 ```
-Outputs to `bin/`: `waffynx`, `waf-agent`, `waf-api`. The `appsec-bridge` binary is built by Vagrant provisioning only — no Makefile target for it.
+Outputs to `bin/`: `waffynx`, `waf-agent`, `waf-api`. The `appsec-bridge` binary is built by Vagrant provisioning.
+
+### C++ Bridge Build
+The C++ bridge library is compiled from the `third_party/open-appsec` submodule:
+```bash
+make bridge-build   # compiles libwaffynx_bridge.so to dist/
+```
+This requires `cmake`, `g++`, `bison`, and `flex`. The Vagrant provisioning and GitHub Actions CI automatically build this.
 
 ### Nginx (Linux only, or inside Vagrant VM)
 ```bash
@@ -67,10 +74,10 @@ HTTP request -> nginx (ACCESS phase, C module) --unix socket--> Go sidecar
 
 - **C module**: `modules/ngx_waffynx/ngx_http_waffynx_module.c` — intercepts req, forwards metadata via custom `X-WN-*` headers over Unix socket
 - **Go sidecar**: `internal/engine/sidecar.go` — Unix socket HTTP server running 3-stage evaluation pipeline
-- **appsec-bridge**: `cmd/appsec-bridge/main.go` — optional standalone daemon, same socket protocol as real open-appsec. The sidecar connects via `BridgeScorer` if `engine: "open-appsec"` is configured.
-- **Plugins**: 4 built-ins in `plugins/` register via `init()` and are loaded by blank imports in `cmd/waffynx/main.go`
+- **appsec-bridge**: `cmd/appsec-bridge/main.go` — optional standalone daemon, same socket protocol as real open-appsec. The real C++ bridge library is compiled via `make bridge-build`.
+- **Plugins**: 4 built-ins in `plugins/` register via `init()` and are loaded by blank imports in `cmd/waffynx/main.go`. Note: phases like PostRequest, PreResponse are currently not implemented in the engine.
 - **waf-agent**: `cmd/waf-agent/main.go` — manages nftables/UFW rules
-- **waf-api**: `cmd/waf-api/main.go` — management API on :9090 (currently a stub, closes connections immediately)
+- **waf-api**: `cmd/waf-api/main.go` — management API on :9090
 
 ## Key gotchas
 
@@ -86,26 +93,25 @@ If you add new C files to `modules/ngx_waffynx/` or `third_party/`, ensure they 
 ### nginx configure can't run from vboxsf
 The `auto/configure` script performs filesystem checks that fail on VirtualBox shared folders. Always copy source to a local path (e.g., `/tmp/nginx-build`) before configuring — see `vagrant/provision.sh`.
 
-### No Go tests exist
-`make test` runs `go test -race ./...` but there are zero `*_test.go` files. The only automated tests are integration tests in `vagrant/test.sh`. When adding Go code, you should add test files — there's no existing test infrastructure to follow.
+### Current test coverage
+~64 unit tests exist across 8 packages, coverage ~36%. The following packages have test coverage:
+- `cmd/waf-api`
+- `cmd/waf-agent`
+- `internal/firewall`
+- `internal/gateway`
+- `internal/upstream`
+- `internal/ratelimit`
+- `internal/parsers` (fuzz tests)
+- `internal/policy` (fuzz tests)
 
 ### Build flag requirements
 Go binaries: `CGO_ENABLED=0 GOOS=linux GOARCH=amd64` for the VM. Nginx module: compiled with the full nginx source tree, `--add-module` for both `third_party/open-appsec/modules/nginx` and `modules/ngx_waffynx`.
 
 ### Plugin registration
-New plugins go in `plugins/<name>/plugin.go` implementing `plugin.Plugin`. They must be registered via `init()` calling `plugin.Register()`. Import them in `cmd/waffynx/main.go` with a blank import (`_ "github.com/jackby03/waffynx/plugins/<name>"`).
+New plugins go in `plugins/<name>/plugin.go` implementing `plugin.Plugin`. They must be registered via `init()` calling `plugin.Register()`. Import them in `cmd/waffynx/main.go` with a blank import (`_ "github.com/jackby03/waffynx/plugins/<name>"`). Note that not all evaluation phases (e.g., PostRequest, PreResponse) are fully supported by the engine yet.
 
 ### Config loading
 Production config: `configs/waffynx.yaml` (120 lines, full config with all sections). Vagrant generates its own config at `/opt/waffynx/config/waffynx.yaml` during provisioning. The nginx.conf lives at `configs/nginx.conf` with `waffynx on;` directives — the Vagrant VM copies this into the built nginx conf dir.
-
-### Dead & stub code
-- `plugins/rate-limit/plugin.go` — rate limiting logic is behind `if false`
-- `plugins/geo-block/plugin.go` — entirely a stub (no enforcement)
-- `cmd/waf-api/main.go` — closes connections without handling
-- `internal/firewall/firewall.go` — `ListRules()` returns nil
-
-### Vagrant test script issue
-`vagrant/test.sh` hangs after health checks — the backend Python server management is broken. Sidecar-direct socket tests and bridge connectivity tests work fine.
 
 ## Directory map
 
@@ -113,7 +119,7 @@ Production config: `configs/waffynx.yaml` (120 lines, full config with all secti
 |------|---------|
 | `cmd/waffynx/` | Main WAF engine CLI (cobra: start, check, version) |
 | `cmd/waf-agent/` | Host firewall agent (nftables/UFW) |
-| `cmd/waf-api/` | Management REST API (stub) |
+| `cmd/waf-api/` | Management REST API |
 | `cmd/appsec-bridge/` | ML daemon (BasicScorer, swap-out for real open-appsec) |
 | `internal/engine/` | Runtime orchestrator, sidecar, policy store |
 | `internal/plugin/` | Plugin interface, registry, chain |

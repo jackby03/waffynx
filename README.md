@@ -21,6 +21,23 @@ HTTP Request → nginx (C module, ACCESS phase) → Unix socket → Go Sidecar
 - **Firewall agent** — nftables/UFW management with IP blocklist
 - **Stripped nginx** — 868KB binary, only 5 essential modules + waffynx module
 
+## Roadmap
+
+**✅ Implemented & Working:**
+- Sidecar evaluation via Unix socket
+- Rule-based policies & HTTP method matching
+- UFW / nftables automatic blocking agent
+- Memory & Redis-backed rate-limiting
+- Load balancer proxy (upstream module)
+- C++ `open-appsec` bridge integration
+- Unit & Fuzz testing across core packages (~64 tests)
+
+**🚧 Pending / In Development:**
+- React/Vue UI frontend dashboard
+- gRPC API migration for sidecar evaluation
+- Full JWT enforcement on all API routes
+- Plugin marketplace implementation for dynamic loading
+
 ## Architecture
 
 ```
@@ -143,7 +160,7 @@ curl -k https://localhost:8443/                          # 200 (HTTPS)
 ### Unit tests
 ```bash
 go test ./...
-# 33 tests: BasicScorer (13), policy engine (8), plugin chain (12)
+# ~64 tests across 8 packages including Fuzz tests
 ```
 
 ### Integration tests (WSL)
