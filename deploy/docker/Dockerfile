@@ -1,10 +1,17 @@
 # Multi-stage build: nginx (stripped + waffynx module) + Go binaries + configs
 # Build: docker build -t waffynx -f deploy/docker/Dockerfile .
+#
+# To build multi-arch:
+# docker buildx create --use
+# docker buildx build --platform linux/amd64,linux/arm64 -t waffynx:latest .
+
+ARG BUILDPLATFORM
+ARG TARGETPLATFORM
 
 # ============================================================
 # Stage 1: Build stripped nginx with waffynx module
 # ============================================================
-FROM debian:bookworm-slim AS nginx-builder
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS nginx-builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc make libpcre2-dev libssl-dev zlib1g-dev ca-certificates \
@@ -43,7 +50,7 @@ RUN make -j$(nproc) && strip objs/nginx
 # ============================================================
 # Stage 2: Build Go binaries
 # ============================================================
-FROM golang:1.22-alpine AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS go-builder
 
 RUN apk add --no-cache git ca-certificates
 
@@ -60,7 +67,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /waffynx ./cmd/waffynx 
 # ============================================================
 # Stage 3: Runtime
 # ============================================================
-FROM debian:bookworm-slim
+FROM --platform=$TARGETPLATFORM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl openssl python3 \
