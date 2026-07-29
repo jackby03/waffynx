@@ -1,4 +1,4 @@
-.PHONY: all build build-engine build-agent build-api build-cli clean test lint proto install dev
+.PHONY: all build build-engine build-agent build-api build-cli clean test lint proto install dev bridge-build bridge-clean
 
 APP_NAME := waffynx
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -12,7 +12,7 @@ LDFLAGS := -s -w \
 
 GO := go
 GOFLAGS := -trimpath -ldflags "$(LDFLAGS)"
-BIN_DIR := bin
+BIN_DIR := dist
 
 # -- Nginx fork paths --
 NGINX_DIR := third_party/nginx
@@ -106,6 +106,15 @@ nginx-build:
 
 nginx-install:
 	@$(MAKE) -C $(NGINX_DIR) install
+
+# ============================================================
+# Third-party: open-appsec bridge
+# ============================================================
+bridge-build:
+	@bash scripts/build-bridge.sh
+
+bridge-clean:
+	@rm -rf /tmp/waffynx-bridge-build
 
 # ============================================================
 # Development

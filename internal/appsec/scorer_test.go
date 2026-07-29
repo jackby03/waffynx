@@ -301,3 +301,26 @@ func TestScoreThreshold(t *testing.T) {
 		}
 	}
 }
+
+func TestCPPBridgeScorer_StubOrDisabled(t *testing.T) {
+	ctx := context.Background()
+	scorer, err := NewCPPBridgeScorer("")
+	if err != nil {
+		t.Fatalf("unexpected error creating CPPBridgeScorer: %v", err)
+	}
+
+	if scorer.Name() == "" {
+		t.Error("scorer Name() should not be empty")
+	}
+
+	res, err := scorer.Evaluate(ctx, &Features{URI: "/test"})
+	if err != nil {
+		t.Fatalf("unexpected evaluate error: %v", err)
+	}
+	if res.Verdict != VerdictAllow {
+		t.Errorf("expected VerdictAllow for disabled/stub scorer, got %v", res.Verdict)
+	}
+
+	_ = scorer.Close()
+}
+
