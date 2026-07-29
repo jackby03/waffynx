@@ -69,7 +69,13 @@ func runAPI(cfg *config.Config, configPath string) error {
 	logging.Info().Str("listen", cfg.API.Listen).Msg("starting management API")
 
 	if cfg.API.Auth.JWTSecret == "" || cfg.API.Auth.JWTSecret == "change-me-in-production" {
-		logging.Warn().Msg("JWT secret is set to default value, change it in production")
+		logging.Fatal().Msg("JWT secret is empty or set to default value, change it in production")
+		return fmt.Errorf("insecure JWT secret")
+	}
+
+	if len(cfg.API.Auth.JWTSecret) < 32 {
+		logging.Fatal().Msg("JWT secret is too short, must be at least 32 characters")
+		return fmt.Errorf("insecure JWT secret")
 	}
 
 	auditStore, err := audit.NewStore(2000, "/opt/waffynx/logs/audit.jsonl")
