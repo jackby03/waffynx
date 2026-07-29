@@ -21,7 +21,7 @@ jobs:
           go-version: "1.22"
 
       - name: Build Go (no CGo)
-        run: CGO_ENABLED=0 go build -buildvcs=false ./cmd/...
+        run: CGO_ENABLED=0 go build -buildvcs=false -o dist/ ./cmd/...
 
       - name: Test Go
         run: CGO_ENABLED=0 go test -coverprofile=coverage.out ./internal/...
@@ -46,7 +46,8 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
-            cmake g++ \
+            build-essential cmake bison flex \
+            g++ \
             libboost-all-dev \
             libpcre2-dev \
             libssl-dev \
@@ -56,30 +57,21 @@ jobs:
             libgtest-dev libgmock-dev \
             libbrotli-dev libxml2-dev
 
-      - name: Build open-appsec (libngen_core.so)
-        working-directory: third_party/open-appsec
-        run: |
-          # Fix bison version requirement for newer bison
-          sed -i 's/%require "3"/%require "3.0"/' external/graphqlparser/parser.ypp 2>/dev/null || true
-          
-          mkdir -p build && cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release
-          cmake --build . --target ngen_core -j$(nproc)
-          ls -lh core/libngen_core.so
-          strip core/libngen_core.so
-          echo "libngen_core.so size: $(ls -lh core/libngen_core.so | awk '{print $5}')"
-
-      - name: Build C bridge (libwaffynx_bridge.so)
-        working-directory: third_party/open-appsec
-        run: |
-          # Stub mode — no open-appsec headers needed, just pattern matching
-          g++ -shared -fPIC -std=c++17 -O2 \
-            -o libwaffynx_bridge.so waffynx_bridge.cpp
-          ls -lh libwaffynx_bridge.so
-          echo "Bridge built (stub mode)"
+      - name: Build C++ Bridge
+        run: make bridge-build
 
       - name: Build Go with CGo (appsec-bridge-cpp)
         run: |
           CGO_ENABLED=1 go build -buildvcs=false -ldflags="-s -w" \
-            -o bin/appsec-bridge-cpp ./cmd/appsec-bridge
-          ls -lh bin/appsec-bridge-cpp || echo "CGo binary built"
+            -o dist/appsec-bridge-cpp ./cmd/appsec-bridge
+          ls -lh dist/
+
+      - name: Test Go CGo Bridge
+        run: CGO_ENABLED=1 go test -v ./internal/appsec/...
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bridge-libs
+          path: dist/*
+
