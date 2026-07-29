@@ -2,6 +2,8 @@ package upstream
 
 import (
 	"context"
+	"hash/fnv"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -20,18 +22,18 @@ const (
 )
 
 type Target struct {
+	activeConns int64
+	failures    atomic.Int64
+	healthy     atomic.Bool
 	URL         *url.URL
 	Weight      int
 	MaxConns    int
-	activeConns int64
-	healthy     atomic.Bool
-	failures    atomic.Int64
 }
 
 type Pool struct {
+	index   uint64
 	mu      sync.RWMutex
 	targets []*Target
-	index   uint64
 	lbType  string // round_robin, least_conn, ip_hash
 }
 
@@ -60,7 +62,7 @@ func (p *Pool) AddTarget(addr string, weight int) error {
 	return nil
 }
 
-func (p *Pool) Next() *Target {
+func (p *Pool) Next(remoteAddr string) *Target {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
@@ -71,6 +73,8 @@ func (p *Pool) Next() *Target {
 	switch p.lbType {
 	case "least_conn":
 		return p.leastConn()
+	case "ip_hash":
+		return p.ipHash(remoteAddr)
 	case "round_robin":
 		fallthrough
 	default:
@@ -112,10 +116,33 @@ func (p *Pool) leastConn() *Target {
 	return best
 }
 
+func (p *Pool) ipHash(remoteAddr string) *Target {
+	if len(p.targets) == 0 {
+		return nil
+	}
+
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+
+	h := fnv.New32a()
+	h.Write([]byte(host))
+	idx := int(h.Sum32() % uint32(len(p.targets)))
+
+	for i := 0; i < len(p.targets); i++ {
+		t := p.targets[(idx+i)%len(p.targets)]
+		if t.healthy.Load() {
+			return t
+		}
+	}
+	return p.targets[idx]
+}
+
 func (p *Pool) CreateReverseProxy() *httputil.ReverseProxy {
 	return &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
-			target := p.Next()
+			target := p.Next(req.RemoteAddr)
 			if target == nil {
 				logging.Error().Msg("no healthy upstream targets")
 				return
