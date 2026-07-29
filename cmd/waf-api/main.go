@@ -118,11 +118,11 @@ func runAPI(cfg *config.Config, configPath string) error {
 	mux.HandleFunc("POST /api/v1/marketplace/install/{name}", withCORS(withAuth(srv.handleMarketplaceInstall)))
 	mux.HandleFunc("DELETE /api/v1/marketplace/uninstall/{name}", withCORS(withAuth(srv.handleMarketplaceUninstall)))
 	mux.HandleFunc("GET /metrics", metrics.Handler().ServeHTTP)
-	mux.HandleFunc("GET /debug/pprof/", pprof.Index)
-	mux.HandleFunc("GET /debug/pprof/cmdline", pprof.Cmdline)
-	mux.HandleFunc("GET /debug/pprof/profile", pprof.Profile)
-	mux.HandleFunc("GET /debug/pprof/symbol", pprof.Symbol)
-	mux.HandleFunc("GET /debug/pprof/trace", pprof.Trace)
+	mux.HandleFunc("GET /debug/pprof/", withAuth(pprof.Index))
+	mux.HandleFunc("GET /debug/pprof/cmdline", withAuth(pprof.Cmdline))
+	mux.HandleFunc("GET /debug/pprof/profile", withAuth(pprof.Profile))
+	mux.HandleFunc("GET /debug/pprof/symbol", withAuth(pprof.Symbol))
+	mux.HandleFunc("GET /debug/pprof/trace", withAuth(pprof.Trace))
 
 	mux.HandleFunc("GET /", srv.handleRoot)
 
