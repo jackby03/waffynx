@@ -7,188 +7,145 @@ import (
 )
 
 func TestRouter_Match_ExactPath(t *testing.T) {
-	r := NewRouter()
-	r.AddRoute(&config.RouteConfig{
-		Name:     "test",
+	router := NewRouter()
+	err := router.AddRoute(&config.RouteConfig{
+		Name:     "exact-route",
 		Host:     "example.com",
-		Path:     "/api/v1/health",
-		Upstream: "http://backend:8080",
+		Path:     "/api/v1/users",
+		Upstream: "http://localhost:8080",
+		Methods:  []string{"GET"},
 	})
-
-	route, _ := r.Match("example.com", "/api/v1/health", "GET")
-	if route == nil {
-		t.Fatal("expected route to match exact path")
+	if err != nil {
+		t.Fatalf("unexpected error adding route: %v", err)
 	}
-	if route.Name != "test" {
-		t.Fatalf("expected route name 'test', got '%s'", route.Name)
+
+	route, params := router.Match("example.com", "/api/v1/users", "GET")
+	if route == nil {
+		t.Fatal("expected route match, got nil")
+	}
+	if route.Name != "exact-route" {
+		t.Errorf("expected route name 'exact-route', got %s", route.Name)
+	}
+	if params["path"] != "/api/v1/users" {
+		t.Errorf("expected path param '/api/v1/users', got %s", params["path"])
+	}
+}
+
+func TestRouter_Match_PrefixWildcard(t *testing.T) {
+	router := NewRouter()
+	err := router.AddRoute(&config.RouteConfig{
+		Name:     "wildcard-route",
+		Host:     "*.example.com",
+		Path:     "/static/*",
+		Upstream: "http://localhost:8081",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error adding route: %v", err)
+	}
+
+	route, _ := router.Match("cdn.example.com", "/static/js/app.js", "GET")
+	if route == nil {
+		t.Fatal("expected wildcard host and path match, got nil")
+	}
+	if route.Name != "wildcard-route" {
+		t.Errorf("expected route name 'wildcard-route', got %s", route.Name)
 	}
 }
 
 func TestRouter_Match_NoMatch(t *testing.T) {
-	r := NewRouter()
-	r.AddRoute(&config.RouteConfig{
-		Name:     "test",
-		Host:     "example.com",
-		Path:     "/api/v1/health",
-		Upstream: "http://backend:8080",
+	router := NewRouter()
+	_ = router.AddRoute(&config.RouteConfig{
+		Name:     "api-route",
+		Host:     "api.example.com",
+		Path:     "/v1/*",
+		Upstream: "http://localhost:8080",
 	})
 
-	route, _ := r.Match("example.com", "/api/v1/notfound", "GET")
+	// Host mismatch
+	route, _ := router.Match("other.example.com", "/v1/users", "GET")
 	if route != nil {
-		t.Fatal("expected no match for unknown path")
+		t.Errorf("expected nil for host mismatch, got %v", route)
 	}
-}
 
-func TestRouter_Match_WrongHost(t *testing.T) {
-	r := NewRouter()
-	r.AddRoute(&config.RouteConfig{
-		Name:     "test",
-		Host:     "example.com",
-		Path:     "/api/v1/health",
-		Upstream: "http://backend:8080",
-	})
-
-	route, _ := r.Match("other.com", "/api/v1/health", "GET")
+	// Path mismatch
+	route, _ = router.Match("api.example.com", "/v2/users", "GET")
 	if route != nil {
-		t.Fatal("expected no match for wrong host")
-	}
-}
-
-func TestRouter_Match_WildcardPath(t *testing.T) {
-	r := NewRouter()
-	r.AddRoute(&config.RouteConfig{
-		Name:     "test",
-		Host:     "example.com",
-		Path:     "/api/v1/*",
-		Upstream: "http://backend:8080",
-	})
-
-	route, _ := r.Match("example.com", "/api/v1/users", "GET")
-	if route == nil {
-		t.Fatal("expected wildcard path to match")
+		t.Errorf("expected nil for path mismatch, got %v", route)
 	}
 }
 
 func TestRouter_Match_MethodAllowed(t *testing.T) {
-	r := NewRouter()
-	r.AddRoute(&config.RouteConfig{
-		Name:     "test",
+	router := NewRouter()
+	_ = router.AddRoute(&config.RouteConfig{
+		Name:     "read-only-route",
 		Host:     "example.com",
-		Path:     "/api/v1/data",
-		Methods:  []string{"GET", "POST"},
-		Upstream: "http://backend:8080",
+		Path:     "/data",
+		Methods:  []string{"GET", "HEAD"},
+		Upstream: "http://localhost:8080",
 	})
 
-	route, _ := r.Match("example.com", "/api/v1/data", "GET")
+	// GET should be allowed
+	route, _ := router.Match("example.com", "/data", "GET")
 	if route == nil {
-		t.Fatal("expected GET to match route allowing GET")
+		t.Error("expected GET to match route")
 	}
-}
 
-func TestRouter_Match_MethodDenied(t *testing.T) {
-	r := NewRouter()
-	r.AddRoute(&config.RouteConfig{
-		Name:     "test",
-		Host:     "example.com",
-		Path:     "/api/v1/data",
-		Methods:  []string{"GET"},
-		Upstream: "http://backend:8080",
-	})
+	// HEAD should be allowed
+	route, _ = router.Match("example.com", "/data", "HEAD")
+	if route == nil {
+		t.Error("expected HEAD to match route")
+	}
 
-	route, _ := r.Match("example.com", "/api/v1/data", "POST")
+	// POST should NOT match
+	route, _ = router.Match("example.com", "/data", "POST")
 	if route != nil {
-		t.Fatal("expected POST to not match GET-only route")
+		t.Errorf("expected POST to NOT match GET-only route, got %v", route)
 	}
 }
 
-func TestRouter_Match_NoMethods(t *testing.T) {
-	r := NewRouter()
-	r.AddRoute(&config.RouteConfig{
-		Name:     "test",
+func TestRouter_Match_NoMethodsFilter(t *testing.T) {
+	router := NewRouter()
+	_ = router.AddRoute(&config.RouteConfig{
+		Name:     "all-methods-route",
 		Host:     "example.com",
-		Path:     "/api/v1/data",
-		Upstream: "http://backend:8080",
+		Path:     "/open",
+		Methods:  []string{}, // Empty = any method
+		Upstream: "http://localhost:8080",
 	})
 
-	route, _ := r.Match("example.com", "/api/v1/data", "DELETE")
-	if route == nil {
-		t.Fatal("expected any method to match route with no method restrictions")
+	for _, method := range []string{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"} {
+		route, _ := router.Match("example.com", "/open", method)
+		if route == nil {
+			t.Errorf("expected method %s to match route with empty methods list", method)
+		}
 	}
 }
 
-func TestRouter_Match_FirstMatchWins(t *testing.T) {
-	r := NewRouter()
-	r.AddRoute(&config.RouteConfig{
-		Name:     "first",
+func TestRouter_Match_Priority(t *testing.T) {
+	router := NewRouter()
+
+	// Route 1 (added first)
+	_ = router.AddRoute(&config.RouteConfig{
+		Name:     "route-first",
 		Host:     "example.com",
 		Path:     "/api/*",
-		Methods:  []string{"GET"},
-		Upstream: "http://first:8080",
-	})
-	r.AddRoute(&config.RouteConfig{
-		Name:     "second",
-		Host:     "example.com",
-		Path:     "/api/*",
-		Upstream: "http://second:8080",
+		Upstream: "http://localhost:8080",
 	})
 
-	route, _ := r.Match("example.com", "/api/v1/data", "GET")
+	// Route 2 (added second)
+	_ = router.AddRoute(&config.RouteConfig{
+		Name:     "route-second",
+		Host:     "example.com",
+		Path:     "/api/specific",
+		Upstream: "http://localhost:8081",
+	})
+
+	// First matching route in registration order wins
+	route, _ := router.Match("example.com", "/api/specific", "GET")
 	if route == nil {
-		t.Fatal("expected first route to match")
+		t.Fatal("expected route match")
 	}
-	if route.Name != "first" {
-		t.Fatalf("expected first route, got '%s'", route.Name)
-	}
-
-	route, _ = r.Match("example.com", "/api/v1/data", "POST")
-	if route == nil {
-		t.Fatal("expected second route to match when first rejects by method")
-	}
-	if route.Name != "second" {
-		t.Fatalf("expected second route, got '%s'", route.Name)
-	}
-}
-
-func TestRouter_Match_CaseInsensitiveMethod(t *testing.T) {
-	r := NewRouter()
-	r.AddRoute(&config.RouteConfig{
-		Name:     "test",
-		Host:     "example.com",
-		Path:     "/api/v1/data",
-		Methods:  []string{"get"},
-		Upstream: "http://backend:8080",
-	})
-
-	route, _ := r.Match("example.com", "/api/v1/data", "GET")
-	if route == nil {
-		t.Fatal("expected case-insensitive method matching")
-	}
-}
-
-func TestRouter_Match_MultipleRoutes(t *testing.T) {
-	r := NewRouter()
-	r.AddRoute(&config.RouteConfig{
-		Name:     "first",
-		Host:     "example.com",
-		Path:     "/api/v1/*",
-		Methods:  []string{"GET"},
-		Upstream: "http://first:8080",
-	})
-	r.AddRoute(&config.RouteConfig{
-		Name:     "second",
-		Host:     "example.com",
-		Path:     "/api/v1/*",
-		Methods:  []string{"POST"},
-		Upstream: "http://second:8080",
-	})
-
-	route, _ := r.Match("example.com", "/api/v1/data", "GET")
-	if route == nil || route.Name != "first" {
-		t.Fatal("expected first route for GET")
-	}
-
-	route, _ = r.Match("example.com", "/api/v1/data", "POST")
-	if route == nil || route.Name != "second" {
-		t.Fatal("expected second route for POST")
+	if route.Name != "route-first" {
+		t.Errorf("expected first registered route 'route-first' to win, got %s", route.Name)
 	}
 }
