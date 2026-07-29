@@ -299,7 +299,26 @@ func (s *apiServer) handleAuditQuery(w http.ResponseWriter, r *http.Request) {
 
 func (s *apiServer) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		allowedOrigin := ""
+		cfg := s.readConfig()
+
+		if cfg != nil && len(cfg.API.AllowedOrigins) > 0 {
+			for _, o := range cfg.API.AllowedOrigins {
+				if o == "*" || o == origin {
+					allowedOrigin = o
+					break
+				}
+			}
+		}
+
+		if allowedOrigin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+			if allowedOrigin != "*" {
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
+		}
+
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
@@ -326,7 +345,6 @@ func (s *apiServer) writeError(w http.ResponseWriter, r *http.Request, status in
 }
 
 func (s *apiServer) handleRoot(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	s.writeJSON(w, r, http.StatusOK, map[string]interface{}{
 		"service":   "waf-api",
 		"version":   version.Version,
@@ -708,7 +726,6 @@ func (s *apiServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	w.Write([]byte(": connected\n\n"))
 	flusher.Flush()
