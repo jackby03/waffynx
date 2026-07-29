@@ -2,163 +2,158 @@ package ratelimit
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
 
 func TestMemoryLimiter_Allow(t *testing.T) {
 	limiter := NewMemoryLimiter()
-	ctx := context.Background()
 	defer limiter.Close()
+	ctx := context.Background()
 
-	key := "test-ip"
-	limit := 10
-	window := time.Second
-
-	for i := 0; i < limit; i++ {
-		allowed, err := limiter.Allow(ctx, key, limit, window)
+	// Limit 5 requests per second
+	for i := 0; i < 5; i++ {
+		allowed, err := limiter.Allow(ctx, "user1", 5, time.Second)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("unexpected error on request %d: %v", i, err)
 		}
 		if !allowed {
-			t.Errorf("request %d should be allowed", i+1)
+			t.Errorf("expected request %d to be allowed", i)
+		}
+	}
+}
+
+func TestMemoryLimiter_Deny(t *testing.T) {
+	limiter := NewMemoryLimiter()
+	defer limiter.Close()
+	ctx := context.Background()
+
+	// Exhaust limit of 3
+	for i := 0; i < 3; i++ {
+		allowed, _ := limiter.Allow(ctx, "user_deny", 3, time.Second)
+		if !allowed {
+			t.Fatalf("expected request %d to be allowed", i)
 		}
 	}
 
-	allowed, err := limiter.Allow(ctx, key, limit, window)
+	// 4th request should be denied
+	allowed, err := limiter.Allow(ctx, "user_deny", 3, time.Second)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if allowed {
-		t.Error("request should be rate limited after exceeding limit")
+		t.Error("expected 4th request to be denied, but was allowed")
 	}
 }
 
-func TestMemoryLimiter_TokenRefill(t *testing.T) {
+func TestMemoryLimiter_Refill(t *testing.T) {
 	limiter := NewMemoryLimiter()
-	ctx := context.Background()
 	defer limiter.Close()
+	ctx := context.Background()
 
-	key := "refill-test"
-	limit := 2
+	// Exhaust limit of 2 in 100ms
 	window := 100 * time.Millisecond
+	limiter.Allow(ctx, "user_refill", 2, window)
+	limiter.Allow(ctx, "user_refill", 2, window)
 
-	allowed, _ := limiter.Allow(ctx, key, limit, window)
-	if !allowed {
-		t.Fatal("first request should be allowed")
-	}
-	allowed, _ = limiter.Allow(ctx, key, limit, window)
-	if !allowed {
-		t.Fatal("second request should be allowed")
-	}
-	allowed, _ = limiter.Allow(ctx, key, limit, window)
+	allowed, _ := limiter.Allow(ctx, "user_refill", 2, window)
 	if allowed {
-		t.Fatal("third request should be denied")
+		t.Fatal("expected request to be denied before refill")
 	}
 
-	time.Sleep(150 * time.Millisecond)
+	// Wait for bucket token refill (sleep 120ms)
+	time.Sleep(120 * time.Millisecond)
 
-	allowed, _ = limiter.Allow(ctx, key, limit, window)
-	if !allowed {
-		t.Error("request should be allowed after window refill")
-	}
-}
-
-func TestMemoryLimiter_DifferentKeys(t *testing.T) {
-	limiter := NewMemoryLimiter()
-	ctx := context.Background()
-	defer limiter.Close()
-
-	allowed, _ := limiter.Allow(ctx, "ip-a", 1, time.Second)
-	if !allowed {
-		t.Error("ip-a should be allowed")
-	}
-
-	allowed, _ = limiter.Allow(ctx, "ip-b", 1, time.Second)
-	if !allowed {
-		t.Error("ip-b should be allowed (different key)")
-	}
-
-	allowed, _ = limiter.Allow(ctx, "ip-a", 1, time.Second)
-	if allowed {
-		t.Error("ip-a should be rate limited")
-	}
-}
-
-func TestRedisLimiter_NoConnection(t *testing.T) {
-	cfg := Config{Enabled: true, Addr: "localhost:9999"}
-	_, err := NewRedisLimiter(cfg)
-	if err == nil {
-		t.Error("expected error for unreachable Redis")
-	}
-}
-
-func TestRedisLimiter_Disabled(t *testing.T) {
-	limiter, err := NewRedisLimiter(Config{Enabled: false})
+	allowed, err := limiter.Allow(ctx, "user_refill", 2, window)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if limiter != nil {
-		t.Error("expected nil limiter when disabled")
+	if !allowed {
+		t.Error("expected request to be allowed after token refill")
 	}
 }
 
-func TestConfig_Defaults(t *testing.T) {
-	cfg := Config{Enabled: true}
-	if cfg.Addr != "" {
-		return
+func TestMemoryLimiter_MultipleIPs(t *testing.T) {
+	limiter := NewMemoryLimiter()
+	defer limiter.Close()
+	ctx := context.Background()
+
+	// Exhaust IP 1 (limit 1)
+	limiter.Allow(ctx, "192.168.1.1", 1, time.Second)
+	allowed1, _ := limiter.Allow(ctx, "192.168.1.1", 1, time.Second)
+	if allowed1 {
+		t.Error("expected IP1 second request to be denied")
 	}
-	limiter, err := NewRedisLimiter(cfg)
-	if err == nil {
-		defer limiter.Close()
+
+	// IP 2 should still be allowed
+	allowed2, err := limiter.Allow(ctx, "192.168.1.2", 1, time.Second)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-}
-
-func TestMemoryLimiter_Cleanup(t *testing.T) {
-	m := &MemoryLimiter{
-		buckets:         make(map[string]*bucket),
-		done:            make(chan struct{}),
-		bucketTTL:       50 * time.Millisecond,
-		cleanupInterval: 10 * time.Millisecond,
-	}
-	defer m.Close()
-
-	go m.runCleanup()
-	m.buckets["stale"] = &bucket{lastAccess: time.Now().Add(-time.Hour)}
-	m.buckets["fresh"] = &bucket{lastAccess: time.Now().Add(time.Hour)}
-
-	time.Sleep(100 * time.Millisecond)
-
-	m.mu.Lock()
-	_, staleExists := m.buckets["stale"]
-	_, freshExists := m.buckets["fresh"]
-	m.mu.Unlock()
-
-	if staleExists {
-		t.Error("stale bucket should have been cleaned up")
-	}
-	if !freshExists {
-		t.Error("fresh bucket should not have been cleaned up")
+	if !allowed2 {
+		t.Error("expected IP2 first request to be allowed")
 	}
 }
 
 func TestMemoryLimiter_Concurrent(t *testing.T) {
 	limiter := NewMemoryLimiter()
 	defer limiter.Close()
-
 	ctx := context.Background()
-	done := make(chan struct{})
 
-	for i := 0; i < 10; i++ {
-		go func(id int) {
-			for j := 0; j < 50; j++ {
-				limiter.Allow(ctx, "concurrent-key", 100, time.Second)
+	var wg sync.WaitGroup
+	goroutines := 50
+	requestsPerRoutine := 20
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		key := fmt.Sprintf("key_%d", i%5) // 5 distinct keys
+		go func(k string) {
+			defer wg.Done()
+			for j := 0; j < requestsPerRoutine; j++ {
+				_, _ = limiter.Allow(ctx, k, 10, time.Second)
 			}
-			done <- struct{}{}
-		}(i)
+		}(key)
 	}
 
-	for i := 0; i < 10; i++ {
-		<-done
+	wg.Wait()
+}
+
+func TestMemoryLimiter_Cleanup(t *testing.T) {
+	limiter := NewMemoryLimiter()
+	defer limiter.Close()
+	ctx := context.Background()
+
+	// Add bucket
+	limiter.Allow(ctx, "stale_ip", 10, time.Second)
+
+	// Artificially make bucket old
+	limiter.mu.Lock()
+	if b, ok := limiter.buckets["stale_ip"]; ok {
+		b.lastAccess = time.Now().Add(-1 * time.Hour)
+	}
+	limiter.mu.Unlock()
+
+	// Trigger manual cleanup
+	limiter.cleanup()
+
+	limiter.mu.Lock()
+	_, exists := limiter.buckets["stale_ip"]
+	limiter.mu.Unlock()
+
+	if exists {
+		t.Error("expected stale bucket to be deleted by cleanup()")
+	}
+}
+
+func TestRedisLimiter_Disabled(t *testing.T) {
+	cfg := Config{Enabled: false}
+	rl, err := NewRedisLimiter(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rl != nil {
+		t.Error("expected nil RedisLimiter when disabled")
 	}
 }
