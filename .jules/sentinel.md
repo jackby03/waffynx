@@ -1,4 +1,5 @@
-## 2024-05-18 - Unauthenticated pprof endpoints in management API
-**Vulnerability:** The management API (`waf-api`) exposed `net/http/pprof` debugging endpoints without authentication.
-**Learning:** Development tools and debugging handlers must be explicitly wrapped in the same authentication middleware as the rest of the application when mounted on a public mux.
-**Prevention:** Always apply default-deny or universal authentication middleware to the root router before attaching specific handlers, including standard library debugging endpoints.
+Date: 2024-05-24
+Title: Overly Permissive CORS Policy Fixed
+Vulnerability: `cmd/waf-api/main.go` contained a hardcoded wildcard (`*`) in its `Access-Control-Allow-Origin` HTTP header on the management API (e.g. `corsMiddleware`, `handleRoot`, `handleSSE`).
+Learning: Global wildcard CORS headers blindly trust any origin, risking unauthorized cross-origin access and exposure of administration APIs to malicious websites. Unintended CORS exposure can happen in secondary endpoints like SSE or root status handlers.
+Prevention: Default CORS setups to restrict origins using a configured allowlist (`cfg.API.AllowedOrigins`). Validate the request `Origin` against the config, and only return wildcard headers or credential-allowing headers when strictly configured or validated.

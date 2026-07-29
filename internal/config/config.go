@@ -106,9 +106,10 @@ type FirewallConfig struct {
 }
 
 type APIConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Listen  string `yaml:"listen"`
-	Auth    AuthConfig `yaml:"auth"`
+	Enabled        bool     `yaml:"enabled"`
+	Listen         string   `yaml:"listen"`
+	AllowedOrigins []string `yaml:"allowed_origins"`
+	Auth           AuthConfig `yaml:"auth"`
 }
 
 type UserConfig struct {
