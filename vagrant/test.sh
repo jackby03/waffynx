@@ -113,7 +113,26 @@ cleanup_backend() {
     wait "$BACKEND_PID" 2>/dev/null || true
 }
 
-python3 -m http.server 3000 --bind 127.0.0.1 &>/tmp/backend.log &
+cat << 'EOF' > /tmp/test-backend.py
+import http.server
+import socketserver
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+    def do_POST(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+socketserver.TCPServer.allow_reuse_address = True
+with socketserver.TCPServer(("127.0.0.1", 3000), Handler) as httpd:
+    httpd.serve_forever()
+EOF
+
+python3 /tmp/test-backend.py &>/tmp/backend.log &
 BACKEND_PID=$!
 trap 'cleanup_backend' EXIT
 
