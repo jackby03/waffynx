@@ -317,12 +317,16 @@ func (s *apiServer) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			if allowedOrigin != "*" {
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		}
 
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
+			if allowedOrigin != "" {
+				w.WriteHeader(http.StatusNoContent)
+			} else {
+				w.WriteHeader(http.StatusForbidden)
+			}
 			return
 		}
 		next(w, r)
