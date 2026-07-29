@@ -13,6 +13,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 
@@ -491,7 +492,7 @@ func (s *apiServer) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deepMerge(current, updates)
+	deepMerge(current, normalizeKeys(updates))
 
 	merged, err := yaml.Marshal(current)
 	if err != nil {
@@ -535,6 +536,30 @@ func deepMerge(target, source map[string]interface{}) {
 		}
 		target[key] = srcVal
 	}
+}
+
+func normalizeKeys(m map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		key := toSnakeCase(k)
+		if sub, ok := v.(map[string]interface{}); ok {
+			out[key] = normalizeKeys(sub)
+		} else {
+			out[key] = v
+		}
+	}
+	return out
+}
+
+func toSnakeCase(s string) string {
+	var b strings.Builder
+	for i, r := range s {
+		if i > 0 && unicode.IsUpper(r) {
+			b.WriteByte('_')
+		}
+		b.WriteRune(unicode.ToLower(r))
+	}
+	return b.String()
 }
 
 func (s *apiServer) handleMetrics(w http.ResponseWriter, r *http.Request) {

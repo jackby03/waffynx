@@ -86,7 +86,7 @@ func TestUFWBackend_RemoveRule(t *testing.T) {
 
 	call := calls[0]
 	actualArgs := strings.Join(call.Args, " ")
-	expectedArgs := "delete deny from 192.168.1.50 443 proto tcp"
+	expectedArgs := "delete deny from 192.168.1.50 443 /tcp"
 	if actualArgs != expectedArgs {
 		t.Errorf("expected args %q, got %q", expectedArgs, actualArgs)
 	}

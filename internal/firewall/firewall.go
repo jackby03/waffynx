@@ -233,7 +233,7 @@ func (u *UFWBackend) RemoveRule(rule Rule) error {
 	if rule.Port > 0 {
 		args = append(args, strconv.Itoa(rule.Port))
 		if rule.Protocol != "" {
-			args = append(args, "proto", rule.Protocol)
+			args = append(args, "/"+rule.Protocol)
 		}
 	}
 	if rule.Comment != "" {
