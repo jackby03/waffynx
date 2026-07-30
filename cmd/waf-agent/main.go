@@ -122,8 +122,9 @@ func runAgent(cfg *config.AgentConfig) error {
 	tracker := newEventTracker(cfg.EventBroker.BlockThreshold, cfg.EventBroker.WindowSeconds)
 	srv := &agentServer{cfg: cfg, mgr: mgr, tracker: tracker}
 
-	if cfg.APIKey == "change-me-in-production" {
-		logging.Warn().Msg("agent API key is set to default value, change it in production")
+	if cfg.APIKey == "" || cfg.APIKey == "change-me-in-production" {
+		logging.Error().Msg("agent API key is empty or set to default value, change it in production")
+		return fmt.Errorf("insecure API key configuration")
 	}
 
 	mux := http.NewServeMux()
