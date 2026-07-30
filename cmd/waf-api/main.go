@@ -13,6 +13,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 
@@ -69,7 +70,13 @@ func runAPI(cfg *config.Config, configPath string) error {
 	logging.Info().Str("listen", cfg.API.Listen).Msg("starting management API")
 
 	if cfg.API.Auth.JWTSecret == "" || cfg.API.Auth.JWTSecret == "change-me-in-production" {
-		logging.Warn().Msg("JWT secret is set to default value, change it in production")
+		logging.Fatal().Msg("JWT secret is empty or set to default value, change it in production")
+		return fmt.Errorf("insecure JWT secret")
+	}
+
+	if len(cfg.API.Auth.JWTSecret) < 32 {
+		logging.Fatal().Msg("JWT secret is too short, must be at least 32 characters")
+		return fmt.Errorf("insecure JWT secret")
 	}
 
 	auditStore, err := audit.NewStore(2000, "/opt/waffynx/logs/audit.jsonl")
@@ -489,7 +496,7 @@ func (s *apiServer) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deepMerge(current, updates)
+	deepMerge(current, normalizeKeys(updates))
 
 	merged, err := yaml.Marshal(current)
 	if err != nil {
@@ -533,6 +540,30 @@ func deepMerge(target, source map[string]interface{}) {
 		}
 		target[key] = srcVal
 	}
+}
+
+func normalizeKeys(m map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		key := toSnakeCase(k)
+		if sub, ok := v.(map[string]interface{}); ok {
+			out[key] = normalizeKeys(sub)
+		} else {
+			out[key] = v
+		}
+	}
+	return out
+}
+
+func toSnakeCase(s string) string {
+	var b strings.Builder
+	for i, r := range s {
+		if i > 0 && unicode.IsUpper(r) {
+			b.WriteByte('_')
+		}
+		b.WriteRune(unicode.ToLower(r))
+	}
+	return b.String()
 }
 
 func (s *apiServer) handleMetrics(w http.ResponseWriter, r *http.Request) {

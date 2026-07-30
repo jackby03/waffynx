@@ -24,7 +24,7 @@ func newTestAPIServer(t *testing.T, cfg *config.Config) (*apiServer, http.Handle
 			API: config.APIConfig{
 				Listen: ":9090",
 				Auth: config.AuthConfig{
-					JWTSecret: "test-secret-key-1234567890",
+					JWTSecret: "test-secret-key-1234567890-must-be-32-chars",
 					TokenTTL:  3600,
 				},
 			},
@@ -155,7 +155,7 @@ func TestAPI_Login_And_ProtectedEndpoints(t *testing.T) {
 		API: config.APIConfig{
 			Listen: ":9090",
 			Auth: config.AuthConfig{
-				JWTSecret: "test-secret-key-1234567890",
+				JWTSecret: "test-secret-key-1234567890-must-be-32-chars",
 				TokenTTL:  3600,
 				Users: []config.UserConfig{
 					{
