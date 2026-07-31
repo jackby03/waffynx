@@ -20,3 +20,8 @@ Prevention: Ensure that *all* CORS response headers are conditionally applied on
 **Vulnerability:** The agent server only logged a warning if the API key was set to a specific default literal ("change-me-in-production") or empty, allowing it to start with weak/default credentials.
 **Learning:** Failing to strictly validate API keys at startup can lead to unauthorized access to critical endpoints (like firewall control).
 **Prevention:** Always abort server startup if required security credentials (like API keys or JWT secrets) are empty or match known unsafe default values.
+
+## 2024-05-XX - Timing Attack Vulnerability in API Key Validation
+**Vulnerability:** The `authMiddleware` in `cmd/waf-agent/main.go` was using a standard string comparison (`==` or `!=`) to validate the provided API key against the configured one. This allowed for timing side-channel attacks.
+**Learning:** Standard string comparisons fail early, meaning the time taken to evaluate the comparison depends on the number of matching characters at the beginning. Attackers can exploit this by measuring the response time to guess the secret key character by character.
+**Prevention:** Always use constant-time comparison functions like `crypto/subtle.ConstantTimeCompare` when comparing sensitive data like passwords, API keys, HMACs, or tokens to prevent timing attacks.
