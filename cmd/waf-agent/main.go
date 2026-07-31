@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -287,7 +288,7 @@ func (s *agentServer) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 				key = key[7:]
 			}
 		}
-		if key != s.cfg.APIKey {
+		if subtle.ConstantTimeCompare([]byte(key), []byte(s.cfg.APIKey)) != 1 {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{
 				"error": "invalid API key",
 			})
