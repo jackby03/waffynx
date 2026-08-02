@@ -401,6 +401,7 @@ let trafficHistory=Array(30).fill(0), blockHistory=Array(30).fill(0);
 let recentAttacks=[];
 
 function $(id){ return document.getElementById(id); }
+function escapeHTML(str) { return String(str).replace(/[&<>'"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[c] || c)); }
 
 async function api(path, opts={}){
   const headers={'Authorization':'Bearer '+TOKEN, ...opts.headers};
@@ -526,22 +527,22 @@ function updateStatus(s, plugins){
   // Live log
   $('liveLog').innerHTML=recentAttacks.map(a=>`
     <div class="attack-row">
-      <span class="attack-method ${a.method.toLowerCase()}">${a.method}</span>
-      <span>${a.path}</span>
-      <span class="attack-type ${a.type}">${a.type.toUpperCase()}</span>
-      <span class="attack-ip">${a.ip}</span>
-      <span class="attack-time">${a.time}</span>
+      <span class="attack-method ${escapeHTML(a.method).toLowerCase()}">${escapeHTML(a.method)}</span>
+      <span>${escapeHTML(a.path)}</span>
+      <span class="attack-type ${escapeHTML(a.type)}">${escapeHTML(a.type).toUpperCase()}</span>
+      <span class="attack-ip">${escapeHTML(a.ip)}</span>
+      <span class="attack-time">${escapeHTML(a.time)}</span>
     </div>`).join('')||'<div class="empty-state"><p>No traffic yet</p></div>';
 }
 
 function renderAttacks(){
   $('recentAttacks').innerHTML=recentAttacks.slice(0,10).map(a=>`
     <div class="attack-row">
-      <span class="attack-method ${a.method.toLowerCase()}">${a.method}</span>
-      <span>${a.path}</span>
-      <span class="attack-type ${a.type}">${a.type.toUpperCase()}</span>
-      <span class="attack-ip">${a.ip}</span>
-      <span class="attack-time">${a.time}</span>
+      <span class="attack-method ${escapeHTML(a.method).toLowerCase()}">${escapeHTML(a.method)}</span>
+      <span>${escapeHTML(a.path)}</span>
+      <span class="attack-type ${escapeHTML(a.type)}">${escapeHTML(a.type).toUpperCase()}</span>
+      <span class="attack-ip">${escapeHTML(a.ip)}</span>
+      <span class="attack-time">${escapeHTML(a.time)}</span>
     </div>`).join('')||'<div class="empty-state"><p>No attacks detected yet. Traffic is clean.</p></div>';
 }
 
