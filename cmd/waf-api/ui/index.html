@@ -402,6 +402,16 @@ let recentAttacks=[];
 
 function $(id){ return document.getElementById(id); }
 
+function escapeHTML(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 async function api(path, opts={}){
   const headers={'Authorization':'Bearer '+TOKEN, ...opts.headers};
   const r=await fetch(API+path, {...opts, headers});
@@ -526,22 +536,22 @@ function updateStatus(s, plugins){
   // Live log
   $('liveLog').innerHTML=recentAttacks.map(a=>`
     <div class="attack-row">
-      <span class="attack-method ${a.method.toLowerCase()}">${a.method}</span>
-      <span>${a.path}</span>
-      <span class="attack-type ${a.type}">${a.type.toUpperCase()}</span>
-      <span class="attack-ip">${a.ip}</span>
-      <span class="attack-time">${a.time}</span>
+      <span class="attack-method ${escapeHTML(a.method).toLowerCase()}">${escapeHTML(a.method)}</span>
+      <span>${escapeHTML(a.path)}</span>
+      <span class="attack-type ${escapeHTML(a.type)}">${escapeHTML(a.type).toUpperCase()}</span>
+      <span class="attack-ip">${escapeHTML(a.ip)}</span>
+      <span class="attack-time">${escapeHTML(a.time)}</span>
     </div>`).join('')||'<div class="empty-state"><p>No traffic yet</p></div>';
 }
 
 function renderAttacks(){
   $('recentAttacks').innerHTML=recentAttacks.slice(0,10).map(a=>`
     <div class="attack-row">
-      <span class="attack-method ${a.method.toLowerCase()}">${a.method}</span>
-      <span>${a.path}</span>
-      <span class="attack-type ${a.type}">${a.type.toUpperCase()}</span>
-      <span class="attack-ip">${a.ip}</span>
-      <span class="attack-time">${a.time}</span>
+      <span class="attack-method ${escapeHTML(a.method).toLowerCase()}">${escapeHTML(a.method)}</span>
+      <span>${escapeHTML(a.path)}</span>
+      <span class="attack-type ${escapeHTML(a.type)}">${escapeHTML(a.type).toUpperCase()}</span>
+      <span class="attack-ip">${escapeHTML(a.ip)}</span>
+      <span class="attack-time">${escapeHTML(a.time)}</span>
     </div>`).join('')||'<div class="empty-state"><p>No attacks detected yet. Traffic is clean.</p></div>';
 }
 
@@ -551,19 +561,19 @@ async function refreshSettings(){
       api('/api/v1/status'), api('/api/v1/config')
     ]);
     $('configGrid').innerHTML=`
-      <div class="config-item"><span class="config-key">Engine</span><span class="config-val">${status.config?.engine||'basic-go'}</span></div>
+      <div class="config-item"><span class="config-key">Engine</span><span class="config-val">${escapeHTML(status.config?.engine||'basic-go')}</span></div>
       <div class="config-item"><span class="config-key">AppSec</span><span class="config-val">${status.config?.appsec_enabled?'Enabled':'Disabled'}</span></div>
-      <div class="config-item"><span class="config-key">Version</span><span class="config-val">${status.version||'dev'}</span></div>
-      <div class="config-item"><span class="config-key">Sidecar Path</span><span class="config-val" style="font-size:11px;">${config?.sidecar?.socket_path||'--'}</span></div>
+      <div class="config-item"><span class="config-key">Version</span><span class="config-val">${escapeHTML(status.version||'dev')}</span></div>
+      <div class="config-item"><span class="config-key">Sidecar Path</span><span class="config-val" style="font-size:11px;">${escapeHTML(config?.sidecar?.socket_path||'--')}</span></div>
       <div class="config-item"><span class="config-key">Fail Open</span><span class="config-val">${config?.sidecar?.fail_open?'Yes':'No'}</span></div>
-      <div class="config-item"><span class="config-key">Timeout</span><span class="config-val">${config?.sidecar?.timeout_ms||'--'}ms</span></div>`;
+      <div class="config-item"><span class="config-key">Timeout</span><span class="config-val">${escapeHTML(config?.sidecar?.timeout_ms||'--')}ms</span></div>`;
     $('healthGrid').innerHTML=`
-      <div class="config-item"><span class="config-key">Go Version</span><span class="config-val">${status.go_version||'--'}</span></div>
-      <div class="config-item"><span class="config-key">Goroutines</span><span class="config-val">${status.goroutines||'0'}</span></div>
-      <div class="config-item"><span class="config-key">Heap Alloc</span><span class="config-val">${(status.memory?.alloc_mb||0).toFixed(1)} MB</span></div>
-      <div class="config-item"><span class="config-key">Total Alloc</span><span class="config-val">${(status.memory?.total_alloc_mb||0).toFixed(1)} MB</span></div>
-      <div class="config-item"><span class="config-key">Git Commit</span><span class="config-val" style="font-size:11px;font-family:monospace;">${(status.git_commit||'--').substring(0,8)}</span></div>
-      <div class="config-item"><span class="config-key">Built</span><span class="config-val">${status.build_time||'--'}</span></div>`;
+      <div class="config-item"><span class="config-key">Go Version</span><span class="config-val">${escapeHTML(status.go_version||'--')}</span></div>
+      <div class="config-item"><span class="config-key">Goroutines</span><span class="config-val">${escapeHTML(status.goroutines||'0')}</span></div>
+      <div class="config-item"><span class="config-key">Heap Alloc</span><span class="config-val">${escapeHTML((status.memory?.alloc_mb||0).toFixed(1))} MB</span></div>
+      <div class="config-item"><span class="config-key">Total Alloc</span><span class="config-val">${escapeHTML((status.memory?.total_alloc_mb||0).toFixed(1))} MB</span></div>
+      <div class="config-item"><span class="config-key">Git Commit</span><span class="config-val" style="font-size:11px;font-family:monospace;">${escapeHTML((status.git_commit||'--').substring(0,8))}</span></div>
+      <div class="config-item"><span class="config-key">Built</span><span class="config-val">${escapeHTML(status.build_time||'--')}</span></div>`;
   }catch(e){}
 }
 
@@ -580,8 +590,8 @@ function connectSSE(){
     try{
       const data=JSON.parse(e.data);
       if(data.type==='stats'){
-        $('statGoroutines')?.textContent=data.goroutines||'--';
-        $('trafficConn')?.textContent=data.goroutines||'--';
+        const sg = $('statGoroutines'); if (sg) sg.textContent=data.goroutines||'--';
+        const tc = $('trafficConn'); if (tc) tc.textContent=data.goroutines||'--';
       }
     }catch(ex){}
   };

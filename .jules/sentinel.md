@@ -25,3 +25,8 @@ Prevention: Ensure that *all* CORS response headers are conditionally applied on
 **Vulnerability:** The `authMiddleware` in `cmd/waf-agent/main.go` was using a standard string comparison (`==` or `!=`) to validate the provided API key against the configured one. This allowed for timing side-channel attacks.
 **Learning:** Standard string comparisons fail early, meaning the time taken to evaluate the comparison depends on the number of matching characters at the beginning. Attackers can exploit this by measuring the response time to guess the secret key character by character.
 **Prevention:** Always use constant-time comparison functions like `crypto/subtle.ConstantTimeCompare` when comparing sensitive data like passwords, API keys, HMACs, or tokens to prevent timing attacks.
+
+## 2026-08-01 - DOM XSS via innerHTML in UI Dashboard
+**Vulnerability:** The management dashboard (`cmd/waf-api/ui/index.html`) was concatenating dynamic variables (like HTTP method, path, attack type, and IP address) directly into `innerHTML` strings when rendering the live attack log and settings. This allowed for Cross-Site Scripting (XSS) if an attacker sent malicious input that was subsequently logged and rendered in the UI.
+**Learning:** Using `innerHTML` for displaying dynamically generated content from untrusted sources is a common vector for XSS. The source of the content, even if it comes from internal API logs, should still be treated as potentially untrusted if it originated from user input.
+**Prevention:** Always sanitize or escape data when inserting it into the DOM. Prefer using `textContent` for raw strings, or use a helper function to HTML-escape variables before inserting them into string templates assigned to `innerHTML`.
