@@ -30,3 +30,7 @@ Prevention: Ensure that *all* CORS response headers are conditionally applied on
 **Vulnerability:** The management dashboard (`cmd/waf-api/ui/index.html`) was concatenating dynamic variables (like HTTP method, path, attack type, and IP address) directly into `innerHTML` strings when rendering the live attack log and settings. This allowed for Cross-Site Scripting (XSS) if an attacker sent malicious input that was subsequently logged and rendered in the UI.
 **Learning:** Using `innerHTML` for displaying dynamically generated content from untrusted sources is a common vector for XSS. The source of the content, even if it comes from internal API logs, should still be treated as potentially untrusted if it originated from user input.
 **Prevention:** Always sanitize or escape data when inserting it into the DOM. Prefer using `textContent` for raw strings, or use a helper function to HTML-escape variables before inserting them into string templates assigned to `innerHTML`.
+## 2026-08-01 - Unreachable Error Returns in API Configuration
+**Vulnerability:** The application was using `logging.Fatal()` when a weak JWT secret was configured, which causes an immediate `os.Exit(1)` and makes the subsequent `return fmt.Errorf(...)` unreachable.
+**Learning:** In Go functions designed to return an error, using `Fatal()` bypasses graceful degradation and caller error handling, causing abrupt process termination.
+**Prevention:** Always use `logging.Error()` in functions returning errors to allow the application to fail gracefully.
