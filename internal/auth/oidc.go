@@ -119,10 +119,6 @@ func (m *OIDCManager) ValidateToken(ctx context.Context, rawToken string) (strin
 			}
 		}
 
-		if claims.Email != "" && (claims.Email == idToken.Issuer+"admin" || role == "admin") {
-			role = "admin"
-		}
-
 		return username, role, name, nil
 	}
 
