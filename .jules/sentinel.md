@@ -34,3 +34,7 @@ Prevention: Ensure that *all* CORS response headers are conditionally applied on
 **Vulnerability:** The application was using `logging.Fatal()` when a weak JWT secret was configured, which causes an immediate `os.Exit(1)` and makes the subsequent `return fmt.Errorf(...)` unreachable.
 **Learning:** In Go functions designed to return an error, using `Fatal()` bypasses graceful degradation and caller error handling, causing abrupt process termination.
 **Prevention:** Always use `logging.Error()` in functions returning errors to allow the application to fail gracefully.
+## 2024-10-25 - [Fix authorization bypass backdoor in OIDC manager]
+**Vulnerability:** A hardcoded check blindly granted the `admin` role if an OIDC token claim email matched `idToken.Issuer + "admin"`.
+**Learning:** Hardcoded, undocumented logic based on predictable string concatenation (like `issuer+"admin"`) creates dangerous authorization bypasses/backdoors, even if relying on external identity providers.
+**Prevention:** Avoid magic strings for authorization rules and rely solely on established claims parsing (e.g. groups claims) configured by administrators.
