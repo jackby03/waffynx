@@ -45,11 +45,15 @@ func newTestAPIServer(t *testing.T, cfg *config.Config) (*apiServer, http.Handle
 	srv.seedMarketplace()
 
 	mux := http.NewServeMux()
+
+	withCORS := srv.corsMiddleware
+
 	mux.HandleFunc("GET /health", srv.handleHealth)
-	mux.HandleFunc("POST /api/v1/auth/login", srv.handleLogin)
+
+	mux.HandleFunc("POST /api/v1/auth/login", withCORS(srv.handleLogin))
+	mux.HandleFunc("OPTIONS /api/v1/auth/login", withCORS(srv.handleLogin))
 
 	withAuth := srv.authMiddleware(mux)
-	withCORS := srv.corsMiddleware
 
 	mux.HandleFunc("GET /api/v1/status", withCORS(withAuth(srv.handleStatus)))
 	mux.HandleFunc("GET /api/v1/config", withCORS(withAuth(srv.handleGetConfig)))
