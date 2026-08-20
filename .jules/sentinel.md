@@ -38,3 +38,10 @@ Prevention: Ensure that *all* CORS response headers are conditionally applied on
 **Vulnerability:** A hardcoded check blindly granted the `admin` role if an OIDC token claim email matched `idToken.Issuer + "admin"`.
 **Learning:** Hardcoded, undocumented logic based on predictable string concatenation (like `issuer+"admin"`) creates dangerous authorization bypasses/backdoors, even if relying on external identity providers.
 **Prevention:** Avoid magic strings for authorization rules and rely solely on established claims parsing (e.g. groups claims) configured by administrators.
+
+## 2024-05-24
+
+**Title:** Missing CORS Middleware on Unauthenticated Login Endpoint
+**Vulnerability:** A cross-origin resource sharing (CORS) misconfiguration resulting from omitted middleware on sensitive endpoints, specifically the `/api/v1/auth/login` endpoint.
+**Learning:** In Go 1.22's `http.ServeMux`, method-specific route registration (e.g., `"POST /path"`) means preflight `OPTIONS` requests won't match automatically. If CORS middleware requires handling preflight requests, the `OPTIONS` method must be explicitly registered alongside the target endpoint, wrapping it in the CORS middleware.
+**Prevention:** Ensure all endpoints intended to be accessed cross-origin have proper CORS middleware applied. For Go 1.22+ `http.ServeMux` where method specificity is used, explicitly register the `OPTIONS` method with CORS middleware.

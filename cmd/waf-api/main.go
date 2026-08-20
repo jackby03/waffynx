@@ -105,11 +105,15 @@ func runAPI(cfg *config.Config, configPath string) error {
 
 	mux := http.NewServeMux()
 
+	withCORS := srv.corsMiddleware
+
 	mux.HandleFunc("GET /health", srv.handleHealth)
-	mux.HandleFunc("POST /api/v1/auth/login", srv.handleLogin)
+
+	// Use handleLogin for both POST and OPTIONS so that the withCORS middleware can handle the OPTIONS request correctly
+	mux.HandleFunc("POST /api/v1/auth/login", withCORS(srv.handleLogin))
+	mux.HandleFunc("OPTIONS /api/v1/auth/login", withCORS(srv.handleLogin))
 
 	withAuth := srv.authMiddleware(mux)
-	withCORS := srv.corsMiddleware
 	mux.HandleFunc("GET /api/v1/status", withCORS(withAuth(srv.handleStatus)))
 	mux.HandleFunc("GET /api/v1/config", withCORS(withAuth(srv.handleGetConfig)))
 	mux.HandleFunc("PUT /api/v1/config", withCORS(withAuth(srv.handleUpdateConfig)))
