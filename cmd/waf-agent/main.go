@@ -128,6 +128,11 @@ func runAgent(cfg *config.AgentConfig) error {
 		return fmt.Errorf("insecure API key configuration")
 	}
 
+	if len(cfg.APIKey) < 32 {
+		logging.Error().Msg("agent API key is too short, must be at least 32 characters")
+		return fmt.Errorf("insecure API key configuration")
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", srv.handleHealth)
 	mux.HandleFunc("GET /api/v1/firewall/rules", srv.authMiddleware(srv.handleListRules))
