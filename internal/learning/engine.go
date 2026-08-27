@@ -307,24 +307,46 @@ func (e *Engine) ExportDataset() []DatasetRecord {
 }
 
 func normalizePath(path string) string {
-	idx := strings.Index(path, "?")
-	if idx >= 0 {
+	if idx := strings.IndexByte(path, '?'); idx >= 0 {
 		path = path[:idx]
 	}
 
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-
-	for i, p := range parts {
-		if isNumeric(p) {
-			parts[i] = "{id}"
-		} else if isUUID(p) {
-			parts[i] = "{uuid}"
-		} else if isHex(p) && len(p) > 16 {
-			parts[i] = "{hash}"
-		}
+	path = strings.Trim(path, "/")
+	if path == "" {
+		return "/"
 	}
 
-	return "/" + strings.Join(parts, "/")
+	var sb strings.Builder
+	sb.Grow(len(path) + 1)
+
+	start := 0
+	for {
+		end := strings.IndexByte(path[start:], '/')
+		var segment string
+		if end == -1 {
+			segment = path[start:]
+		} else {
+			segment = path[start : start+end]
+		}
+
+		sb.WriteByte('/')
+		if isNumeric(segment) {
+			sb.WriteString("{id}")
+		} else if isUUID(segment) {
+			sb.WriteString("{uuid}")
+		} else if isHex(segment) && len(segment) > 16 {
+			sb.WriteString("{hash}")
+		} else {
+			sb.WriteString(segment)
+		}
+
+		if end == -1 {
+			break
+		}
+		start += end + 1
+	}
+
+	return sb.String()
 }
 
 func isNumeric(s string) bool {

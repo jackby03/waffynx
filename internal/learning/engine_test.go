@@ -134,6 +134,8 @@ func TestNormalizePath(t *testing.T) {
 		{"/static/css/main.css", "/static/css/main.css"},
 		{"/api/v1/products?page=1", "/api/v1/products"},
 		{"", "/"},
+		{"/item/123e4567-e89b-12d3-a456-426614174000", "/item/{uuid}"},
+		{"/hash/1234567890abcdef1234567890abcdef", "/hash/{hash}"},
 	}
 
 	for _, tt := range tests {
@@ -141,6 +143,23 @@ func TestNormalizePath(t *testing.T) {
 		if got != tt.expected {
 			t.Errorf("normalizePath(%q) = %q, want %q", tt.input, got, tt.expected)
 		}
+	}
+}
+
+func BenchmarkNormalizePath(b *testing.B) {
+	paths := []string{
+		"/api/users/123",
+		"/files/42/download",
+		"/static/css/main.css",
+		"/api/v1/products?page=1",
+		"/item/123e4567-e89b-12d3-a456-426614174000",
+		"/hash/1234567890abcdef1234567890abcdef",
+		"",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = normalizePath(paths[i%len(paths)])
 	}
 }
 
