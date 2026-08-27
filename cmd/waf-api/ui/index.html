@@ -493,7 +493,7 @@ function updateStatus(s, plugins){
   // Stats update
   $('statBlocked').textContent=block;
   $('statBlockedTrend').innerHTML=block>10?'<span class="stat-trend-up">'+block+' blocked</span>':'<span class="stat-trend-down">'+block+' blocked</span>';
-  $('statTotalTrend').innerHTML='Goroutines: '+(s.goroutines||0);
+  $('statTotalTrend').textContent='Goroutines: '+(s.goroutines||0);
 
   // Donut
   const total=allow+block||1;
