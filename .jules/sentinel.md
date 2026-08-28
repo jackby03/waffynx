@@ -55,3 +55,9 @@ Title: Overly Permissive Unix Socket Permissions
 Vulnerability: `cmd/appsec-bridge/main.go` and `internal/engine/sidecar.go` set Unix domain socket file permissions to `0666` (world-readable and world-writable).
 Learning: Using `0666` on Unix domain sockets allows any local user on the host system to interact with or manipulate socket-based internal services, potentially leading to local privilege escalation or message spoofing.
 Prevention: Set Unix domain socket file permissions to restrictive modes (e.g., `0600` or `0660`) to restrict access strictly to the socket owner or intended group.
+
+Date: 2026-08-01
+Title: Missing Authentication on SSE Endpoint
+Vulnerability: `cmd/waf-api/main.go` registered `GET /api/v1/events` without `withAuth`, allowing unauthenticated clients to connect to the Server-Sent Events stream and receive live security event telemetry and stats.
+Learning: Streaming endpoints like SSE endpoints can easily be overlooked during middleware setup, leading to accidental exposure of sensitive telemetry data to unauthenticated observers.
+Prevention: Always ensure all API endpoints under protected routes (such as `/api/v1/`) are systematically wrapped with authentication middleware.

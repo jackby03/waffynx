@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -60,6 +61,7 @@ func newTestAPIServer(t *testing.T, cfg *config.Config) (*apiServer, http.Handle
 	mux.HandleFunc("PUT /api/v1/config", withCORS(withAuth(srv.handleUpdateConfig)))
 	mux.HandleFunc("GET /api/v1/metrics", withCORS(withAuth(srv.handleMetrics)))
 	mux.HandleFunc("GET /api/v1/plugins", withCORS(withAuth(srv.handleListPlugins)))
+	mux.HandleFunc("GET /api/v1/events", withCORS(withAuth(srv.handleSSE)))
 	mux.HandleFunc("GET /api/v1/marketplace", withCORS(withAuth(srv.handleMarketplaceList)))
 	mux.HandleFunc("GET /", srv.handleRoot)
 
@@ -251,3 +253,34 @@ func TestAPI_Login_And_ProtectedEndpoints(t *testing.T) {
 	}
 }
 
+func TestAPI_SSE_Auth(t *testing.T) {
+	srv, handler := newTestAPIServer(t, nil)
+
+	// 1. Missing auth header -> 401
+	req := httptest.NewRequest("GET", "/api/v1/events", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected status 401 for unauthenticated SSE request, got %d", rec.Code)
+	}
+
+	// 2. Valid auth header -> 200 (SSE stream started)
+	token, err := srv.authMgr.GenerateToken("admin", "admin", []string{"read", "write"})
+	if err != nil {
+		t.Fatalf("failed to generate token: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel context immediately so handleSSE returns after connecting
+
+	req = httptest.NewRequest("GET", "/api/v1/events", nil).WithContext(ctx)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status 200 for authenticated SSE request, got %d", rec.Code)
+	}
+}
