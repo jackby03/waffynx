@@ -121,13 +121,17 @@ func TestBroker_PublishMultipleSubscribers(t *testing.T) {
 
 func TestBroker_PublishNonBlockingFullBuffer(t *testing.T) {
 	b := NewBroker()
-	_ = b.Subscribe() // channel capacity is 64
+	ch := b.Subscribe()
+	capacity := cap(ch)
 
 	// Fill channel buffer
-	for i := 0; i < 64; i++ {
+	for i := 0; i < capacity; i++ {
 		b.Publish(WafEvent{Type: TypeAllowed, Reason: "fill"})
 	}
 
+	if got, want := len(ch), capacity; got != want {
+		t.Fatalf("expected subscriber channel buffer to be full (%d), got %d", want, got)
+	}
 	// 65th publish should not block or panic even if channel buffer is full
 	done := make(chan struct{})
 	go func() {
