@@ -235,6 +235,7 @@ func TestRuleEngine_Evaluate_Table(t *testing.T) {
 	tests := []struct {
 		name           string
 		rules          []Rule
+		beforeEval     func(*RuleEngine)
 		phase          Phase
 		ctx            context.Context
 		req            *Request
@@ -313,6 +314,9 @@ func TestRuleEngine_Evaluate_Table(t *testing.T) {
 					Reason: "Log response",
 				},
 			},
+			beforeEval: func(engine *RuleEngine) {
+				engine.RemoveRule("non-existent-id")
+			},
 			phase:          PhaseResponse,
 			ctx:            context.Background(),
 			req:            &Request{Method: "GET", Path: "/"},
@@ -329,8 +333,8 @@ func TestRuleEngine_Evaluate_Table(t *testing.T) {
 				engine.AddRule(r)
 			}
 
-			if tt.name == "Remove non-existent rule does not affect evaluation" {
-				engine.RemoveRule("non-existent-id")
+			if tt.beforeEval != nil {
+				tt.beforeEval(engine)
 			}
 
 			res := engine.Evaluate(tt.ctx, tt.phase, tt.req)
