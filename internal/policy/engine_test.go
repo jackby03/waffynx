@@ -276,7 +276,7 @@ func TestRuleEngine_Evaluate_Table(t *testing.T) {
 					Match: func(ctx context.Context, req *Request) bool {
 						return req.RemoteIP == "192.168.1.100" &&
 							req.Query == "debug=true" &&
-							req.Headers["X-Admin-Token"] != nil &&
+							len(req.Headers["X-Admin-Token"]) > 0 &&
 							req.Headers["X-Admin-Token"][0] == "secret"
 					},
 					Action: ActionBlock,
