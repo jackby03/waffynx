@@ -40,37 +40,45 @@ type ipCounter struct {
 	windowStart time.Time
 }
 
+func toLowerSlice(slice []string) []string {
+	res := make([]string, len(slice))
+	for i, s := range slice {
+		res[i] = strings.ToLower(s)
+	}
+	return res
+}
+
 func NewBasicScorer() *BasicScorer {
 	return &BasicScorer{
 		enabled: true,
-		sqliPatterns: []string{
+		sqliPatterns: toLowerSlice([]string{
 			"union select", "union/**/select",
 			"or 1=1", "' or '1'='1",
 			"or 1=1--", "' or 1=1#",
 			"information_schema", "load_file(",
 			"outfile", "char(",
-		},
-		xssPatterns: []string{
+		}),
+		xssPatterns: toLowerSlice([]string{
 			"<script", "</script>",
 			"javascript:",
 			"onerror=", "onload=", "onclick=", "onfocus=",
 			"alert(", "prompt(", "confirm(",
 			"document.cookie", "document.write",
 			"eval(", "fromcharcode",
-		},
-		pathTraversal: []string{
+		}),
+		pathTraversal: toLowerSlice([]string{
 			"../", "..\\",
 			"/etc/passwd", "/etc/shadow",
 			"boot.ini", "win.ini",
 			"proc/self/environ",
-		},
-		cmdInjection: []string{
+		}),
+		cmdInjection: toLowerSlice([]string{
 			";cat ", ";ls ", ";id ", ";wget ",
 			"|cat ", "|ls ", "|id ",
 			"&&cat ", "&&ls ", "&&id ",
 			"$(cat ", "$(id)", "$(ls)",
 			"`cat ", "`id`", "`ls`",
-		},
+		}),
 		ipFrequency:     make(map[string]*ipCounter),
 		maxReqPerMinute: 300,
 	}
@@ -239,20 +247,26 @@ func (s *BasicScorer) checkPatterns(uri string, params map[string]string, body [
 	lowerURI := strings.ToLower(uri)
 	bodyStr := strings.ToLower(string(body))
 
-	for _, pattern := range patterns {
-		lowerPat := strings.ToLower(pattern)
+	var lowerParams []string
+	if len(params) > 0 {
+		lowerParams = make([]string, 0, len(params))
+		for _, val := range params {
+			lowerParams = append(lowerParams, strings.ToLower(val))
+		}
+	}
 
-		if strings.Contains(lowerURI, lowerPat) {
+	for _, pattern := range patterns {
+		if strings.Contains(lowerURI, pattern) {
 			return 0.9, pattern
 		}
 
-		for _, val := range params {
-			if strings.Contains(strings.ToLower(val), lowerPat) {
+		for _, val := range lowerParams {
+			if strings.Contains(val, pattern) {
 				return 0.9, pattern
 			}
 		}
 
-		if len(body) > 0 && strings.Contains(bodyStr, lowerPat) {
+		if len(body) > 0 && strings.Contains(bodyStr, pattern) {
 			return 0.9, pattern
 		}
 	}
