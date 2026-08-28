@@ -113,10 +113,22 @@ firewall:
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			cfg, err := Parse([]byte(tt.yamlData))
 			if err == nil {
 				t.Fatalf("expected error containing %q, got nil (cfg: %+v)", tt.errSubstr, cfg)
+			}
+			errStr := err.Error()
+			found := tt.errSubstr == ""
+			for i := 0; !found && i+len(tt.errSubstr) <= len(errStr); i++ {
+				if errStr[i:i+len(tt.errSubstr)] == tt.errSubstr {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("expected error containing %q, got %q", tt.errSubstr, errStr)
 			}
 		})
 	}
