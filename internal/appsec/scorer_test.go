@@ -302,6 +302,41 @@ func TestScoreThreshold(t *testing.T) {
 	}
 }
 
+func TestNewBasicScorer(t *testing.T) {
+	scorer := NewBasicScorer()
+	if scorer == nil {
+		t.Fatal("expected non-nil BasicScorer")
+	}
+
+	if !scorer.enabled {
+		t.Error("expected enabled to be true")
+	}
+
+	if scorer.maxReqPerMinute != 300 {
+		t.Errorf("expected maxReqPerMinute to be 300, got %d", scorer.maxReqPerMinute)
+	}
+
+	if scorer.ipFrequency == nil {
+		t.Error("expected ipFrequency map to be initialized")
+	}
+
+	if len(scorer.sqliPatterns) == 0 {
+		t.Error("expected sqliPatterns to be non-empty")
+	}
+
+	if len(scorer.xssPatterns) == 0 {
+		t.Error("expected xssPatterns to be non-empty")
+	}
+
+	if len(scorer.pathTraversal) == 0 {
+		t.Error("expected pathTraversal to be non-empty")
+	}
+
+	if len(scorer.cmdInjection) == 0 {
+		t.Error("expected cmdInjection to be non-empty")
+	}
+}
+
 func TestCPPBridgeScorer_StubOrDisabled(t *testing.T) {
 	ctx := context.Background()
 	scorer, err := NewCPPBridgeScorer("")
