@@ -49,3 +49,9 @@ Prevention: Ensure that *all* CORS response headers are conditionally applied on
 **Vulnerability:** The agent server only logged a warning if the API key was set to a specific default literal ("change-me-in-production") or empty, allowing it to start with weak/default credentials. But additionally, it didn't enforce a minimum secure length for user-configured API keys.
 **Learning:** Failing to strictly validate API keys at startup can lead to unauthorized access to critical endpoints (like firewall control). Even if the default string is changed, short or easily guessable keys remain a vulnerability.
 **Prevention:** Always abort server startup if required security credentials (like API keys or JWT secrets) are empty, match known unsafe default values, or fail strict minimum length requirements (e.g., require at least 32 bytes).
+
+Date: 2024-05-24
+Title: Overly Permissive Unix Socket Permissions
+Vulnerability: `cmd/appsec-bridge/main.go` and `internal/engine/sidecar.go` set Unix domain socket file permissions to `0666` (world-readable and world-writable).
+Learning: Using `0666` on Unix domain sockets allows any local user on the host system to interact with or manipulate socket-based internal services, potentially leading to local privilege escalation or message spoofing.
+Prevention: Set Unix domain socket file permissions to restrictive modes (e.g., `0600` or `0660`) to restrict access strictly to the socket owner or intended group.
