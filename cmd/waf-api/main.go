@@ -314,6 +314,10 @@ func (s *apiServer) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		allowedOrigin := ""
 		cfg := s.readConfig()
 
+		if origin != "" {
+			w.Header().Add("Vary", "Origin")
+		}
+
 		if cfg != nil && len(cfg.API.AllowedOrigins) > 0 && origin != "" {
 			for _, o := range cfg.API.AllowedOrigins {
 				if o != "*" && o == origin {

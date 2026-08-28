@@ -269,6 +269,7 @@ func TestAPI_CORS(t *testing.T) {
 	// 1. Allowed origin request
 	req := httptest.NewRequest("OPTIONS", "/api/v1/auth/login", nil)
 	req.Header.Set("Origin", "https://app.example.com")
+	req.Header.Set("Access-Control-Request-Method", "POST")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -281,10 +282,14 @@ func TestAPI_CORS(t *testing.T) {
 	if got := rec.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
 		t.Errorf("expected Access-Control-Allow-Credentials 'true', got %q", got)
 	}
+	if got := rec.Header().Get("Vary"); got != "Origin" {
+		t.Errorf("expected Vary 'Origin', got %q", got)
+	}
 
 	// 2. Unauthorized origin request
 	req = httptest.NewRequest("OPTIONS", "/api/v1/auth/login", nil)
 	req.Header.Set("Origin", "https://malicious.com")
+	req.Header.Set("Access-Control-Request-Method", "POST")
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -294,10 +299,14 @@ func TestAPI_CORS(t *testing.T) {
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Errorf("expected empty Access-Control-Allow-Origin for unauthorized origin, got %q", got)
 	}
+	if got := rec.Header().Get("Vary"); got != "Origin" {
+		t.Errorf("expected Vary 'Origin', got %q", got)
+	}
 
 	// 3. Wildcard origin request (should be rejected as invalid/disallowed origin configuration)
 	req = httptest.NewRequest("OPTIONS", "/api/v1/auth/login", nil)
 	req.Header.Set("Origin", "*")
+	req.Header.Set("Access-Control-Request-Method", "POST")
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -306,5 +315,8 @@ func TestAPI_CORS(t *testing.T) {
 	}
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Errorf("expected empty Access-Control-Allow-Origin for wildcard origin, got %q", got)
+	}
+	if got := rec.Header().Get("Vary"); got != "Origin" {
+		t.Errorf("expected Vary 'Origin', got %q", got)
 	}
 }
