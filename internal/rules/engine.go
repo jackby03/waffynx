@@ -3,6 +3,7 @@ package rules
 import (
 	"net"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -96,7 +97,7 @@ func (e *Engine) Evaluate(req *policy.Request) *policy.Result {
 }
 
 func (e *Engine) matchRule(rule *CustomRule, req *policy.Request) bool {
-	if len(rule.Methods) > 0 && !containsStr(rule.Methods, req.Method) {
+	if len(rule.Methods) > 0 && !slices.Contains(rule.Methods, req.Method) {
 		return false
 	}
 
@@ -111,11 +112,11 @@ func (e *Engine) matchRule(rule *CustomRule, req *policy.Request) bool {
 		}
 	}
 
-	if len(rule.Hosts) > 0 && !containsStr(rule.Hosts, req.Host) {
+	if len(rule.Hosts) > 0 && !slices.Contains(rule.Hosts, req.Host) {
 		return false
 	}
 
-	if len(rule.IPs) > 0 && !containsStr(rule.IPs, req.RemoteIP) {
+	if len(rule.IPs) > 0 && !slices.Contains(rule.IPs, req.RemoteIP) {
 		return false
 	}
 
@@ -136,7 +137,7 @@ func (e *Engine) matchRule(rule *CustomRule, req *policy.Request) bool {
 			if rule.HeaderValue != "" {
 				return false
 			}
-		} else if rule.HeaderValue != "" && !containsStr(values, rule.HeaderValue) {
+		} else if rule.HeaderValue != "" && !slices.Contains(values, rule.HeaderValue) {
 			return false
 		}
 	}
@@ -172,13 +173,4 @@ func (e *Engine) matchRule(rule *CustomRule, req *policy.Request) bool {
 	}
 
 	return true
-}
-
-func containsStr(list []string, val string) bool {
-	for _, v := range list {
-		if v == val {
-			return true
-		}
-	}
-	return false
 }
