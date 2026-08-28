@@ -79,8 +79,8 @@ func TestBroker_Unsubscribe(t *testing.T) {
 		if ok {
 			t.Error("expected channel to be closed")
 		}
-	default:
-		// channel might not report closed immediately without read, but <-ch returned ok=false
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timed out waiting for channel to close")
 	}
 
 	// Publish after unsubscribe should not deliver to unsubscribed channel
