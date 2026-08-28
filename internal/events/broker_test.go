@@ -181,5 +181,14 @@ func TestBroker_ConcurrentPublishSubscribe(t *testing.T) {
 		}()
 	}
 
-	wg.Wait()
-}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for concurrent publish/subscribe workload to complete")
+	}
