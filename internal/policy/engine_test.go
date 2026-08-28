@@ -359,10 +359,9 @@ func TestRuleEngine_ConcurrentAccess(t *testing.T) {
 		Action:  ActionAllow,
 	})
 
-	done := make(chan struct{})
 	const goroutines = 10
 	const iterations = 100
-
+	done := make(chan struct{}, goroutines)
 	for i := 0; i < goroutines; i++ {
 		go func(id int) {
 			defer func() { done <- struct{}{} }()
