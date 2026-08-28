@@ -122,7 +122,7 @@ func runAPI(cfg *config.Config, configPath string) error {
 	mux.HandleFunc("GET /api/v1/plugins/{name}", withCORS(withAuth(srv.handleGetPlugin)))
 	mux.HandleFunc("GET /api/v1/audit", withCORS(withAuth(srv.handleAuditQuery)))
 	mux.HandleFunc("POST /api/v1/events", withCORS(withAuth(srv.handleIngestEvent)))
-	mux.HandleFunc("GET /api/v1/events", withCORS(srv.handleSSE))
+	mux.HandleFunc("GET /api/v1/events", withCORS(withAuth(srv.handleSSE)))
 	mux.HandleFunc("GET /api/v1/marketplace", withCORS(withAuth(srv.handleMarketplaceList)))
 	mux.HandleFunc("GET /api/v1/marketplace/categories", withCORS(withAuth(srv.handleMarketplaceCategories)))
 	mux.HandleFunc("GET /api/v1/marketplace/{name}", withCORS(withAuth(srv.handleMarketplaceGet)))
