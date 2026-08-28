@@ -146,15 +146,23 @@ func (e *Engine) matchRule(rule *CustomRule, req *policy.Request) bool {
 	}
 
 	if rule.QueryParam != "" {
-		queryIdx := strings.Index(req.Path, "?")
+		queryIdx := strings.IndexByte(req.Path, '?')
 		if queryIdx < 0 {
 			return false
 		}
 		query := req.Path[queryIdx+1:]
-		for _, pair := range strings.Split(query, "&") {
-			kv := strings.SplitN(pair, "=", 2)
-			if len(kv) == 2 && kv[0] == rule.QueryParam {
-				if rule.QueryValue != "" && kv[1] != rule.QueryValue {
+		for len(query) > 0 {
+			var pair string
+			if idx := strings.IndexByte(query, '&'); idx >= 0 {
+				pair = query[:idx]
+				query = query[idx+1:]
+			} else {
+				pair = query
+				query = ""
+			}
+			key, val, found := strings.Cut(pair, "=")
+			if found && key == rule.QueryParam {
+				if rule.QueryValue != "" && val != rule.QueryValue {
 					return false
 				}
 				return true

@@ -265,3 +265,54 @@ func TestEvaluate_Combined(t *testing.T) {
 		t.Errorf("expected allow (wrong method), got %s", result.Action)
 	}
 }
+
+func BenchmarkEvaluate_QueryParam_Single(b *testing.B) {
+	e := NewEngine()
+	e.AddRule(CustomRule{
+		ID:         "rule-1",
+		Enabled:    true,
+		Action:     ActionBlock,
+		QueryParam: "id",
+		QueryValue: "123",
+	})
+	req := &policy.Request{Path: "/api/users?id=123"}
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = e.Evaluate(req)
+	}
+}
+
+func BenchmarkEvaluate_QueryParam_Multi(b *testing.B) {
+	e := NewEngine()
+	e.AddRule(CustomRule{
+		ID:         "rule-1",
+		Enabled:    true,
+		Action:     ActionBlock,
+		QueryParam: "id",
+		QueryValue: "123",
+	})
+	req := &policy.Request{Path: "/api/users?foo=bar&baz=qux&page=1&id=123&sort=desc"}
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = e.Evaluate(req)
+	}
+}
+
+func BenchmarkEvaluate_QueryParam_NoMatch(b *testing.B) {
+	e := NewEngine()
+	e.AddRule(CustomRule{
+		ID:         "rule-1",
+		Enabled:    true,
+		Action:     ActionBlock,
+		QueryParam: "id",
+		QueryValue: "123",
+	})
+	req := &policy.Request{Path: "/api/users?foo=bar&baz=qux&page=1&sort=desc"}
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = e.Evaluate(req)
+	}
+}
