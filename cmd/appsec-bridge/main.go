@@ -79,7 +79,7 @@ func run(socketPath, logLevel string) error {
 	}
 	defer ln.Close()
 
-	if err := os.Chmod(socketPath, 0666); err != nil {
+	if err := os.Chmod(socketPath, 0600); err != nil {
 		return fmt.Errorf("chmod: %w", err)
 	}
 

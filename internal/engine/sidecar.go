@@ -79,7 +79,7 @@ func (s *Sidecar) Start() error {
 	}
 	s.listener = ln
 
-	if err := os.Chmod(s.socketPath, 0666); err != nil {
+	if err := os.Chmod(s.socketPath, 0600); err != nil {
 		return fmt.Errorf("chmod socket: %w", err)
 	}
 
