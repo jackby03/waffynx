@@ -191,14 +191,18 @@ func TestBasicScorer_EntropyScoring(t *testing.T) {
 	}
 
 	entropy := calculateEntropy(highEntropyURI)
-	if entropy > minEntropyThreshold {
-		expectedEntropyScore := (entropy - minEntropyThreshold) / entropyRange
-		if expectedEntropyScore > 1.0 {
-			expectedEntropyScore = 1.0
-		}
-		if res.Score == 0 {
-			t.Errorf("expected non-zero score for high entropy input (entropy=%.2f), got 0", entropy)
-		}
+	if entropy <= minEntropyThreshold {
+		t.Fatalf("test input entropy=%.2f did not exceed threshold %.2f", entropy, minEntropyThreshold)
+	}
+
+	entropyScore := (entropy - minEntropyThreshold) / entropyRange
+	if entropyScore > 1.0 {
+		entropyScore = 1.0
+	}
+
+	minExpected := entropyScore * 0.15
+	if res.Score+1e-9 < minExpected {
+		t.Errorf("expected score >= %.4f from entropy contribution (entropy=%.2f), got %.4f", minExpected, entropy, res.Score)
 	}
 }
 
