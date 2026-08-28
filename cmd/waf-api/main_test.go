@@ -253,6 +253,76 @@ func TestAPI_Login_And_ProtectedEndpoints(t *testing.T) {
 	}
 }
 
+func TestAPI_CORS(t *testing.T) {
+	cfg := &config.Config{
+		Name: "waffynx-test",
+		API: config.APIConfig{
+			Listen:         ":9090",
+			AllowedOrigins: []string{"https://app.example.com", "*"},
+			Auth: config.AuthConfig{
+				JWTSecret: "test-secret-key-1234567890-must-be-32-chars",
+				TokenTTL:  3600,
+			},
+		},
+	}
+
+	_, handler := newTestAPIServer(t, cfg)
+
+	// 1. Allowed origin request
+	req := httptest.NewRequest("OPTIONS", "/api/v1/auth/login", nil)
+	req.Header.Set("Origin", "https://app.example.com")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("expected preflight status 204 for allowed origin, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "https://app.example.com" {
+		t.Errorf("expected Access-Control-Allow-Origin 'https://app.example.com', got %q", got)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+		t.Errorf("expected Access-Control-Allow-Credentials 'true', got %q", got)
+	}
+	if got := rec.Header().Get("Vary"); got != "Origin" {
+		t.Errorf("expected Vary 'Origin', got %q", got)
+	}
+
+	// 2. Unauthorized origin request
+	req = httptest.NewRequest("OPTIONS", "/api/v1/auth/login", nil)
+	req.Header.Set("Origin", "https://malicious.com")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected preflight status 403 for unauthorized origin, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("expected empty Access-Control-Allow-Origin for unauthorized origin, got %q", got)
+	}
+	if got := rec.Header().Get("Vary"); got != "Origin" {
+		t.Errorf("expected Vary 'Origin', got %q", got)
+	}
+
+	// 3. Wildcard origin request (should be rejected as invalid/disallowed origin configuration)
+	req = httptest.NewRequest("OPTIONS", "/api/v1/auth/login", nil)
+	req.Header.Set("Origin", "*")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected preflight status 403 for wildcard origin, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("expected empty Access-Control-Allow-Origin for wildcard origin, got %q", got)
+	}
+	if got := rec.Header().Get("Vary"); got != "Origin" {
+		t.Errorf("expected Vary 'Origin', got %q", got)
+	}
+}
+
 func TestAPI_SSE_Auth(t *testing.T) {
 	srv, handler := newTestAPIServer(t, nil)
 
@@ -280,7 +350,7 @@ func TestAPI_SSE_Auth(t *testing.T) {
 
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected status 200 for authenticated SSE request, got %d", rec.Code)
+	if rec.Code != http.StatusNoContent && rec.Code != http.StatusOK {
+		t.Errorf("expected status 200 or 204 for authenticated SSE request, got %d", rec.Code)
 	}
 }

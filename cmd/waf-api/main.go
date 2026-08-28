@@ -314,9 +314,13 @@ func (s *apiServer) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		allowedOrigin := ""
 		cfg := s.readConfig()
 
-		if cfg != nil && len(cfg.API.AllowedOrigins) > 0 {
+		if origin != "" {
+			w.Header().Add("Vary", "Origin")
+		}
+
+		if cfg != nil && len(cfg.API.AllowedOrigins) > 0 && origin != "" {
 			for _, o := range cfg.API.AllowedOrigins {
-				if o == "*" || o == origin {
+				if o != "*" && o == origin {
 					allowedOrigin = o
 					break
 				}
@@ -325,9 +329,7 @@ func (s *apiServer) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 		if allowedOrigin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
-			if allowedOrigin != "*" {
-				w.Header().Set("Access-Control-Allow-Credentials", "true")
-			}
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		}
