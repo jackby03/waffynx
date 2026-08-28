@@ -363,7 +363,7 @@ func TestRuleEngine_ConcurrentAccess(t *testing.T) {
 	const iterations = 100
 	done := make(chan struct{}, goroutines)
 	for i := 0; i < goroutines; i++ {
-		go func(id int) {
+		go func() {
 			defer func() { done <- struct{}{} }()
 			req := &Request{Method: "GET", Path: "/test"}
 			ruleID := "rule-concurrent"
@@ -382,7 +382,7 @@ func TestRuleEngine_ConcurrentAccess(t *testing.T) {
 					engine.RemoveRule(ruleID)
 				}
 			}
-		}(i)
+		}()
 	}
 
 	for i := 0; i < goroutines; i++ {
