@@ -228,3 +228,168 @@ func TestRuleEngine_NilMatch(t *testing.T) {
 		t.Errorf("rule with nil match should not fire, got %s", result.Action)
 	}
 }
+
+func TestRuleEngine_Evaluate_Table(t *testing.T) {
+	type testCtxKey string
+
+	tests := []struct {
+		name           string
+		rules          []Rule
+		beforeEval     func(*RuleEngine)
+		phase          Phase
+		ctx            context.Context
+		req            *Request
+		expectedAction Action
+		expectedRuleID string
+		expectedReason string
+	}{
+		{
+			name: "Context values passed to Match function",
+			rules: []Rule{
+				{
+					ID:      "ctx-rule",
+					Name:    "Context Check",
+					Phase:   PhaseRequest,
+					Enabled: true,
+					Match: func(ctx context.Context, req *Request) bool {
+						val, ok := ctx.Value(testCtxKey("tenant")).(string)
+						return ok && val == "tenant-123"
+					},
+					Action: ActionDeny,
+					Reason: "Tenant denied",
+				},
+			},
+			phase:          PhaseRequest,
+			ctx:            context.WithValue(context.Background(), testCtxKey("tenant"), "tenant-123"),
+			req:            &Request{Method: "GET", Path: "/api"},
+			expectedAction: ActionDeny,
+			expectedRuleID: "ctx-rule",
+			expectedReason: "Tenant denied",
+		},
+		{
+			name: "Match IP, Query and Headers",
+			rules: []Rule{
+				{
+					ID:      "header-ip-rule",
+					Name:    "IP and Header match",
+					Phase:   PhaseRequest,
+					Enabled: true,
+					Match: func(ctx context.Context, req *Request) bool {
+						return req.RemoteIP == "192.168.1.100" &&
+							req.Query == "debug=true" &&
+							len(req.Headers["X-Admin-Token"]) > 0 &&
+							req.Headers["X-Admin-Token"][0] == "secret"
+					},
+					Action: ActionBlock,
+					Reason: "Unauthorized admin debug attempt",
+				},
+			},
+			phase: PhaseRequest,
+			ctx:   context.Background(),
+			req: &Request{
+				Method:   "GET",
+				Path:     "/admin",
+				Query:    "debug=true",
+				RemoteIP: "192.168.1.100",
+				Headers: map[string][]string{
+					"X-Admin-Token": {"secret"},
+				},
+			},
+			expectedAction: ActionBlock,
+			expectedRuleID: "header-ip-rule",
+			expectedReason: "Unauthorized admin debug attempt",
+		},
+		{
+			name: "Remove non-existent rule does not affect evaluation",
+			rules: []Rule{
+				{
+					ID:      "keep-rule",
+					Name:    "Keep Rule",
+					Phase:   PhaseResponse,
+					Enabled: true,
+					Match: func(ctx context.Context, req *Request) bool {
+						return true
+					},
+					Action: ActionLog,
+					Reason: "Log response",
+				},
+			},
+			beforeEval: func(engine *RuleEngine) {
+				engine.RemoveRule("non-existent-id")
+			},
+			phase:          PhaseResponse,
+			ctx:            context.Background(),
+			req:            &Request{Method: "GET", Path: "/"},
+			expectedAction: ActionLog,
+			expectedRuleID: "keep-rule",
+			expectedReason: "Log response",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := NewRuleEngine()
+			for _, r := range tt.rules {
+				engine.AddRule(r)
+			}
+
+			if tt.beforeEval != nil {
+				tt.beforeEval(engine)
+			}
+
+			res := engine.Evaluate(tt.ctx, tt.phase, tt.req)
+			if res.Action != tt.expectedAction {
+				t.Errorf("expected action %s, got %s", tt.expectedAction, res.Action)
+			}
+			if res.RuleID != tt.expectedRuleID {
+				t.Errorf("expected rule ID %q, got %q", tt.expectedRuleID, res.RuleID)
+			}
+			if res.Reason != tt.expectedReason {
+				t.Errorf("expected reason %q, got %q", tt.expectedReason, res.Reason)
+			}
+		})
+	}
+}
+
+func TestRuleEngine_ConcurrentAccess(t *testing.T) {
+	engine := NewRuleEngine()
+	ctx := context.Background()
+
+	engine.AddRule(Rule{
+		ID:      "rule-base",
+		Phase:   PhaseRequest,
+		Enabled: true,
+		Match:   func(ctx context.Context, req *Request) bool { return false },
+		Action:  ActionAllow,
+	})
+
+	const goroutines = 10
+	const iterations = 100
+	done := make(chan struct{}, goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			req := &Request{Method: "GET", Path: "/test"}
+			ruleID := "rule-concurrent"
+
+			for j := 0; j < iterations; j++ {
+				engine.Evaluate(ctx, PhaseRequest, req)
+				if j%3 == 0 {
+					engine.AddRule(Rule{
+						ID:      ruleID,
+						Phase:   PhaseRequest,
+						Enabled: true,
+						Match:   func(ctx context.Context, req *Request) bool { return req.Path == "/test" },
+						Action:  ActionBlock,
+					})
+				} else if j%3 == 1 {
+					engine.RemoveRule(ruleID)
+				}
+			}
+		}()
+	}
+
+	for i := 0; i < goroutines; i++ {
+		<-done
+	}
+}
