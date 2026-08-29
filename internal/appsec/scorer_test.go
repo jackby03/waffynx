@@ -173,6 +173,32 @@ func TestBasicScorer_BodyInspection(t *testing.T) {
 	}
 }
 
+func TestBasicScorer_EntropyScoring(t *testing.T) {
+	s := NewBasicScorer()
+	ctx := context.Background()
+
+	// String with high entropy (> 4.5 bits)
+	highEntropyURI := "/api/v1?data=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?"
+
+	res, err := s.Evaluate(ctx, &Features{
+		URI:       highEntropyURI,
+		Host:      "example.com",
+		Method:    "GET",
+		UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	entropy := calculateEntropy(highEntropyURI)
+	if entropy <= minEntropyThreshold {
+		t.Fatalf("test input entropy=%.2f did not exceed threshold %.2f", entropy, minEntropyThreshold)
+	}
+	if res.Score == 0 {
+		t.Errorf("expected non-zero score for high entropy input (entropy=%.2f), got 0", entropy)
+	}
+}
+
 func TestCalculateEntropy(t *testing.T) {
 	tests := []struct {
 		input    string
