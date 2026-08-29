@@ -157,18 +157,26 @@ func parseQueryParams(rawURI string) map[string]string {
 		return params
 	}
 	queryStr := rawURI[idx+1:]
-	decoded, err := url.QueryUnescape(queryStr)
-	if err != nil {
-		decoded = queryStr
-	}
-	decoded = strings.ReplaceAll(decoded, "+", " ")
-	for _, pair := range strings.Split(decoded, "&") {
-		kv := strings.SplitN(pair, "=", 2)
-		if len(kv) == 2 {
-			params[kv[0]] = kv[1]
-		} else if len(kv) == 1 && kv[0] != "" {
-			params[kv[0]] = ""
+	for queryStr != "" {
+		var pair string
+		pair, queryStr, _ = strings.Cut(queryStr, "&")
+		if pair == "" {
+			continue
 		}
+		key, val, hasEq := strings.Cut(pair, "=")
+		decodedKey, err := url.QueryUnescape(key)
+		if err != nil {
+			decodedKey = key
+		}
+		var decodedVal string
+		if hasEq {
+			var err error
+			decodedVal, err = url.QueryUnescape(val)
+			if err != nil {
+				decodedVal = val
+			}
+		}
+		params[decodedKey] = decodedVal
 	}
 	return params
 }
