@@ -61,3 +61,7 @@ Title: Missing Authentication on SSE Endpoint
 Vulnerability: `cmd/waf-api/main.go` registered `GET /api/v1/events` without `withAuth`, allowing unauthenticated clients to connect to the Server-Sent Events stream and receive live security event telemetry and stats.
 Learning: Streaming endpoints like SSE endpoints can easily be overlooked during middleware setup, leading to accidental exposure of sensitive telemetry data to unauthenticated observers.
 Prevention: Always ensure all API endpoints under protected routes (such as `/api/v1/`) are systematically wrapped with authentication middleware.
+## 2024-05-18 - [Insecure CORS OPTIONS route handler]
+**Vulnerability:** The unauthenticated OPTIONS route for `/api/v1/auth/login` was incorrectly calling `srv.handleLogin`, executing expensive and stateful login logic during a preflight check.
+**Learning:** Mapping a business-logic handler to an OPTIONS route in Go's `http.ServeMux` creates a security and DoS risk since preflight requests lack bodies but still trigger the handler execution before being intercepted/terminated, depending on middleware implementation.
+**Prevention:** Always route OPTIONS requests to a no-op dummy handler (`func(w http.ResponseWriter, r *http.Request) {}`) wrapped in CORS middleware to short-circuit execution safely.

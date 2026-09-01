@@ -111,7 +111,7 @@ func runAPI(cfg *config.Config, configPath string) error {
 
 	// Use handleLogin for both POST and OPTIONS so that the withCORS middleware can handle the OPTIONS request correctly
 	mux.HandleFunc("POST /api/v1/auth/login", withCORS(srv.handleLogin))
-	mux.HandleFunc("OPTIONS /api/v1/auth/login", withCORS(srv.handleLogin))
+	mux.HandleFunc("OPTIONS /api/v1/auth/login", withCORS(func(w http.ResponseWriter, r *http.Request) {}))
 
 	withAuth := srv.authMiddleware(mux)
 	mux.HandleFunc("GET /api/v1/status", withCORS(withAuth(srv.handleStatus)))
