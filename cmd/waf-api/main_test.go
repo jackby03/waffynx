@@ -47,25 +47,22 @@ func newTestAPIServer(t *testing.T, cfg *config.Config) (*apiServer, http.Handle
 
 	mux := http.NewServeMux()
 
-	withCORS := srv.corsMiddleware
-
 	mux.HandleFunc("GET /health", srv.handleHealth)
 
-	mux.HandleFunc("POST /api/v1/auth/login", withCORS(srv.handleLogin))
-	mux.HandleFunc("OPTIONS /api/v1/auth/login", withCORS(srv.handleLogin))
+	mux.HandleFunc("POST /api/v1/auth/login", srv.handleLogin)
 
 	withAuth := srv.authMiddleware(mux)
 
-	mux.HandleFunc("GET /api/v1/status", withCORS(withAuth(srv.handleStatus)))
-	mux.HandleFunc("GET /api/v1/config", withCORS(withAuth(srv.handleGetConfig)))
-	mux.HandleFunc("PUT /api/v1/config", withCORS(withAuth(srv.handleUpdateConfig)))
-	mux.HandleFunc("GET /api/v1/metrics", withCORS(withAuth(srv.handleMetrics)))
-	mux.HandleFunc("GET /api/v1/plugins", withCORS(withAuth(srv.handleListPlugins)))
-	mux.HandleFunc("GET /api/v1/events", withCORS(withAuth(srv.handleSSE)))
-	mux.HandleFunc("GET /api/v1/marketplace", withCORS(withAuth(srv.handleMarketplaceList)))
+	mux.HandleFunc("GET /api/v1/status", withAuth(srv.handleStatus))
+	mux.HandleFunc("GET /api/v1/config", withAuth(srv.handleGetConfig))
+	mux.HandleFunc("PUT /api/v1/config", withAuth(srv.handleUpdateConfig))
+	mux.HandleFunc("GET /api/v1/metrics", withAuth(srv.handleMetrics))
+	mux.HandleFunc("GET /api/v1/plugins", withAuth(srv.handleListPlugins))
+	mux.HandleFunc("GET /api/v1/events", withAuth(srv.handleSSE))
+	mux.HandleFunc("GET /api/v1/marketplace", withAuth(srv.handleMarketplaceList))
 	mux.HandleFunc("GET /", srv.handleRoot)
 
-	return srv, mux
+	return srv, srv.corsMiddleware(mux)
 }
 
 func TestAPI_Health(t *testing.T) {
