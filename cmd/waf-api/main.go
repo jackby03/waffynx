@@ -105,29 +105,25 @@ func runAPI(cfg *config.Config, configPath string) error {
 
 	mux := http.NewServeMux()
 
-	withCORS := srv.corsMiddleware
-
 	mux.HandleFunc("GET /health", srv.handleHealth)
 
-	// Use handleLogin for both POST and OPTIONS so that the withCORS middleware can handle the OPTIONS request correctly
-	mux.HandleFunc("POST /api/v1/auth/login", withCORS(srv.handleLogin))
-	mux.HandleFunc("OPTIONS /api/v1/auth/login", withCORS(srv.handleLogin))
+	mux.HandleFunc("POST /api/v1/auth/login", srv.handleLogin)
 
 	withAuth := srv.authMiddleware(mux)
-	mux.HandleFunc("GET /api/v1/status", withCORS(withAuth(srv.handleStatus)))
-	mux.HandleFunc("GET /api/v1/config", withCORS(withAuth(srv.handleGetConfig)))
-	mux.HandleFunc("PUT /api/v1/config", withCORS(withAuth(srv.handleUpdateConfig)))
-	mux.HandleFunc("GET /api/v1/metrics", withCORS(withAuth(srv.handleMetrics)))
-	mux.HandleFunc("GET /api/v1/plugins", withCORS(withAuth(srv.handleListPlugins)))
-	mux.HandleFunc("GET /api/v1/plugins/{name}", withCORS(withAuth(srv.handleGetPlugin)))
-	mux.HandleFunc("GET /api/v1/audit", withCORS(withAuth(srv.handleAuditQuery)))
-	mux.HandleFunc("POST /api/v1/events", withCORS(withAuth(srv.handleIngestEvent)))
-	mux.HandleFunc("GET /api/v1/events", withCORS(withAuth(srv.handleSSE)))
-	mux.HandleFunc("GET /api/v1/marketplace", withCORS(withAuth(srv.handleMarketplaceList)))
-	mux.HandleFunc("GET /api/v1/marketplace/categories", withCORS(withAuth(srv.handleMarketplaceCategories)))
-	mux.HandleFunc("GET /api/v1/marketplace/{name}", withCORS(withAuth(srv.handleMarketplaceGet)))
-	mux.HandleFunc("POST /api/v1/marketplace/install/{name}", withCORS(withAuth(srv.handleMarketplaceInstall)))
-	mux.HandleFunc("DELETE /api/v1/marketplace/uninstall/{name}", withCORS(withAuth(srv.handleMarketplaceUninstall)))
+	mux.HandleFunc("GET /api/v1/status", withAuth(srv.handleStatus))
+	mux.HandleFunc("GET /api/v1/config", withAuth(srv.handleGetConfig))
+	mux.HandleFunc("PUT /api/v1/config", withAuth(srv.handleUpdateConfig))
+	mux.HandleFunc("GET /api/v1/metrics", withAuth(srv.handleMetrics))
+	mux.HandleFunc("GET /api/v1/plugins", withAuth(srv.handleListPlugins))
+	mux.HandleFunc("GET /api/v1/plugins/{name}", withAuth(srv.handleGetPlugin))
+	mux.HandleFunc("GET /api/v1/audit", withAuth(srv.handleAuditQuery))
+	mux.HandleFunc("POST /api/v1/events", withAuth(srv.handleIngestEvent))
+	mux.HandleFunc("GET /api/v1/events", withAuth(srv.handleSSE))
+	mux.HandleFunc("GET /api/v1/marketplace", withAuth(srv.handleMarketplaceList))
+	mux.HandleFunc("GET /api/v1/marketplace/categories", withAuth(srv.handleMarketplaceCategories))
+	mux.HandleFunc("GET /api/v1/marketplace/{name}", withAuth(srv.handleMarketplaceGet))
+	mux.HandleFunc("POST /api/v1/marketplace/install/{name}", withAuth(srv.handleMarketplaceInstall))
+	mux.HandleFunc("DELETE /api/v1/marketplace/uninstall/{name}", withAuth(srv.handleMarketplaceUninstall))
 	mux.HandleFunc("GET /metrics", metrics.Handler().ServeHTTP)
 	mux.HandleFunc("GET /debug/pprof/", withAuth(pprof.Index))
 	mux.HandleFunc("GET /debug/pprof/cmdline", withAuth(pprof.Cmdline))
@@ -139,7 +135,7 @@ func runAPI(cfg *config.Config, configPath string) error {
 
 	server := &http.Server{
 		Addr:         cfg.API.Listen,
-		Handler:      srv.auditMiddleware(srv.loggingMiddleware(mux)),
+		Handler:      srv.corsMiddleware(srv.auditMiddleware(srv.loggingMiddleware(mux))),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  30 * time.Second,
@@ -308,8 +304,8 @@ func (s *apiServer) handleAuditQuery(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, r, http.StatusOK, events)
 }
 
-func (s *apiServer) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func (s *apiServer) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		allowedOrigin := ""
 		cfg := s.readConfig()
@@ -342,8 +338,8 @@ func (s *apiServer) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 			return
 		}
-		next(w, r)
-	}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *apiServer) writeJSON(w http.ResponseWriter, r *http.Request, status int, data interface{}) {
