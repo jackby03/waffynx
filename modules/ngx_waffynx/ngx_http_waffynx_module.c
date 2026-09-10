@@ -225,12 +225,20 @@ ngx_http_waffynx_send_and_enforce(ngx_http_request_t *r,
         return wlcf->fail_open ? NGX_OK : NGX_HTTP_FORBIDDEN;
     }
 
-    /* Send */
-    if (send(fd, request_buf, (size_t) req_len, 0) != req_len) {
-        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
-                      "waffynx: send() failed (errno=%d)", errno);
-        (void) close(fd);
-        return wlcf->fail_open ? NGX_OK : NGX_HTTP_FORBIDDEN;
+    /* Send complete buffer (loop to handle partial writes) */
+    ssize_t sent = 0;
+    while (sent < req_len) {
+        ssize_t n = send(fd, request_buf + sent, (size_t)(req_len - sent), 0);
+        if (n <= 0) {
+            if (n < 0 && (errno == EINTR || errno == EAGAIN)) {
+                continue;
+            }
+            ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                          "waffynx: send() failed (errno=%d)", errno);
+            (void) close(fd);
+            return wlcf->fail_open ? NGX_OK : NGX_HTTP_FORBIDDEN;
+        }
+        sent += n;
     }
 
     /* Signal EOF so sidecar knows we are done sending */
@@ -313,11 +321,13 @@ static void
 ngx_http_waffynx_body_handler(ngx_http_request_t *r)
 {
     ngx_http_waffynx_ctx_t  *ctx;
-    ngx_buf_t               *body_buf;
+    ngx_chain_t             *cl;
+    ngx_buf_t               *b;
     u_char                  *buf;
+    u_char                  *p;
     u_char                   cl_header[64];
     ssize_t                  total;
-    size_t                   body_len, copy_len, insert_len;
+    size_t                   total_body_len, copy_len, insert_len, copied, blen;
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_waffynx_module);
     if (ctx == NULL) {
@@ -328,16 +338,23 @@ ngx_http_waffynx_body_handler(ngx_http_request_t *r)
     buf = ctx->request_buf;
     total = (ssize_t) ctx->header_len;
 
-    /* Append body if available */
-	if (r->request_body != NULL && r->request_body->bufs != NULL) {
-		body_buf = r->request_body->bufs->buf;
+    /* Append body if available (traverse all buffers in chain up to max_body_size) */
+    if (r->request_body != NULL && r->request_body->bufs != NULL) {
+        total_body_len = 0;
 
-        if (body_buf != NULL && body_buf->last > body_buf->pos) {
-            body_len = body_buf->last - body_buf->pos;
-            copy_len = body_len;
-            if (copy_len > ctx->wlcf->max_body_size) {
-                copy_len = ctx->wlcf->max_body_size;
+        for (cl = r->request_body->bufs; cl != NULL; cl = cl->next) {
+            b = cl->buf;
+            if (b != NULL && !b->in_file && b->last > b->pos) {
+                total_body_len += (b->last - b->pos);
+                if (total_body_len >= ctx->wlcf->max_body_size) {
+                    total_body_len = ctx->wlcf->max_body_size;
+                    break;
+                }
             }
+        }
+
+        if (total_body_len > 0) {
+            copy_len = total_body_len;
 
             /*
              * Insert Content-Length: NNN\r\n before the final \r\n
@@ -355,9 +372,20 @@ ngx_http_waffynx_body_handler(ngx_http_request_t *r)
             /* Write Content-Length header */
             ngx_memcpy(buf + ctx->header_len - 2, cl_header, insert_len);
 
-            /* Append body bytes after the shifted \r\n */
-            ngx_memcpy(buf + ctx->header_len + insert_len,
-                       body_buf->pos, copy_len);
+            /* Append body bytes from all buffers in chain */
+            p = buf + ctx->header_len + insert_len;
+            copied = 0;
+            for (cl = r->request_body->bufs; cl != NULL && copied < copy_len; cl = cl->next) {
+                b = cl->buf;
+                if (b != NULL && !b->in_file && b->last > b->pos) {
+                    blen = b->last - b->pos;
+                    if (copied + blen > copy_len) {
+                        blen = copy_len - copied;
+                    }
+                    ngx_memcpy(p + copied, b->pos, blen);
+                    copied += blen;
+                }
+            }
 
             total = (ssize_t)(ctx->header_len + insert_len + copy_len);
         }
@@ -486,7 +514,7 @@ ngx_http_waffynx_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 
     ngx_conf_merge_value(conf->enabled,   prev->enabled,   0);
     ngx_conf_merge_msec_value(conf->timeout, prev->timeout, 100);
-    ngx_conf_merge_value(conf->fail_open, prev->fail_open, 1);
+    ngx_conf_merge_value(conf->fail_open, prev->fail_open, 0);
     ngx_conf_merge_size_value(conf->max_body_size, prev->max_body_size,
                                WAFFYNX_MAX_BODY);
 

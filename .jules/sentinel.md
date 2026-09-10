@@ -61,3 +61,21 @@ Title: Missing Authentication on SSE Endpoint
 Vulnerability: `cmd/waf-api/main.go` registered `GET /api/v1/events` without `withAuth`, allowing unauthenticated clients to connect to the Server-Sent Events stream and receive live security event telemetry and stats.
 Learning: Streaming endpoints like SSE endpoints can easily be overlooked during middleware setup, leading to accidental exposure of sensitive telemetry data to unauthenticated observers.
 Prevention: Always ensure all API endpoints under protected routes (such as `/api/v1/`) are systematically wrapped with authentication middleware.
+
+Date: 2026-09-09
+Title: Host Agent Missing Authorization on SSE Event Stream
+Vulnerability: `cmd/waf-agent/main.go` connected to `/api/v1/events` without providing an `Authorization` header, causing automatic IP blocking to silently fail with 401 Unauthorized.
+Learning: Consumer microservices must be equipped with auth credentials matching the producer's access controls.
+Prevention: Ensure `waf-agent` config includes `auth_token` and injects `Authorization: Bearer <token>` into broker requests.
+
+Date: 2026-09-09
+Title: Nginx Module Request Body Truncation & Partial Send Bypass
+Vulnerability: `modules/ngx_waffynx/ngx_http_waffynx_module.c` only inspected the first buffer in `r->request_body->bufs` and used single `send()` without write loop, allowing WAF bypass on large bodies or saturated socket buffers when `fail_open` was active.
+Learning: Nginx request bodies are segmented across `ngx_chain_t` linked lists; socket transmission must loop until all bytes are sent.
+Prevention: Iterate full `ngx_chain_t` buffer chains and enforce loop for `send()`. Default `fail_open` to 0 (fail-closed).
+
+Date: 2026-09-09
+Title: Insufficient Authorization & Unescaped JSON Responses
+Vulnerability: `waf-api` lacked RBAC checks on mutating endpoints, and `sidecar.go` / `request-validation` used direct string concatenation (`fmt.Fprintf`) for error responses.
+Learning: Valid JWT authentication does not imply administrative authorization. String interpolation into JSON responses risks JSON injection or corruption.
+Prevention: Enforce `requireRole("admin")` on administrative routes and always use standard library `json.Marshal` / `json.NewEncoder`.

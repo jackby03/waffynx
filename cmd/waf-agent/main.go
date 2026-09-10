@@ -210,9 +210,26 @@ func (s *agentServer) connectEventBroker(ctx context.Context) {
 			continue
 		}
 
+		if s.cfg.EventBroker.AuthToken != "" {
+			req.Header.Set("Authorization", "Bearer "+s.cfg.EventBroker.AuthToken)
+		} else if s.cfg.APIKey != "" {
+			req.Header.Set("Authorization", "Bearer "+s.cfg.APIKey)
+		}
+
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			logging.Error().Err(err).Msg("event broker connection failed, retrying")
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
+			}
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			logging.Error().Int("status", resp.StatusCode).Msg("event broker rejected connection, retrying")
+			resp.Body.Close()
 			select {
 			case <-ctx.Done():
 				return

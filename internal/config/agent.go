@@ -9,6 +9,7 @@ import (
 type EventBrokerConfig struct {
 	Enabled        bool   `yaml:"enabled"`
 	Address        string `yaml:"address"`
+	AuthToken      string `yaml:"auth_token"`
 	BlockThreshold int    `yaml:"block_threshold"`
 	WindowSeconds  int    `yaml:"window_seconds"`
 }

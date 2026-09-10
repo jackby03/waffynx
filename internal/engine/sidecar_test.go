@@ -3,10 +3,14 @@ package engine
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
 func TestSidecarSocketPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX socket permissions are only enforced on Linux; Windows does not support 0600 file modes")
+	}
 	tmpDir := t.TempDir()
 	socketPath := filepath.Join(tmpDir, "sidecar_test.sock")
 

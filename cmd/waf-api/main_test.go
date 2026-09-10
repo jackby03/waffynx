@@ -55,10 +55,11 @@ func newTestAPIServer(t *testing.T, cfg *config.Config) (*apiServer, http.Handle
 	mux.HandleFunc("OPTIONS /api/v1/auth/login", withCORS(srv.handleLogin))
 
 	withAuth := srv.authMiddleware(mux)
+	requireAdmin := srv.requireRole("admin")
 
 	mux.HandleFunc("GET /api/v1/status", withCORS(withAuth(srv.handleStatus)))
 	mux.HandleFunc("GET /api/v1/config", withCORS(withAuth(srv.handleGetConfig)))
-	mux.HandleFunc("PUT /api/v1/config", withCORS(withAuth(srv.handleUpdateConfig)))
+	mux.HandleFunc("PUT /api/v1/config", withCORS(withAuth(requireAdmin(srv.handleUpdateConfig))))
 	mux.HandleFunc("GET /api/v1/metrics", withCORS(withAuth(srv.handleMetrics)))
 	mux.HandleFunc("GET /api/v1/plugins", withCORS(withAuth(srv.handleListPlugins)))
 	mux.HandleFunc("GET /api/v1/events", withCORS(withAuth(srv.handleSSE)))
@@ -250,6 +251,37 @@ func TestAPI_Login_And_ProtectedEndpoints(t *testing.T) {
 	}
 	if srv == nil {
 		t.Error("server nil check")
+	}
+}
+
+func TestAPI_RBAC_RoleEnforcement(t *testing.T) {
+	cfg := &config.Config{
+		Name: "waffynx-test",
+		API: config.APIConfig{
+			Listen: ":9090",
+			Auth: config.AuthConfig{
+				JWTSecret: "test-secret-key-1234567890-must-be-32-chars",
+				TokenTTL:  3600,
+			},
+		},
+	}
+
+	srv, handler := newTestAPIServer(t, cfg)
+
+	// Generate viewer token (non-admin)
+	viewerToken, err := srv.authMgr.GenerateToken("viewer-user", "viewer", []string{"read"})
+	if err != nil {
+		t.Fatalf("failed to generate viewer token: %v", err)
+	}
+
+	// Attempt to PUT /api/v1/config with viewer token -> should be 403 Forbidden
+	req := httptest.NewRequest("PUT", "/api/v1/config", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Authorization", "Bearer "+viewerToken)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected status 403 Forbidden for non-admin PUT /api/v1/config, got %d", rec.Code)
 	}
 }
 

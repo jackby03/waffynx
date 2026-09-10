@@ -1,6 +1,7 @@
 package requestvalidation
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -149,7 +150,10 @@ func (p *RequestValidationPlugin) Execute(ctx *plugin.Context) (*plugin.Context,
 			ctx.StatusCode = 403
 			ctx.ResponseWriter.Header().Set("Content-Type", "application/json")
 			ctx.ResponseWriter.WriteHeader(http.StatusForbidden)
-			ctx.ResponseWriter.Write([]byte(`{"error":"graphql validation failed: ` + strings.Join(gqlResult.Issues, "; ") + `"}`))
+			errPayload, _ := json.Marshal(map[string]string{
+				"error": "graphql validation failed: " + strings.Join(gqlResult.Issues, "; "),
+			})
+			ctx.ResponseWriter.Write(errPayload)
 			ctx.Tags["waf_blocked"] = "true"
 			ctx.Tags["waf_graphql_depth"] = fmt.Sprintf("%d", gqlResult.QueryDepth)
 			return ctx, fmt.Errorf("graphql validation: %s", strings.Join(gqlResult.Issues, "; "))
@@ -161,7 +165,10 @@ func (p *RequestValidationPlugin) Execute(ctx *plugin.Context) (*plugin.Context,
 			ctx.StatusCode = 403
 			ctx.ResponseWriter.Header().Set("Content-Type", "application/json")
 			ctx.ResponseWriter.WriteHeader(http.StatusForbidden)
-			ctx.ResponseWriter.Write([]byte(`{"error":"file upload validation failed: ` + strings.Join(uploadResult.Issues, "; ") + `"}`))
+			errPayload, _ := json.Marshal(map[string]string{
+				"error": "file upload validation failed: " + strings.Join(uploadResult.Issues, "; "),
+			})
+			ctx.ResponseWriter.Write(errPayload)
 			ctx.Tags["waf_blocked"] = "true"
 			return ctx, fmt.Errorf("file upload validation: %s", strings.Join(uploadResult.Issues, "; "))
 		}
