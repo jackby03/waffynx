@@ -1,150 +1,92 @@
-# AGENTS.md — Waffynx
+# AGENTS.md — Operational Context & Agent Directives
 
-## Dev environment
+## 1. Project Context
+- **Description:** Waffynx — High-performance Web Application Firewall (WAF) combining a native Nginx C module, a low-latency Go sidecar inspection pipeline, and an ML-based scoring bridge (`open-appsec`).
+- **Stack:** Go 1.22 (`CGO_ENABLED=0` for pure Go binaries) | C (Nginx 1.26 module) | C++ (open-appsec bridge) | POSIX / Linux.
+- **Philosophy:** Spec-Driven Development (SDD). All implementations derive strictly from [`constitution.md`](constitution.md), [`specs/HARNESS.md`](specs/HARNESS.md), and feature-specific `spec.md` / `tasks.md`.
 
-**Linux is the only supported runtime.** `engine_windows.go` is a stub that errors. On Windows, use WSL (Windows Subsystem for Linux) or Vagrant:
+---
 
-### WSL (Windows Subsystem for Linux)
-Since WSL provides a native Linux environment, you can run normal Linux build and test commands directly within your WSL shell (e.g., Ubuntu):
-```bash
-# Build Go binaries
-make build
+## 2. Essential Commands (Execution & Verification)
+*Run only these verified commands to validate your work:*
 
-# Run Go tests
-go test ./...
+- **Build Go binaries:** `make build` (outputs `waffynx`, `waf-agent`, `waf-api` to `bin/`)
+- **Run all unit tests:** `go test -race ./...`
+- **Run single test package:** `go test -v -race ./internal/<package>`
+- **Run specific test:** `go test -v ./internal/policy -run TestPolicyEvaluate`
+- **Run fuzz tests:** `go test -fuzz=FuzzEvaluator -fuzztime=10s ./internal/policy`
+- **Lint / Static analysis:** `golangci-lint run ./...`
+- **Format check:** `gofmt -s -l .`
+- **Compile C++ bridge (Linux):** `make bridge-build` (outputs `dist/libwaffynx_bridge.so`)
+- **Vagrant VM test cycle (Windows dev):** `make vagrant-test` (executes end-to-end integration test inside Linux VM)
+
+---
+
+## 3. Project Map
+```text
+waffynx/
+├── constitution.md           # Supreme architectural law & non-negotiable security invariants
+├── specs/                    # Spec-Driven Development (HARNESS.md, templates/, feature specs)
+├── docs/adr/                 # Architecture Decision Records (ADR-XXXX)
+├── cmd/                      # Binary entrypoints
+│   ├── waffynx/              # Main engine CLI (starts sidecar socket server & proxy)
+│   ├── waf-agent/            # Host firewall agent (nftables/UFW rule sync)
+│   ├── waf-api/              # Management REST API (:9090)
+│   └── appsec-bridge/        # Standalone ML daemon mock
+├── internal/                 # Private application logic
+│   ├── engine/               # Sidecar Unix socket server & 3-stage pipeline orchestrator
+│   ├── policy/               # Rule-based policy evaluator (conditions, operators)
+│   ├── plugin/               # Plugin interface, registry & priority chain
+│   ├── appsec/               # ML scoring bridge (BasicScorer & BridgeScorer)
+│   ├── ratelimit/            # Memory and Redis-backed rate limiting
+│   ├── firewall/             # Host firewall drivers (nftables & UFW)
+│   ├── auth/                 # JWT manager & OIDC integration
+│   ├── marketplace/          # Plugin package catalog & in-memory store
+│   └── upstream/             # Reverse proxy load balancer (round-robin, least-conn)
+├── modules/ngx_waffynx/      # Nginx C module (intercepts HTTP, communicates via Unix socket)
+├── plugins/                  # Built-in WAF plugins (SQLi, XSS, rate-limit, bot detection)
+├── pkg/proto/                # Protobuf definitions & generated gRPC code
+├── configs/                  # Production configurations (waffynx.yaml, nginx.conf)
+├── deploy/                   # Deployment assets (helm/, docker/, systemd/)
+├── third_party/              # Forked submodules (nginx, open-appsec)
+├── test/                     # Integration tests & payload fixtures (eval_sqli.json, eval_normal.json)
+└── vagrant/                  # Ubuntu 22.04 VM environment & provisioning
 ```
 
-### Vagrant
-Alternatively, you can run a full VirtualBox VM via Vagrant:
-```bash
-# Full test cycle: destroy old VM, create fresh, provision, run tests
-make vagrant-full-test
+---
 
-# Or step-by-step
-make vagrant-up          # starts Ubuntu 22.04 VM (ports 80->8080, 9090->9090)
-make vagrant-test        # runs test.sh inside VM
-make vagrant-ssh         # shell into VM
-```
+## 4. Critical Behavior Guardrails
 
-The VM mounts the project root at `/waffynx` via vboxsf. Services run on `localhost:8080` (nginx/WAF), `localhost:9090` (API).
+1. **Linux-Only Runtime:** Production runtime is Linux only. `engine_windows.go` is an intentional stub. When developing on Windows, run builds and tests via WSL or the Vagrant VM (`make vagrant-test`).
+2. **Zero Unauthorized Dependencies:** Do not add third-party dependencies to `go.mod` without explicit architectural approval. Prefer standard library (`net/http`, `crypto`, `sync`, `context`).
+3. **Fail-Closed Security:** If an internal component, plugin, or scorer times out or crashes during request inspection, fail closed (`403 Forbidden` / deny). Never allow uninspected traffic on failure.
+4. **Secrets & Timing Attacks:** Never use `==` for secrets, API keys, or JWT tokens. Always use `crypto/subtle.ConstantTimeCompare`.
+5. **Unix Socket Permissions:** All Unix domain sockets must be created with `0600` or `0660` permissions. World-accessible modes (`0666`/`0777`) are strictly forbidden.
+6. **Strict CORS & Input Validation:** Always reject unauthorized preflight `OPTIONS` requests with `403 Forbidden`. Wildcard `*` CORS with credentials is prohibited.
+7. **Atomic Task Execution:** Work on **one task** in `tasks.md` at a time. Do not modify files outside the declared `In-Scope` boundary.
+8. **Preserve Documentation & LF:** Never delete existing comments, docstrings, or architectural rationales. Always commit standard POSIX LF (`\n`) line endings (CRLF breaks Nginx builds).
 
-## Submodules
+---
 
-Must be initialized before anything else:
+## 5. Code Conventions & Standards
 
-```bash
-git submodule update --init --recursive
-```
+- **Go Idioms:** Standard library conventions. Explicit error handling: wrap errors with context (`fmt.Errorf("parsing rule %s: %w", id, err)`). Never discard errors silently.
+- **Hot-Path Performance:** The inspection pipeline (`sidecar.go -> plugin chain -> policy evaluator`) runs on every request. Eliminate unnecessary heap allocations, avoid buffer copying, and minimize lock contention (`sync.RWMutex` read-locks).
+- **Strict Typing:** Avoid `interface{}` or `any` where concrete structs or interfaces can be defined.
+- **Logging:** Use `internal/logging` (zerolog wrapper). Never use `log.Fatal()` or `os.Exit()` inside library functions; return `error` instead.
+- **Naming Conventions:**
+  - Files: `snake_case.go`
+  - Types/Interfaces: `PascalCase`
+  - Functions/Methods: `PascalCase` (exported) / `camelCase` (unexported)
+  - Config/JSON/YAML tags: `snake_case`
 
-Two forks: `jackby03/ngx_waffynx` (`third_party/nginx`) and `jackby03/appsec_waffynx` (`third_party/open-appsec`). The nginx module links both in at build time via `--add-module`.
+---
 
-## Build
+## 6. Definition of Done (DoD)
 
-### Go binaries (cross-compiled for Linux from any OS)
-```bash
-make build          # build-cli + build-agent + build-api (CGO_ENABLED=0)
-```
-Outputs to `bin/`: `waffynx`, `waf-agent`, `waf-api`. The `appsec-bridge` binary is built by Vagrant provisioning.
+Before declaring any task or feature complete, verify that:
 
-### C++ Bridge Build
-The C++ bridge library is compiled from the `third_party/open-appsec` submodule:
-```bash
-make bridge-build   # compiles libwaffynx_bridge.so to dist/
-```
-This requires `cmake`, `g++`, `bison`, and `flex`. The Vagrant provisioning and GitHub Actions CI automatically build this.
-
-### Nginx (Linux only, or inside Vagrant VM)
-```bash
-make nginx-checkout   # init submodule (already handled by git submodule update)
-make nginx-configure  # runs auto/configure with --add-module for both submodules
-make nginx-build      # make -j inside third_party/nginx
-```
-
-**Vagrant builds nginx automatically** — see `vagrant/provision.sh`. It copies source to `/tmp/nginx-build` because nginx's `auto/configure` fails on vboxsf shared folders.
-
-## Architecture
-
-```
-HTTP request -> nginx (ACCESS phase, C module) --unix socket--> Go sidecar
-  -> plugin chain (4 plugins, priority-ordered)
-  -> policy engine (rule-based allow/deny/block)
-  -> appsec scorer (BasicScorer or BridgeScorer)
-  -> 204 (allow) or 403 (block) back to nginx
-```
-
-- **C module**: `modules/ngx_waffynx/ngx_http_waffynx_module.c` — intercepts req, forwards metadata via custom `X-WN-*` headers over Unix socket
-- **Go sidecar**: `internal/engine/sidecar.go` — Unix socket HTTP server running 3-stage evaluation pipeline
-- **appsec-bridge**: `cmd/appsec-bridge/main.go` — optional standalone daemon, same socket protocol as real open-appsec. The real C++ bridge library is compiled via `make bridge-build`.
-- **Plugins**: 4 built-ins in `plugins/` register via `init()` and are loaded by blank imports in `cmd/waffynx/main.go`. Note: phases like PostRequest, PreResponse are currently not implemented in the engine.
-- **waf-agent**: `cmd/waf-agent/main.go` — manages nftables/UFW rules
-- **waf-api**: `cmd/waf-api/main.go` — management API on :9090
-
-## Key gotchas
-
-### CRLF from Windows breaks nginx build
-When developing on Windows with autocrlf, files synced into the Vagrant VM via vboxsf will have CRLF. nginx's `auto/configure` and C compilation fail on these. The provision script handles this:
-
-```bash
-find . -type f -exec sed -i 's/\r$//' {} \;
-```
-
-If you add new C files to `modules/ngx_waffynx/` or `third_party/`, ensure they end up with LF in the VM build context. Don't strip CRLF in-place in `third_party/nginx` (that dir is a submodule — strip in the /tmp copy instead).
-
-### nginx configure can't run from vboxsf
-The `auto/configure` script performs filesystem checks that fail on VirtualBox shared folders. Always copy source to a local path (e.g., `/tmp/nginx-build`) before configuring — see `vagrant/provision.sh`.
-
-### Current test coverage
-~64 unit tests exist across 8 packages, coverage ~36%. The following packages have test coverage:
-- `cmd/waf-api`
-- `cmd/waf-agent`
-- `internal/firewall`
-- `internal/gateway`
-- `internal/upstream`
-- `internal/ratelimit`
-- `internal/parsers` (fuzz tests)
-- `internal/policy` (fuzz tests)
-
-### Build flag requirements
-Go binaries: `CGO_ENABLED=0 GOOS=linux GOARCH=amd64` for the VM. Nginx module: compiled with the full nginx source tree, `--add-module` for both `third_party/open-appsec/modules/nginx` and `modules/ngx_waffynx`.
-
-### Plugin registration
-New plugins go in `plugins/<name>/plugin.go` implementing `plugin.Plugin`. They must be registered via `init()` calling `plugin.Register()`. Import them in `cmd/waffynx/main.go` with a blank import (`_ "github.com/jackby03/waffynx/plugins/<name>"`). Note that not all evaluation phases (e.g., PostRequest, PreResponse) are fully supported by the engine yet.
-
-### Config loading
-Production config: `configs/waffynx.yaml` (120 lines, full config with all sections). Vagrant generates its own config at `/opt/waffynx/config/waffynx.yaml` during provisioning. The nginx.conf lives at `configs/nginx.conf` with `waffynx on;` directives — the Vagrant VM copies this into the built nginx conf dir.
-
-## Directory map
-
-| Path | Purpose |
-|------|---------|
-| `cmd/waffynx/` | Main WAF engine CLI (cobra: start, check, version) |
-| `cmd/waf-agent/` | Host firewall agent (nftables/UFW) |
-| `cmd/waf-api/` | Management REST API |
-| `cmd/appsec-bridge/` | ML daemon (BasicScorer, swap-out for real open-appsec) |
-| `internal/engine/` | Runtime orchestrator, sidecar, policy store |
-| `internal/plugin/` | Plugin interface, registry, chain |
-| `internal/policy/` | Rule-based policy evaluator |
-| `internal/appsec/` | ML scoring (BasicScorer, BridgeScorer, Features) |
-| `internal/config/` | YAML config loading with defaults |
-| `internal/logging/` | zerolog wrapper |
-| `internal/gateway/` | TCP HTTP reverse proxy (router + middleware) |
-| `internal/firewall/` | nftables/UFW manager |
-| `internal/auth/` | JWT auth manager |
-| `internal/metrics/` | Prometheus metrics |
-| `internal/marketplace/` | Plugin marketplace (in-memory store) |
-| `internal/tls/` | TLS cert manager |
-| `internal/upstream/` | Load balancer (round-robin, least-conn) |
-| `internal/version/` | Build info (ldflags) |
-| `modules/ngx_waffynx/` | nginx C module + addon config |
-| `plugins/` | 4 built-in WAF plugins |
-| `configs/` | Production config (waffynx.yaml, nginx.conf) |
-| `vagrant/` | VM provisioning + integration tests |
-| `deploy/systemd/` | Systemd unit files |
-| `deploy/docker/` | Dockerfile (waf-api only) + compose |
-| `third_party/nginx/` | Forked nginx (submodule) |
-| `third_party/open-appsec/` | Forked open-appsec (submodule) |
-| `pkg/proto/` | Proto definitions (not yet generated) |
-| `bin/` | Prebuilt Linux Go binaries (may be stale) |
-| `test/` | JSON test payloads (eval_normal.json, eval_sqli.json) |
-| `scripts/` | (empty) |
-| `ui/` | Frontend (React, not yet built) |
+1. **Tests Pass:** All unit and integration tests pass with zero race conditions (`go test -race ./...`).
+2. **No Linter Warnings:** `golangci-lint run ./...` returns exit code `0`.
+3. **Security Invariants Intact:** Invariants in [`constitution.md`](constitution.md) and regression rules in [`.jules/sentinel.md`](.jules/sentinel.md) are not violated.
+4. **Spec Compliance:** Acceptance criteria in `spec.md` and task criteria in `tasks.md` are 100% met.

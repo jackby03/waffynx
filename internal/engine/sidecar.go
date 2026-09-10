@@ -293,7 +293,11 @@ func (s *Sidecar) respondDeny(w http.ResponseWriter, ruleID, reason string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusForbidden)
 
-	fmt.Fprintf(w, `{"error":"blocked by WAF","rule_id":"%s","reason":"%s"}`, ruleID, reason)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"error":   "blocked by WAF",
+		"rule_id": ruleID,
+		"reason":  reason,
+	})
 }
 
 func (s *Sidecar) handleLearningSuggestions(w http.ResponseWriter, r *http.Request) {

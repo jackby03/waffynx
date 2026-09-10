@@ -93,12 +93,12 @@ curl "http://localhost:8080/?q=UNION+SELECT+1,2,3"       # 403 Forbidden (Blocke
 - Unit & Fuzz testing across core packages (~64 tests)
 - Kubernetes Helm Charts (Ingress + HPA support)
 - Docker Multi-arch support (`linux/amd64` & `linux/arm64`)
+- Full JWT enforcement & OIDC integration on management API
 
 **🚧 Pending / In Development:**
-- React/Vue single-page dashboard UI
+- React/Vue single-page dashboard UI (`specs/001-dashboard-ui`)
+- Dynamic Plugin Marketplace & WASM runtime
 - gRPC API migration for sidecar evaluation
-- Full JWT enforcement on all API routes
-- Dynamic Plugin Marketplace
 
 ## 📖 Documentation
 

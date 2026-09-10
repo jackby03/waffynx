@@ -114,26 +114,28 @@ func runAPI(cfg *config.Config, configPath string) error {
 	mux.HandleFunc("OPTIONS /api/v1/auth/login", withCORS(srv.handleLogin))
 
 	withAuth := srv.authMiddleware(mux)
+	requireAdmin := srv.requireRole("admin")
+
 	mux.HandleFunc("GET /api/v1/status", withCORS(withAuth(srv.handleStatus)))
 	mux.HandleFunc("GET /api/v1/config", withCORS(withAuth(srv.handleGetConfig)))
-	mux.HandleFunc("PUT /api/v1/config", withCORS(withAuth(srv.handleUpdateConfig)))
+	mux.HandleFunc("PUT /api/v1/config", withCORS(withAuth(requireAdmin(srv.handleUpdateConfig))))
 	mux.HandleFunc("GET /api/v1/metrics", withCORS(withAuth(srv.handleMetrics)))
 	mux.HandleFunc("GET /api/v1/plugins", withCORS(withAuth(srv.handleListPlugins)))
 	mux.HandleFunc("GET /api/v1/plugins/{name}", withCORS(withAuth(srv.handleGetPlugin)))
 	mux.HandleFunc("GET /api/v1/audit", withCORS(withAuth(srv.handleAuditQuery)))
-	mux.HandleFunc("POST /api/v1/events", withCORS(withAuth(srv.handleIngestEvent)))
+	mux.HandleFunc("POST /api/v1/events", withCORS(withAuth(requireAdmin(srv.handleIngestEvent))))
 	mux.HandleFunc("GET /api/v1/events", withCORS(withAuth(srv.handleSSE)))
 	mux.HandleFunc("GET /api/v1/marketplace", withCORS(withAuth(srv.handleMarketplaceList)))
 	mux.HandleFunc("GET /api/v1/marketplace/categories", withCORS(withAuth(srv.handleMarketplaceCategories)))
 	mux.HandleFunc("GET /api/v1/marketplace/{name}", withCORS(withAuth(srv.handleMarketplaceGet)))
-	mux.HandleFunc("POST /api/v1/marketplace/install/{name}", withCORS(withAuth(srv.handleMarketplaceInstall)))
-	mux.HandleFunc("DELETE /api/v1/marketplace/uninstall/{name}", withCORS(withAuth(srv.handleMarketplaceUninstall)))
+	mux.HandleFunc("POST /api/v1/marketplace/install/{name}", withCORS(withAuth(requireAdmin(srv.handleMarketplaceInstall))))
+	mux.HandleFunc("DELETE /api/v1/marketplace/uninstall/{name}", withCORS(withAuth(requireAdmin(srv.handleMarketplaceUninstall))))
 	mux.HandleFunc("GET /metrics", metrics.Handler().ServeHTTP)
-	mux.HandleFunc("GET /debug/pprof/", withAuth(pprof.Index))
-	mux.HandleFunc("GET /debug/pprof/cmdline", withAuth(pprof.Cmdline))
-	mux.HandleFunc("GET /debug/pprof/profile", withAuth(pprof.Profile))
-	mux.HandleFunc("GET /debug/pprof/symbol", withAuth(pprof.Symbol))
-	mux.HandleFunc("GET /debug/pprof/trace", withAuth(pprof.Trace))
+	mux.HandleFunc("GET /debug/pprof/", withAuth(requireAdmin(pprof.Index)))
+	mux.HandleFunc("GET /debug/pprof/cmdline", withAuth(requireAdmin(pprof.Cmdline)))
+	mux.HandleFunc("GET /debug/pprof/profile", withAuth(requireAdmin(pprof.Profile)))
+	mux.HandleFunc("GET /debug/pprof/symbol", withAuth(requireAdmin(pprof.Symbol)))
+	mux.HandleFunc("GET /debug/pprof/trace", withAuth(requireAdmin(pprof.Trace)))
 
 	mux.HandleFunc("GET /", srv.handleRoot)
 
@@ -242,6 +244,23 @@ func (s *apiServer) authMiddleware(mux *http.ServeMux) func(http.HandlerFunc) ht
 
 			ctx := context.WithValue(r.Context(), "claims", claims)
 			next(w, r.WithContext(ctx))
+		}
+	}
+}
+
+func (s *apiServer) requireRole(role string) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := r.Context().Value("claims").(*auth.Claims)
+			if !ok || claims == nil {
+				s.writeError(w, r, http.StatusUnauthorized, "unauthorized")
+				return
+			}
+			if claims.Role != role && claims.Role != "admin" {
+				s.writeError(w, r, http.StatusForbidden, "insufficient permissions: requires "+role+" role")
+				return
+			}
+			next(w, r)
 		}
 	}
 }
