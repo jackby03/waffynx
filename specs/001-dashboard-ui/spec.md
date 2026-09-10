@@ -32,9 +32,10 @@ Examples:
 - [ ] Live Attack Stream: Real-time table consuming SSE from `/api/v1/events`.
 - [ ] Plugins & Rules View: List active plugins and their status.
 -->
-- [ ] 
-- [ ] 
-- [ ] 
+- [ ] **Authentication:** Login interface authenticating against `/api/v1/auth/login`, storing JWT in `sessionStorage`, with automatic redirect on 401.
+- [ ] **Overview Dashboard:** Core KPI cards with periodic polling against `/api/v1/status` and `/api/v1/metrics` (Engine status, total requests, total blocked attacks, average latency).
+- [ ] **Live Attack Stream:** Real-time table consuming SSE from `/api/v1/events` featuring pause/resume controls and a bounded in-memory circular buffer (maximum 250 events).
+- [ ] **Plugins & Marketplace View:** Registered plugin inspection and catalog listings consuming `/api/v1/plugins` and `/api/v1/marketplace`.
 
 ### 2.2 Out-of-Scope (Deliberately Excluded for v1)
 <!-- 
@@ -44,8 +45,10 @@ Examples:
 - ⛔ Live in-browser YAML file editing of waffynx.yaml.
 - ⛔ Direct database connection outside of waf-api REST endpoints.
 -->
-- ⛔ 
-- ⛔ 
+- ⛔ Multi-tenant user management, role creation, or RBAC controls.
+- ⛔ In-browser direct file or rule editing of `waffynx.yaml`.
+- ⛔ Direct database connections or Unix domain socket streaming outside the `waf-api` REST/SSE endpoints.
+- ⛔ Complex historical time-series analytics (delegated to Prometheus/Grafana).
 
 ---
 
@@ -77,7 +80,9 @@ EARS Patterns:
 - **Rule:** IF the SSE connection drops, THEN the UI SHALL attempt automatic reconnection with exponential backoff.
 
 ### Requirement 3: Metrics & Overview Display
-- **Rule:** [TODO: Specify your requirements for KPI cards, charts, or tables]
+- **Rule:** WHILE the operator is viewing the Overview page, the UI SHALL poll `/api/v1/status` and `/api/v1/metrics` every 5 seconds.
+- **Rule:** WHEN `/health` returns any HTTP status other than `200 OK`, the UI SHALL display a persistent "Engine Disconnected" banner across the top header.
+- **Rule:** WHEN total requests or blocked count changes, the UI SHALL animate counter transitions without page reloads or layout shifts.
 
 ---
 

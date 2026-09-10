@@ -8,16 +8,12 @@
 
 ## 1. Technology Stack & Framework Selection
 
-<!-- 
-[To be finalized once spec.md is completed]
-Proposed stack:
-- Core: React 18 / TypeScript
-- Build Tool: Vite
-- Styling: Vanilla CSS / Tailwind CSS / Modern CSS Modules with Dark Mode
-- Routing: React Router or lightweight SPA router
-- State / Query: TanStack Query (or native fetch + hooks)
-- Streaming: Native EventSource for SSE (/api/v1/events)
--->
+- **Runtime & Core:** React 18 / TypeScript 5.x (Strict mode enabled).
+- **Build Tooling:** Vite (ESBuild / Rollup) paired with explicit TypeScript compiler checks (`tsc --noEmit`).
+- **Styling:** Tailwind CSS v3 configured with an enterprise SOC dark palette (`slate-950` base, `emerald-500` safe accents, `rose-500` threat alerts).
+- **Routing:** React Router DOM v6 leveraging nested route layouts and auth route guards (`AuthGuard`).
+- **Icons:** `lucide-react` (clean, tree-shakable SVG icon primitives).
+- **Networking & Streaming:** Native `fetch` with `AbortController` + native `EventSource` for SSE streaming.
 
 ---
 
