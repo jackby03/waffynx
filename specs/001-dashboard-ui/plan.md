@@ -1,65 +1,104 @@
 # Technical Architecture Plan: Dashboard UI
 
-**Status:** Awaiting Spec Finalization  
-**Related Spec:** [`spec.md`](./spec.md)  
-**Target Directory:** `ui/`  
+**Status:** Under Review
+**Related Spec:** [`spec.md`](./spec.md)
+**Target Directory:** `cmd/waf-api/ui/`
 
 ---
 
-## 1. Technology Stack & Framework Selection
+## 1. Architecture & Boundaries
 
-- **Runtime & Core:** React 18 / TypeScript 5.x (Strict mode enabled).
-- **Build Tooling:** Vite (ESBuild / Rollup) paired with explicit TypeScript compiler checks (`tsc --noEmit`).
-- **Styling:** Tailwind CSS v3 configured with an enterprise SOC dark palette (`slate-950` base, `emerald-500` safe accents, `rose-500` threat alerts).
-- **Routing:** React Router DOM v6 leveraging nested route layouts and auth route guards (`AuthGuard`).
-- **Icons:** `lucide-react` (clean, tree-shakable SVG icon primitives).
-- **Networking & Streaming:** Native `fetch` with `AbortController` + native `EventSource` for SSE streaming.
+- Build the SPA as a separate frontend package under `cmd/waf-api/ui/`.
+- Embed the production assets into `waf-api` with `embed.FS` and serve them from the control-plane HTTP server.
+- Keep the existing JSON API routes under `/api/v1/`; serve the SPA shell for browser routes without replacing API responses.
+- Do not expose the sidecar Unix socket to the browser.
+- Add an explicit sidecar-to-API event bridge. The sidecar sends blocked events to `POST /api/v1/events` over a configured local HTTP endpoint using a dedicated service JWT. The API validates that credential, publishes to its broker, and exposes the stream only to authenticated operators.
+- Event bridge failure is telemetry-only and must not alter the request verdict.
 
----
+## 2. Technology and Client Strategy
 
-## 2. API Contracts & Consumed Endpoints
+- React with TypeScript and Vite, unless the approved clarification selects another framework.
+- Native `fetch` for REST calls.
+- Use `fetch` plus `ReadableStream` for SSE so the client can set `Authorization: Bearer <JWT>`. Do not use native `EventSource`, because it cannot set a Bearer header.
+- Keep the JWT in memory. Do not use `localStorage`; use `sessionStorage` only if a later approved requirement explicitly accepts the XSS trade-off.
+- Use framework text binding for all event values. Do not use `innerHTML` or `dangerouslySetInnerHTML`.
+
+## 3. API Contracts
 
 | Endpoint | Method | Auth | Purpose |
-| :--- | :--- | :--- | :--- |
-| `/api/v1/auth/login` | `POST` | None | Authenticate operator, return JWT |
-| `/health` | `GET` | None | Health check & engine status ping |
-| `/api/v1/status` | `GET` | Bearer JWT | Engine uptime, connection counters |
-| `/api/v1/metrics` | `GET` | Bearer JWT | Aggregated traffic & block statistics |
-| `/api/v1/events` | `GET (SSE)` | Bearer JWT | Live streaming security events feed |
-| `/api/v1/plugins` | `GET` | Bearer JWT | List registered security plugins |
-| `/api/v1/marketplace` | `GET` | Bearer JWT | List available plugin packages |
+|---|---|---|---|
+| `/api/v1/auth/login` | `POST` | None | Return short-lived operator JWT |
+| `/api/v1/status` | `GET` | Operator JWT | Health and runtime status |
+| `/api/v1/metrics` | `GET` | Operator JWT | Dashboard metrics |
+| `/api/v1/plugins` | `GET` | Operator JWT | Registered plugins |
+| `/api/v1/events` | `GET` | Operator JWT | Streaming SSE response |
+| `/api/v1/events` | `POST` | Dedicated service JWT/admin service scope | Sidecar event ingestion |
 
----
+The event schema is `events.WafEvent`: `type`, `timestamp`, `method`, `path`, `remote_ip`, `rule_id`, and `reason`. The API must validate body size, event type, and required field lengths before publishing.
 
-## 3. Component Architecture & Routes
+## 4. Component Layout
 
 ```text
-ui/src/
-├── assets/             # Static logos, icons
-├── components/         # Reusable UI primitives (Card, Badge, Button, Table, Modal)
-├── features/
-│   ├── auth/           # Login form, token storage, auth guard
-│   ├── overview/       # KPI widgets, traffic gauges, status bar
-│   ├── live-events/    # Real-time SSE table with pause/filter controls
-│   ├── plugins/        # Plugin grid & status cards
-│   └── marketplace/    # Catalog listing
-├── services/           # api.ts (fetch wrapper with Bearer token & auto-logout on 401)
-├── App.tsx             # Route definitions & layout shell (Sidebar + Header)
-└── main.tsx            # Entry point
+cmd/waf-api/ui/
+├── package.json
+├── package-lock.json
+├── vite.config.ts
+├── src/
+│   ├── features/auth/
+│   ├── features/overview/
+│   ├── features/live-events/
+│   ├── features/plugins/
+│   ├── services/api.ts
+│   ├── services/event-stream.ts
+│   └── App.tsx
+└── dist/                         # generated, embedded at build time
+
+Sidecar -> authenticated POST /api/v1/events -> API broker -> authenticated fetch stream -> Dashboard
 ```
 
----
+## 5. Security and Failure Analysis
 
-## 4. Invariants & Security Analysis
+| Control | Design | Verification |
+|---|---|---|
+| Browser auth | In-memory JWT; clear on `401` | Auth/session tests |
+| SSE auth | Bearer header on streaming fetch | Unauthorized stream test |
+| Service auth | Dedicated credential and scope, never browser token | Ingest auth test |
+| XSS prevention | Escaped framework text rendering | DOM/XSS test |
+| CORS | Exact configured origin; reject unauthorized preflight | API regression tests |
+| Event failure | Does not affect WAF verdict | Fault-injection integration test |
+| API input | Size/type/field validation | Negative and fuzz tests |
+| Delivery | Bounded timeout and no unbounded retry storm | Unit test with failing API |
 
-- **XSS Sanitization:** React JSX automatically escapes dynamic strings before DOM insertion. Direct usage of `dangerouslySetInnerHTML` is strictly prohibited.
-- **Token Storage:** Store JWT in memory or `sessionStorage`/`localStorage` with automatic cleanup on expiration.
-- **CORS Handling:** During development, Vite dev server proxies `/api` to `http://localhost:9090` to eliminate CORS preflight overhead.
+## 6. Verification Strategy
 
----
+### Go
+```bash
+go test -race ./...
+gofmt -s -l .
+golangci-lint run ./...
+make build
+```
 
-## 5. Verification & Testing Strategy
+### Frontend
 
-- **Build verification:** `npm run build` (zero TypeScript errors).
-- **Linter check:** `npm run lint` (zero warnings).
-- **End-to-End verification:** Run alongside local `waf-api` with test event injection via `curl -X POST /api/v1/events`.
+From `cmd/waf-api/ui/`:
+```bash
+npm ci
+npm run lint
+npm test -- --run
+npm run build
+```
+
+The exact scripts must exist in `package.json`; missing scripts are a failed gate, not an optional check.
+
+### Integration
+
+Run the API, sidecar, and dashboard in the Linux VM and verify:
+
+1. A blocked request creates an event.
+2. The event crosses the authenticated ingest boundary.
+3. An authenticated dashboard receives it.
+4. An unauthenticated client receives `401` and cannot subscribe.
+5. Event bridge failure does not allow an otherwise blocked request.
+
+Use `make vagrant-test` for the Linux verification cycle.

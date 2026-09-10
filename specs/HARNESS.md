@@ -30,7 +30,7 @@ Every task follows a top-down governance model:
 
 ## 2. The Agent Execution Protocol
 
-When assigned a task, the agent MUST follow these 5 phases sequentially:
+When assigned a task, the agent MUST follow these 5 phases sequentially. The agent MUST stop at an approval gate and ask the user for approval; it must not infer approval from a draft file or from the presence of tasks.
 
 ### Phase 1: Ingestion & Invariant Check
 1. Read `constitution.md` to refresh non-negotiable security and architectural rules.
@@ -42,11 +42,15 @@ When assigned a task, the agent MUST follow these 5 phases sequentially:
    - Socket permissions (`0600`/`0660`).
 4. If ambiguities or missing specifications exist, record them in `clarifications.md` and clarify with the user before proceeding.
 
+**Gate 1:** `spec.md` MUST exist, have status `Approved`, and contain no unresolved blocking clarification.
+
 ### Phase 2: Technical Architecture Plan (`plan.md`)
 1. Define the system boundaries and component mapping.
 2. Draft explicit data contracts (Go structs, Protobuf definitions, JSON schemas).
 3. Document failure modes, edge cases, and fallback mechanisms.
 4. Establish the testing strategy (unit tests, fuzz tests, integration tests).
+
+**Gate 2:** `plan.md` MUST have status `Approved` and reference the approved specification. The plan MUST identify affected components, contracts, failure modes, security controls, and verification commands.
 
 ### Phase 3: Task Breakdown (`tasks.md`)
 1. Deconstruct the work into small, sequential, atomic tasks.
@@ -57,23 +61,37 @@ When assigned a task, the agent MUST follow these 5 phases sequentially:
    - Step D: Integration with the runtime engine/pipeline.
 3. Every task must have an explicit **Definition of Done (DoD)** (e.g. `go test -v -run TestX passes`).
 
+**Gate 3:** `tasks.md` MUST contain atomic tasks with explicit files, scope, dependencies, and DoD. Only one task may be marked `in_progress` at a time. Implementation cannot start until the user approves the spec, plan, and task list.
+
 ### Phase 4: Implementation Loop
 1. Take one task from `tasks.md` at a time.
 2. Implement code strictly within the declared `In-Scope` boundary.
 3. Verify the task's DoD immediately.
 4. Mark the task as completed (`[x]`).
 
+Before editing, record the task as `in_progress`. Before completion, verify its DoD and confirm every changed file is inside the task's declared scope. Do not modify unrelated user changes.
+
 ### Phase 5: Verification & Harness Evaluation
-1. Run the package test suite:
-   ```bash
-   go test -v ./...
-   ```
-2. If the feature touches parsers or evaluators, run fuzz tests:
-   ```bash
-   go test -fuzz=Fuzz<Target> -fuzztime=10s ./...
-   ```
-3. Ensure no regressions against `.jules/sentinel.md` vulnerability invariants.
-4. Update or document any major architectural shifts in `docs/adr/`.
+1. Run the Go verification suite:
+    ```bash
+    go test -race ./...
+    gofmt -s -l .
+    golangci-lint run ./...
+    ```
+2. Build the supported Go targets:
+    ```bash
+    make build
+    ```
+3. If the feature touches parsers or evaluators, run the named fuzz target for its package:
+    ```bash
+    go test -fuzz=Fuzz<Target> -fuzztime=10s ./internal/<package>
+    ```
+4. For frontend changes, run the package-manager-appropriate lockfile install, build, lint, and tests from the UI directory. The exact commands MUST be recorded in `plan.md`.
+5. For Linux-only, Nginx, C, or C++ changes, run `make vagrant-test` or the relevant Linux verification command. Windows-only results are not sufficient.
+6. Ensure no regressions against `.jules/sentinel.md` vulnerability invariants.
+7. Update or document any major architectural shifts in `docs/adr/`.
+
+**Gate 4:** A feature is complete only when all applicable verification commands pass, all tasks are checked off, and the final diff contains no out-of-scope files. If an environment limitation prevents a check, document it explicitly and do not claim the gate passed.
 
 ---
 
@@ -86,6 +104,8 @@ When assigned a task, the agent MUST follow these 5 phases sequentially:
 | **Skipping tests** | Write verification tests before or alongside code. Untested code is incomplete code. |
 | **Losing documentation** | Preserve all existing comments and explanations in modified files. |
 | **Hardcoding secrets/defaults** | Enforce startup validation with minimum length and entropy requirements. |
+| **Implementing a draft** | Stop at the approval gate and request explicit user approval. |
+| **Unverified integration** | Add a test that exercises the real boundary, not only isolated mocks. |
 
 ---
 
@@ -100,3 +120,5 @@ cp specs/templates/plan.md specs/001-feature-name/plan.md
 cp specs/templates/tasks.md specs/001-feature-name/tasks.md
 cp specs/templates/clarifications.md specs/001-feature-name/clarifications.md
 ```
+
+Use the status values from the templates consistently: `Draft`, `Under Review`, `Approved`, or `Superseded`. A clarification marked `Pending` blocks approval when it affects security, API contracts, data flow, scope, or acceptance criteria.

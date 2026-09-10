@@ -1,108 +1,97 @@
 # Functional Specification: Dashboard UI
 
-**Status:** Draft / In Progress  
-**Feature ID:** `SPEC-001`  
-**Target Milestone:** v0.2.0  
-**Related Component:** `ui/` & `cmd/waf-api/`  
+**Status:** Under Review
+**Feature ID:** `SPEC-001`
+**Target Milestone:** v0.2.0
+**Related Components:** `cmd/waf-api/ui/`, `cmd/waf-api/`, `internal/engine/`
 
 ---
 
 ## 1. Objective & Context
 
-### 1.1 Problem Statement
-Waffynx currently operates as a headless WAF engine. Operators and security engineers can only monitor security events, rule violations, and system metrics via raw API curl commands or Prometheus endpoints. There is no graphical management interface to visualize threats in real time or manage configuration.
-
-### 1.2 Value Proposition & Goals
-Provide a single-page web dashboard (SPA) that allows administrators to:
-- Monitor live traffic and attack blocks via Server-Sent Events (SSE).
-- Authenticate securely via JWT with the `waf-api` service.
-- View system health, metrics, and active plugins.
-- Manage rules and view audit history.
-
----
+Waffynx needs an authenticated operator dashboard for health, metrics, plugins, and blocked-request events. The dashboard is a control-plane client only; it must never inspect or proxy production traffic directly.
 
 ## 2. Scope Boundaries
 
-### 2.1 In-Scope (Strict Requirements)
-<!-- 
-[TODO: Fill in what MUST be built in this initial phase]
-Examples:
-- [ ] Authentication: Login screen with JWT storage and session handling.
-- [ ] Overview Dashboard: Real-time traffic KPIs (Total requests, Blocked requests, RPS, Latency).
-- [ ] Live Attack Stream: Real-time table consuming SSE from `/api/v1/events`.
-- [ ] Plugins & Rules View: List active plugins and their status.
--->
-- [ ] **Authentication:** Login interface authenticating against `/api/v1/auth/login`, storing JWT in `sessionStorage`, with automatic redirect on 401.
-- [ ] **Overview Dashboard:** Core KPI cards with periodic polling against `/api/v1/status` and `/api/v1/metrics` (Engine status, total requests, total blocked attacks, average latency).
-- [ ] **Live Attack Stream:** Real-time table consuming SSE from `/api/v1/events` featuring pause/resume controls and a bounded in-memory circular buffer (maximum 250 events).
-- [ ] **Plugins & Marketplace View:** Registered plugin inspection and catalog listings consuming `/api/v1/plugins` and `/api/v1/marketplace`.
+### 2.1 In-Scope
+- [ ] Serve a production-built SPA from `cmd/waf-api/ui/` through `waf-api`.
+- [ ] Authenticate with `POST /api/v1/auth/login`; keep the JWT in memory by default and clear it on `401` or logout.
+- [ ] Display authenticated status, metrics, and registered plugins.
+- [ ] Consume authenticated blocked-event SSE using a streaming `fetch` client with an `Authorization` header.
+- [ ] Reconnect SSE with bounded exponential backoff and show disconnected state.
+- [ ] Render event fields as text, never as HTML.
+- [ ] Provide responsive desktop and mobile layouts.
 
-### 2.2 Out-of-Scope (Deliberately Excluded for v1)
-<!-- 
-[TODO: Fill in what is explicitly NOT part of this release to prevent scope creep]
-Examples:
-- ⛔ Multi-tenant user management / RBAC creation.
-- ⛔ Live in-browser YAML file editing of waffynx.yaml.
-- ⛔ Direct database connection outside of waf-api REST endpoints.
--->
-- ⛔ Multi-tenant user management, role creation, or RBAC controls.
-- ⛔ In-browser direct file or rule editing of `waffynx.yaml`.
-- ⛔ Direct database connections or Unix domain socket streaming outside the `waf-api` REST/SSE endpoints.
-- ⛔ Complex historical time-series analytics (delegated to Prometheus/Grafana).
+### 2.2 Out-of-Scope
+- Multi-tenant administration, user creation, and role management.
+- Editing YAML or arbitrary configuration from the browser.
+- Direct access to the sidecar Unix socket.
+- Plugin installation or uninstallation in the first release.
+- Storing JWTs in `localStorage`.
 
 ---
 
-## 3. User Personas & Core Workflows
+## 3. Functional Requirements
 
-### Persona: Security Administrator
-- **Workflow 1 (Login):** Opens dashboard -> enters credentials -> receives JWT -> redirects to Overview.
-- **Workflow 2 (Live Monitoring):** Watches live attacks streaming in real time as requests are blocked by Nginx/Sidecar.
-- **Workflow 3 (Plugin Inspection):** Inspects active security plugins (SQLi, XSS, RateLimit, BotDetection) and their configurations.
+### Requirement 1: Authentication
+- **Type:** Event-Driven
+- **Rule:** WHEN valid credentials are submitted, the UI SHALL store the JWT in memory and navigate to the protected dashboard.
+- **Rule:** IF an API request returns `401`, THEN the UI SHALL discard the token and navigate to `/login`.
 
----
+### Requirement 2: Authenticated Event Stream
+- **Type:** State-Driven
+- **Rule:** WHILE the dashboard is open, the UI SHALL connect to `GET /api/v1/events` using an authenticated streaming request.
+- **Rule:** IF the stream disconnects, THEN the UI SHALL retry with exponential backoff capped at 30 seconds and expose the connection state.
+- **Rule:** WHEN a blocked event arrives, the UI SHALL display timestamp, IP, method, path, rule ID, and reason within one second under normal local-network conditions.
 
-## 4. Structured Functional Requirements (EARS)
+### Requirement 3: Event Bridge
+- **Type:** Ubiquitous
+- **Rule:** The sidecar SHALL publish blocked events to the API event-ingest endpoint using a dedicated service credential; the API SHALL validate the credential and broadcast the event to authenticated dashboard clients.
+- **Rule:** IF event delivery to the API fails, THEN the sidecar SHALL log the failure and SHALL NOT weaken request inspection or allow traffic because of that failure.
 
-<!--
-EARS Patterns:
-- Ubiquitous: "The UI SHALL <behavior>."
-- Event-driven: "WHEN <trigger>, the UI SHALL <behavior>."
-- State-driven: "WHILE <state>, the UI SHALL <behavior>."
-- Unwanted: "IF <error/invalid>, THEN the UI SHALL <behavior>."
--->
+### Requirement 4: Dashboard Data
+- **Type:** Event-Driven
+- **Rule:** WHEN an authenticated view loads, the UI SHALL fetch status, metrics, and plugins and show explicit loading, empty, and error states.
 
-### Requirement 1: Authentication & Token Lifecycle
-- **Rule:** WHEN an unauthenticated user navigates to any dashboard view, the UI SHALL redirect to `/login`.
-- **Rule:** IF an API request returns `401 Unauthorized`, THEN the UI SHALL clear the stored JWT and redirect to `/login`.
+### Requirement 5: Safe Rendering
+- **Type:** Unwanted Behavior
+- **Rule:** IF event data contains markup or control characters, THEN the UI SHALL render it as escaped text and SHALL not use `innerHTML` or `dangerouslySetInnerHTML` for untrusted values.
 
-### Requirement 2: Real-time Event Ingestion
-- **Rule:** WHILE connected to `/api/v1/events` via EventSource (SSE), the UI SHALL append incoming security events to the live attack feed without requiring page reloads.
-- **Rule:** IF the SSE connection drops, THEN the UI SHALL attempt automatic reconnection with exponential backoff.
+## 4. Error Handling & Edge Cases
 
-### Requirement 3: Metrics & Overview Display
-- **Rule:** WHILE the operator is viewing the Overview page, the UI SHALL poll `/api/v1/status` and `/api/v1/metrics` every 5 seconds.
-- **Rule:** WHEN `/health` returns any HTTP status other than `200 OK`, the UI SHALL display a persistent "Engine Disconnected" banner across the top header.
-- **Rule:** WHEN total requests or blocked count changes, the UI SHALL animate counter transitions without page reloads or layout shifts.
+| Scenario | Expected behavior |
+|---|---|
+| Invalid login | Show generic authentication error; do not reveal whether the user exists |
+| Expired or revoked JWT | Clear in-memory session and redirect to login |
+| SSE `401`/`403` | Stop retries and require login |
+| SSE network failure | Retry with bounded exponential backoff and visible status |
+| Malformed event | Ignore the event, log a client-safe diagnostic, keep the stream alive |
+| API timeout/5xx | Show retry action and preserve the rest of the dashboard |
+| Empty metrics/plugins/events | Show an explicit empty state, not a blank panel |
 
----
+## 5. Acceptance Scenarios
 
-## 5. Security Invariants (Constitution Compliance)
-
-1. **XSS Prevention:** Under no circumstances should untrusted event data (URIs, User-Agents, IPs, attack payloads) be injected into the DOM using `innerHTML`. Use framework data-binding (`textContent` equivalents). *(See `.jules/sentinel.md`)*.
-2. **CORS & Credentials:** Requests to `waf-api` must include Bearer tokens in headers, respecting the server's strict origin validation.
-
----
-
-## 6. Acceptance Criteria (Given-When-Then)
-
-### Scenario A: Successful Login & Token Persistence
-- **Given:** A valid operator credential (`username` / `password`).
+### Scenario A: Successful Login
+- **Given:** A valid configured operator credential.
 - **When:** The user submits the login form.
-- **Then:** The UI receives a JWT, stores it securely, and navigates to the dashboard home.
+- **Then:** The UI receives a JWT, keeps it in memory, and opens the protected dashboard.
 
-### Scenario B: Live Event Streaming
-- **Given:** An authenticated operator viewing the live stream table.
-- **When:** The sidecar blocks an attack and `waf-api` emits a SSE event.
-- **Then:** A new row appears at the top of the table within 1 second showing IP, timestamp, rule ID, and URI.
+### Scenario B: Authenticated Live Event
+- **Given:** The sidecar has emitted an event through the authenticated API ingest boundary.
+- **When:** An authenticated dashboard is connected to the event stream.
+- **Then:** The event appears with the required fields within one second.
 
-<!-- [TODO: Add any additional acceptance scenarios below] -->
+### Scenario C: Authentication Failure
+- **Given:** An authenticated dashboard session.
+- **When:** The API returns `401`.
+- **Then:** The token is cleared and the user is redirected to `/login`.
+
+### Scenario D: XSS Payload
+- **Given:** An event path contains `<script>alert(1)</script>`.
+- **When:** The event is rendered.
+- **Then:** The literal text is shown and no script executes or DOM node is created from the value.
+
+### Scenario E: Event Delivery Failure
+- **Given:** The API ingest endpoint is unavailable.
+- **When:** The sidecar tries to publish a blocked event.
+- **Then:** The request remains governed by the normal fail-closed inspection path and the delivery error is observable in logs/metrics.
