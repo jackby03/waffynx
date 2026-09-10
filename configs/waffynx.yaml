@@ -13,6 +13,10 @@ sidecar:
   socket_path: "/opt/waffynx/waffynx.sock"
   fail_open: false      # fail-closed: block requests if sidecar is unreachable
   timeout_ms: 100       # max ms to wait for sidecar response
+  # Optional authenticated bridge for dashboard security events.
+  # event_api_url: "http://127.0.0.1:9090/api/v1/events"
+  # event_auth_token: "<signed JWT with events:write scope>"
+  event_timeout_ms: 200
 
 # -- Structured logging --
 logging:

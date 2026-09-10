@@ -24,9 +24,12 @@ type Config struct {
 }
 
 type SidecarConfig struct {
-	SocketPath  string `yaml:"socket_path"`
-	FailOpen    bool   `yaml:"fail_open"`
-	TimeoutMs   int    `yaml:"timeout_ms"`
+	SocketPath     string `yaml:"socket_path"`
+	FailOpen       bool   `yaml:"fail_open"`
+	TimeoutMs      int    `yaml:"timeout_ms"`
+	EventAPIURL    string `yaml:"event_api_url"`
+	EventAuthToken string `yaml:"event_auth_token"`
+	EventTimeoutMs int    `yaml:"event_timeout_ms"`
 }
 
 type LoggingConfig struct {
@@ -36,17 +39,17 @@ type LoggingConfig struct {
 }
 
 type NginxConfig struct {
-	BinaryPath     string `yaml:"binary_path"`
-	ConfigPath     string `yaml:"config_path"`
-	WorkerProcesses int  `yaml:"worker_processes"`
-	WorkerConnections int `yaml:"worker_connections"`
-	EnableHTTP2    bool   `yaml:"enable_http2"`
-	EnableHTTP3    bool   `yaml:"enable_http3"`
+	BinaryPath        string `yaml:"binary_path"`
+	ConfigPath        string `yaml:"config_path"`
+	WorkerProcesses   int    `yaml:"worker_processes"`
+	WorkerConnections int    `yaml:"worker_connections"`
+	EnableHTTP2       bool   `yaml:"enable_http2"`
+	EnableHTTP3       bool   `yaml:"enable_http3"`
 }
 
 type AppSecConfig struct {
 	Enabled      bool   `yaml:"enabled"`
-	Engine       string `yaml:"engine"`        // "basic-go" or "open-appsec"
+	Engine       string `yaml:"engine"` // "basic-go" or "open-appsec"
 	RulesPath    string `yaml:"rules_path"`
 	MLModelPath  string `yaml:"ml_model_path"`
 	LearningMode bool   `yaml:"learning_mode"`
@@ -63,14 +66,14 @@ type GatewayConfig struct {
 }
 
 type RouteConfig struct {
-	Name       string            `yaml:"name"`
-	Host       string            `yaml:"host"`
-	Path       string            `yaml:"path"`
-	Methods    []string          `yaml:"methods"`
-	Upstream   string            `yaml:"upstream"`
-	TLS        *TLSConfig        `yaml:"tls,omitempty"`
-	Plugins    []string          `yaml:"plugins"`
-	Headers    map[string]string `yaml:"headers,omitempty"`
+	Name     string            `yaml:"name"`
+	Host     string            `yaml:"host"`
+	Path     string            `yaml:"path"`
+	Methods  []string          `yaml:"methods"`
+	Upstream string            `yaml:"upstream"`
+	TLS      *TLSConfig        `yaml:"tls,omitempty"`
+	Plugins  []string          `yaml:"plugins"`
+	Headers  map[string]string `yaml:"headers,omitempty"`
 }
 
 type TLSConfig struct {
@@ -98,17 +101,17 @@ type PluginConfig struct {
 
 type FirewallConfig struct {
 	Enabled      bool     `yaml:"enabled"`
-	Backend      string   `yaml:"backend"`       // ufw, nftables
-	DefaultIn    string   `yaml:"default_in"`    // deny, allow
-	DefaultOut   string   `yaml:"default_out"`   // deny, allow
+	Backend      string   `yaml:"backend"`     // ufw, nftables
+	DefaultIn    string   `yaml:"default_in"`  // deny, allow
+	DefaultOut   string   `yaml:"default_out"` // deny, allow
 	ManagedPorts []int    `yaml:"managed_ports"`
-	BlockList    []string `yaml:"block_list"`    // IPs to block at startup
+	BlockList    []string `yaml:"block_list"` // IPs to block at startup
 }
 
 type APIConfig struct {
-	Enabled        bool     `yaml:"enabled"`
-	Listen         string   `yaml:"listen"`
-	AllowedOrigins []string `yaml:"allowed_origins"`
+	Enabled        bool       `yaml:"enabled"`
+	Listen         string     `yaml:"listen"`
+	AllowedOrigins []string   `yaml:"allowed_origins"`
 	Auth           AuthConfig `yaml:"auth"`
 }
 
@@ -118,10 +121,10 @@ type UserConfig struct {
 }
 
 type AuthConfig struct {
-	JWTSecret string        `yaml:"jwt_secret"`
-	TokenTTL  int           `yaml:"token_ttl"`
+	JWTSecret string         `yaml:"jwt_secret"`
+	TokenTTL  int            `yaml:"token_ttl"`
 	OIDC      []OIDCProvider `yaml:"oidc"`
-	Users     []UserConfig  `yaml:"users"`
+	Users     []UserConfig   `yaml:"users"`
 }
 
 type OIDCProvider struct {
@@ -151,9 +154,10 @@ func defaultConfig() *Config {
 			Output: "stdout",
 		},
 		Sidecar: SidecarConfig{
-			SocketPath: "/var/run/waffynx.sock",
-			FailOpen:   true,
-			TimeoutMs:  100,
+			SocketPath:     "/var/run/waffynx.sock",
+			FailOpen:       false,
+			TimeoutMs:      100,
+			EventTimeoutMs: 200,
 		},
 		Nginx: NginxConfig{
 			BinaryPath:        "/opt/waffynx/nginx/sbin/nginx",

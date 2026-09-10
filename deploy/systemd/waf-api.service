@@ -1,0 +1,19 @@
+[Unit]
+Description=Waffynx Management API & Web Dashboard
+Documentation=https://waffynx.io/docs
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/opt/waffynx/bin/waf-api --config /opt/waffynx/config/waffynx.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+ExecStop=/bin/kill -SIGTERM $MAINPID
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65535
+LimitNPROC=65535
+
+[Install]
+WantedBy=multi-user.target

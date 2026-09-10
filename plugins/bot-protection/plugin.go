@@ -1,6 +1,7 @@
 package botprotection
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -77,14 +78,15 @@ func (p *BotProtectionPlugin) Execute(ctx *plugin.Context) (*plugin.Context, err
 	}
 	for _, bot := range p.knownBots {
 		if strings.Contains(strings.ToLower(ua), strings.ToLower(bot)) {
+			ctx.Tags["bot_detected"] = "true"
+			ctx.Tags["bot_user_agent"] = ua
 			if p.mode == "block" {
 				ctx.StatusCode = 403
 				ctx.ResponseWriter.Header().Set("Content-Type", "application/json")
 				ctx.ResponseWriter.WriteHeader(http.StatusForbidden)
 				ctx.ResponseWriter.Write([]byte(`{"error":"bot access denied"}`))
+				return ctx, fmt.Errorf("bot access denied: %s", bot)
 			}
-			ctx.Tags["bot_detected"] = "true"
-			ctx.Tags["bot_user_agent"] = ua
 			break
 		}
 	}

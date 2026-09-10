@@ -24,7 +24,7 @@ func TestParse_DefaultValues(t *testing.T) {
 	if cfg.Logging.Level != "info" || cfg.Logging.Format != "json" {
 		t.Errorf("unexpected default Logging config: %+v", cfg.Logging)
 	}
-	if cfg.Sidecar.SocketPath != "/var/run/waffynx.sock" || !cfg.Sidecar.FailOpen {
+	if cfg.Sidecar.SocketPath != "/var/run/waffynx.sock" || cfg.Sidecar.FailOpen || cfg.Sidecar.EventTimeoutMs != 200 {
 		t.Errorf("unexpected default Sidecar config: %+v", cfg.Sidecar)
 	}
 	if cfg.Firewall.Backend != "nftables" {

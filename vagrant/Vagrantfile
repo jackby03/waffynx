@@ -32,7 +32,9 @@ Vagrant.configure("2") do |config|
       echo "==> Starting Waffynx services..."
       systemctl start waffynx 2>/dev/null || true
       systemctl start waf-agent 2>/dev/null || true
+      systemctl start waf-api 2>/dev/null || true
       systemctl start appsec-bridge 2>/dev/null || true
       echo "==> Waffynx running on http://localhost:8080"
+      echo "==> Control Room UI running on http://localhost:9090"
     SHELL
 end

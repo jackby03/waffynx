@@ -26,9 +26,9 @@ import (
 // calls to evaluate every request against the WAF policy engine.
 //
 // Evaluation pipeline (in order):
-//   1. Plugin chain (pattern matching: SQLi, XSS, rate-limit, bots...)
-//   2. Policy engine (custom WAF rules)
-//   3. Appsec scorer (ML-based anomaly detection: basic-go or open-appsec)
+//  1. Plugin chain (pattern matching: SQLi, XSS, rate-limit, bots...)
+//  2. Policy engine (custom WAF rules)
+//  3. Appsec scorer (ML-based anomaly detection: basic-go or open-appsec)
 //
 // Protocol:
 //
@@ -53,6 +53,11 @@ type Sidecar struct {
 	audit      *audit.Store
 	rules      *wrules.Engine
 	broker     *events.Broker
+	publisher  *events.Publisher
+}
+
+func (s *Sidecar) SetEventPublisher(publisher *events.Publisher) {
+	s.publisher = publisher
 }
 
 func NewSidecar(socketPath string, eval policy.Evaluator, chain *plugin.Chain, scorer appsec.Scorer, learn *learning.Engine, a *audit.Store, r *wrules.Engine, b *events.Broker) *Sidecar {
@@ -129,9 +134,9 @@ func (s *Sidecar) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 		Path:     r.Header.Get("X-WN-U"),
 		RemoteIP: r.Header.Get("X-WN-IP"),
 		Headers: map[string][]string{
-			"User-Agent":  {r.Header.Get("X-WN-UA")},
+			"User-Agent":   {r.Header.Get("X-WN-UA")},
 			"Content-Type": {r.Header.Get("X-WN-CT")},
-			"Referer":     {r.Header.Get("X-WN-Ref")},
+			"Referer":      {r.Header.Get("X-WN-Ref")},
 		},
 	}
 
@@ -155,13 +160,13 @@ func (s *Sidecar) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 	// not the ORIGINAL. We inject the original request data into ctx.Values
 	// so plugins can access it.
 	ctx := plugin.NewContext(context.Background(), w, r)
-	ctx.Values["wn_method"]   = req.Method
-	ctx.Values["wn_uri"]      = req.Path
-	ctx.Values["wn_host"]     = req.Host
-	ctx.Values["wn_ip"]       = req.RemoteIP
-	ctx.Values["wn_ua"]       = r.Header.Get("X-WN-UA")
-	ctx.Values["wn_ct"]       = r.Header.Get("X-WN-CT")
-	ctx.Values["wn_ref"]      = r.Header.Get("X-WN-Ref")
+	ctx.Values["wn_method"] = req.Method
+	ctx.Values["wn_uri"] = req.Path
+	ctx.Values["wn_host"] = req.Host
+	ctx.Values["wn_ip"] = req.RemoteIP
+	ctx.Values["wn_ua"] = r.Header.Get("X-WN-UA")
+	ctx.Values["wn_ct"] = r.Header.Get("X-WN-CT")
+	ctx.Values["wn_ref"] = r.Header.Get("X-WN-Ref")
 	if len(bodyBytes) > 0 {
 		ctx.Values["wn_body"] = string(bodyBytes)
 	}
@@ -202,18 +207,18 @@ func (s *Sidecar) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 	// Stage 3: ML-based anomaly detection
 	if s.scorer != nil {
 		appsecResult, err := s.scorer.Evaluate(ctx, &appsec.Features{
-			Method:       req.Method,
-			URI:          req.Path,
-			Host:         req.Host,
-			ClientIP:     req.RemoteIP,
-			UserAgent:    r.Header.Get("X-WN-UA"),
-			ContentType:  r.Header.Get("X-WN-CT"),
-			Referer:      r.Header.Get("X-WN-Ref"),
-			Body:         bodyBytes,
-			URILength:    len(req.Path),
-			PayloadSize:  int64(len(bodyBytes)),
-			HasPayload:   len(bodyBytes) > 0,
-			QueryParams:  parseQueryParams(req.Path),
+			Method:      req.Method,
+			URI:         req.Path,
+			Host:        req.Host,
+			ClientIP:    req.RemoteIP,
+			UserAgent:   r.Header.Get("X-WN-UA"),
+			ContentType: r.Header.Get("X-WN-CT"),
+			Referer:     r.Header.Get("X-WN-Ref"),
+			Body:        bodyBytes,
+			URILength:   len(req.Path),
+			PayloadSize: int64(len(bodyBytes)),
+			HasPayload:  len(bodyBytes) > 0,
+			QueryParams: parseQueryParams(req.Path),
 		})
 		if err != nil {
 			logging.Warn().Err(err).Msg("appsec scorer error, allowing request")
@@ -438,6 +443,9 @@ func (s *Sidecar) recordLearning(req *policy.Request, verdict, ruleID, reason st
 			bodySnippet = body
 		}
 	}
+	if ruleID == "" {
+		ruleID = "unknown"
+	}
 
 	s.learning.Record(learning.Record{
 		Method:      req.Method,
@@ -453,23 +461,31 @@ func (s *Sidecar) recordLearning(req *policy.Request, verdict, ruleID, reason st
 
 	if s.audit != nil && verdict == "block" {
 		s.audit.Record(audit.Event{
-			Actor:   req.RemoteIP,
-			ActorIP: req.RemoteIP,
-			Action:  req.Method + " " + req.Path,
+			Actor:    req.RemoteIP,
+			ActorIP:  req.RemoteIP,
+			Action:   req.Method + " " + req.Path,
 			Resource: req.Host,
-			Result:  "blocked",
-			Details: fmt.Sprintf("rule=%s reason=%s", ruleID, reason),
+			Result:   "blocked",
+			Details:  fmt.Sprintf("rule=%s reason=%s", ruleID, reason),
 		})
 	}
 
-	if s.broker != nil && verdict == "block" {
-		s.broker.Publish(events.WafEvent{
+	if verdict == "block" {
+		event := events.WafEvent{
 			Type:     events.TypeBlocked,
 			Method:   req.Method,
 			Path:     req.Path,
 			RemoteIP: req.RemoteIP,
 			RuleID:   ruleID,
 			Reason:   reason,
-		})
+		}
+		if s.broker != nil {
+			s.broker.Publish(event)
+		}
+		if s.publisher != nil {
+			if err := s.publisher.Publish(event); err != nil {
+				logging.Warn().Err(err).Msg("event bridge delivery failed")
+			}
+		}
 	}
 }

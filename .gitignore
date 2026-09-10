@@ -49,6 +49,8 @@ coverage.html
 ui/node_modules/
 ui/dist/
 ui/.env.local
+cmd/waf-api/ui/node_modules/
+cmd/waf-api/ui/tsconfig.tsbuildinfo
 
 # Temp
 tmp/

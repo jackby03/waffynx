@@ -7,7 +7,7 @@
 set -euo pipefail
 
 WAFFYNX_HOME="${WAFFYNX_HOME:-/opt/waffynx}"
-BASE_URL="http://localhost:8080"
+BASE_URL="${BASE_URL:-http://localhost}"
 SIDECAR_SOCK="$WAFFYNX_HOME/waffynx.sock"
 BRIDGE_SOCK="$WAFFYNX_HOME/open-appsec.sock"
 PASSED=0
@@ -25,7 +25,7 @@ assert_status() {
     if [ -n "$extra_headers" ]; then
         status=$(curl -s -o /dev/null -w "%{http_code}" $extra_headers --max-time 5 "$BASE_URL$url")
     else
-        status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$BASE_URL$url")
+        status=$(curl -s -o /dev/null -w "%{http_code}" -H "User-Agent: Mozilla/5.0" --max-time 5 "$BASE_URL$url")
     fi
 
     if [ "$status" = "$expected" ]; then
@@ -196,6 +196,45 @@ if command -v nft &>/dev/null; then
     green "yes"
 else
     red "no"
+fi
+
+# ---- 6. Management API & Dashboard UI (:9090) ----
+echo ""
+bold "--- Management API & Control Room UI ---"
+
+echo -n "  API health check (:9090)... "
+TESTS=$((TESTS + 1))
+api_health=$(curl -s --max-time 3 http://localhost:9090/health 2>/dev/null || echo "")
+if echo "$api_health" | grep -q '"status":"ok"'; then
+    green "OK (200)"
+    PASSED=$((PASSED + 1))
+else
+    red "FAILED"
+    FAILED=$((FAILED + 1))
+fi
+
+echo -n "  Dashboard UI root page (:9090)... "
+TESTS=$((TESTS + 1))
+ui_html=$(curl -s -H "Accept: text/html" --max-time 3 http://localhost:9090/ 2>/dev/null || echo "")
+if echo "$ui_html" | grep -q 'Waffynx'; then
+    green "OK (HTML served)"
+    PASSED=$((PASSED + 1))
+else
+    red "FAILED"
+    FAILED=$((FAILED + 1))
+fi
+
+echo -n "  Dashboard login authentication (:9090)... "
+TESTS=$((TESTS + 1))
+login_resp=$(curl -s --max-time 3 -X POST http://localhost:9090/api/v1/auth/login \
+    -H "Content-Type: application/json" \
+    -d '{"username":"admin","password":"admin123"}' 2>/dev/null || echo "")
+if echo "$login_resp" | grep -q '"token"'; then
+    green "OK (JWT issued)"
+    PASSED=$((PASSED + 1))
+else
+    red "FAILED"
+    FAILED=$((FAILED + 1))
 fi
 
 # ---- Summary ----

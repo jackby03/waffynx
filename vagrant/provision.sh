@@ -179,6 +179,7 @@ sed -i "s|/opt/waffynx|$WAFFYNX_HOME|g" \
 # Copy systemd units and fix to run as root in test VM
 cp "$WAFFYNX_ROOT/deploy/systemd/waffynx.service" /etc/systemd/system/
 cp "$WAFFYNX_ROOT/deploy/systemd/waf-agent.service" /etc/systemd/system/
+cp "$WAFFYNX_ROOT/deploy/systemd/waf-api.service" /etc/systemd/system/
 cp "$WAFFYNX_ROOT/configs/agent.yaml" "$WAFFYNX_HOME/config/agent.yaml"
 
 # Download GeoLite2 database (optional, requires license key)
@@ -197,6 +198,7 @@ sed -i 's/ProtectSystem=strict/ProtectSystem=false/' /etc/systemd/system/waffynx
 # Fix all paths
 sed -i "s|/opt/waffynx|$WAFFYNX_HOME|g" /etc/systemd/system/waffynx.service
 sed -i "s|/opt/waffynx|$WAFFYNX_HOME|g" /etc/systemd/system/waf-agent.service
+sed -i "s|/opt/waffynx|$WAFFYNX_HOME|g" /etc/systemd/system/waf-api.service
 
 # Create appsec-bridge service
 cat > /etc/systemd/system/appsec-bridge.service << SERVICE
@@ -225,6 +227,7 @@ echo "==> Starting services..."
 
 systemctl enable appsec-bridge
 systemctl enable waffynx
+systemctl enable waf-api
 
 systemctl start appsec-bridge
 sleep 1
@@ -240,7 +243,7 @@ logging:
   output: "stdout"
 sidecar:
   socket_path: "${WAFFYNX_HOME}/waffynx.sock"
-  fail_open: true
+  fail_open: false
   timeout_ms: 100
 nginx:
   binary_path: "${WAFFYNX_HOME}/nginx/sbin/nginx"
@@ -261,11 +264,18 @@ gateway:
 firewall:
   enabled: false
 api:
-  enabled: false
+  enabled: true
   listen: ":9090"
+  allowed_origins:
+    - "http://localhost:9090"
+    - "http://127.0.0.1:9090"
+    - "http://localhost:3000"
   auth:
-    jwt_secret: "change-me-in-production"
-    token_ttl: 3600
+    jwt_secret: "waffynx-super-secure-production-jwt-key-minimum-32-chars"
+    token_ttl: 86400
+    users:
+      - username: "admin"
+        password_hash: "\$2a\$10\$.0ImroWhNHLhFs/lYavaFeoNDbLYbt/7W1ouXpGx2LcJ9VIfVKaEG"
 routes: []
 plugins:
   - name: "request-validation"
@@ -294,6 +304,7 @@ plugins:
 YAML
 
 systemctl start waffynx
+systemctl start waf-api
 sleep 2
 
 echo ""
@@ -301,7 +312,8 @@ echo "============================================"
 echo "  Waffynx is ready!"
 echo "============================================"
 echo "  WAF:     http://localhost:8080"
+echo "  UI/API:  http://localhost:9090 (admin / admin123)"
 echo "  Sidecar: $WAFFYNX_HOME/waffynx.sock"
 echo "  Bridge:  $WAFFYNX_HOME/open-appsec.sock"
-echo "  Logs:    journalctl -u waffynx -f"
+echo "  Logs:    journalctl -u waffynx -u waf-api -f"
 echo "============================================"

@@ -1,6 +1,6 @@
 # Functional Specification: Dashboard UI
 
-**Status:** Under Review
+**Status:** Approved
 **Feature ID:** `SPEC-001`
 **Target Milestone:** v0.2.0
 **Related Components:** `cmd/waf-api/ui/`, `cmd/waf-api/`, `internal/engine/`

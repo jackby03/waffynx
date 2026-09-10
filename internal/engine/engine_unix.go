@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
+	"time"
 
+	"github.com/jackby03/waffynx/internal/events"
 	"github.com/jackby03/waffynx/internal/logging"
 )
 
@@ -25,6 +27,13 @@ func (e *Engine) Start(ctx context.Context) error {
 
 	// -- 1. Start the Go sidecar (Unix socket HTTP server) --
 	e.sidecar = NewSidecar(e.cfg.Sidecar.SocketPath, e.policy, e.chain, e.scorer, e.learning, e.audit, e.rules, e.broker)
+	if e.cfg.Sidecar.EventAPIURL != "" && e.cfg.Sidecar.EventAuthToken != "" {
+		e.sidecar.SetEventPublisher(events.NewPublisher(
+			e.cfg.Sidecar.EventAPIURL,
+			e.cfg.Sidecar.EventAuthToken,
+			time.Duration(e.cfg.Sidecar.EventTimeoutMs)*time.Millisecond,
+		))
+	}
 	if err := e.sidecar.Start(); err != nil {
 		return fmt.Errorf("starting sidecar: %w", err)
 	}

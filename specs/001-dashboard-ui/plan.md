@@ -1,6 +1,6 @@
 # Technical Architecture Plan: Dashboard UI
 
-**Status:** Under Review
+**Status:** Approved
 **Related Spec:** [`spec.md`](./spec.md)
 **Target Directory:** `cmd/waf-api/ui/`
 

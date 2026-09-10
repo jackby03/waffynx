@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"golang.org/x/crypto/bcrypt"
@@ -63,6 +64,7 @@ func newTestAPIServer(t *testing.T, cfg *config.Config) (*apiServer, http.Handle
 	mux.HandleFunc("GET /api/v1/metrics", withCORS(withAuth(srv.handleMetrics)))
 	mux.HandleFunc("GET /api/v1/plugins", withCORS(withAuth(srv.handleListPlugins)))
 	mux.HandleFunc("GET /api/v1/events", withCORS(withAuth(srv.handleSSE)))
+	mux.HandleFunc("POST /api/v1/events", withCORS(withAuth(srv.requireScope("events:write")(srv.handleIngestEvent))))
 	mux.HandleFunc("GET /api/v1/marketplace", withCORS(withAuth(srv.handleMarketplaceList)))
 	mux.HandleFunc("GET /", srv.handleRoot)
 
@@ -108,6 +110,25 @@ func TestAPI_Root(t *testing.T) {
 	}
 	if resp["service"] != "waf-api" {
 		t.Errorf("expected service 'waf-api', got %v", resp["service"])
+	}
+}
+
+func TestAPI_RootServesDashboardForHTMLClients(t *testing.T) {
+	_, handler := newTestAPIServer(t, nil)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Accept", "text/html")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
+		t.Fatalf("expected HTML content type, got %q", got)
+	}
+	if !bytes.Contains(recorder.Body.Bytes(), []byte(`id="root"`)) {
+		t.Fatal("dashboard shell missing root element")
 	}
 }
 
@@ -282,6 +303,51 @@ func TestAPI_RBAC_RoleEnforcement(t *testing.T) {
 
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("expected status 403 Forbidden for non-admin PUT /api/v1/config, got %d", rec.Code)
+	}
+}
+
+func TestAPI_EventIngestRequiresScopeAndValidatesEvent(t *testing.T) {
+	srv, handler := newTestAPIServer(t, nil)
+
+	viewerToken, err := srv.authMgr.GenerateToken("viewer", "viewer", []string{"read"})
+	if err != nil {
+		t.Fatalf("generate viewer token: %v", err)
+	}
+	serviceToken, err := srv.authMgr.GenerateToken("event-bridge", "service", []string{"events:write"})
+	if err != nil {
+		t.Fatalf("generate service token: %v", err)
+	}
+
+	request := httptest.NewRequest("POST", "/api/v1/events", bytes.NewBufferString(`{"type":"blocked","path":"/attack","rule_id":"sql-001"}`))
+	request.Header.Set("Authorization", "Bearer "+viewerToken)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("viewer status = %d, want 403", recorder.Code)
+	}
+
+	request = httptest.NewRequest("POST", "/api/v1/events", bytes.NewBufferString(`{"type":"blocked","path":"/attack","rule_id":"sql-001"}`))
+	request.Header.Set("Authorization", "Bearer "+serviceToken)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("service status = %d, want 202", recorder.Code)
+	}
+
+	request = httptest.NewRequest("POST", "/api/v1/events", bytes.NewBufferString(`{"type":"allowed","path":"/","rule_id":"rule"}`))
+	request.Header.Set("Authorization", "Bearer "+serviceToken)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("invalid event status = %d, want 400", recorder.Code)
+	}
+
+	request = httptest.NewRequest("POST", "/api/v1/events", strings.NewReader(strings.Repeat("x", events.MaxEventBodyBytes+1)))
+	request.Header.Set("Authorization", "Bearer "+serviceToken)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("oversized event status = %d, want 400", recorder.Code)
 	}
 }
 
