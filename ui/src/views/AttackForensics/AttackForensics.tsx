@@ -4,6 +4,7 @@ import { Badge } from "../../components/common/Badge";
 import { EmptyState } from "../../components/common/EmptyState";
 import { ForensicDrawer } from "./ForensicDrawer";
 import type { WafEvent } from "../../api/types";
+import { IconSearch, IconClose, IconShield } from "../../components/common/Icons";
 
 type VectorFilter = "all" | "sqli" | "xss" | "traversal" | "bot" | "cmdinj" | "ml";
 
@@ -82,7 +83,9 @@ export const AttackForensics: React.FC = () => {
         </div>
 
         <div className="search-box">
-          <span className="search-icon">🔍</span>
+          <span className="search-icon">
+            <IconSearch size={15} />
+          </span>
           <input
             type="text"
             className="search-input"
@@ -94,8 +97,8 @@ export const AttackForensics: React.FC = () => {
             }}
           />
           {search && (
-            <button type="button" className="search-clear" onClick={() => setSearch("")}>
-              ✕
+            <button type="button" className="search-clear" onClick={() => setSearch("")} aria-label="Clear search">
+              <IconClose size={13} />
             </button>
           )}
         </div>
@@ -115,7 +118,7 @@ export const AttackForensics: React.FC = () => {
 
         {currentPageEvents.length === 0 ? (
           <EmptyState
-            icon="🛡️"
+            icon={<IconShield size={36} color="var(--text-dim)" />}
             title="No Incidents Match the Filter"
             description="Adjust your vector filter or search query to view intercepted threats."
           />

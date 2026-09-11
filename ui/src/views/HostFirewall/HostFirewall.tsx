@@ -3,6 +3,13 @@ import { useWaf } from "../../context/WafContext";
 import { KpiCard } from "../../components/common/KpiCard";
 import { EmptyState } from "../../components/common/EmptyState";
 import { Badge } from "../../components/common/Badge";
+import {
+  IconGlobe,
+  IconFirewall,
+  IconShield,
+  IconServer,
+  IconArrowRight,
+} from "../../components/common/Icons";
 
 export const HostFirewall: React.FC = () => {
   const { bannedIPs, unbanIP } = useWaf();
@@ -58,25 +65,39 @@ export const HostFirewall: React.FC = () => {
         <h3 className="flow-title">Multi-Layer Defense Architecture</h3>
         <div className="flow-diagram">
           <div className="flow-step">
-            <span className="flow-icon">🌐</span>
+            <span className="flow-icon">
+              <IconGlobe size={24} color="var(--accent-cyan)" />
+            </span>
             <strong>Internet Traffic</strong>
             <small>Raw Ingress Packets</small>
           </div>
-          <div className="flow-arrow">➔</div>
+          <div className="flow-arrow">
+            <IconArrowRight size={18} />
+          </div>
           <div className="flow-step highlight-l3">
-            <span className="flow-icon">🧱</span>
+            <span className="flow-icon">
+              <IconFirewall size={24} color="var(--accent-amber)" />
+            </span>
             <strong>L3/L4 nftables Hook</strong>
             <small>Kernel Drop (0 CPU cost)</small>
           </div>
-          <div className="flow-arrow">➔</div>
+          <div className="flow-arrow">
+            <IconArrowRight size={18} />
+          </div>
           <div className="flow-step highlight-l7">
-            <span className="flow-icon">🛡️</span>
+            <span className="flow-icon">
+              <IconShield size={24} color="var(--accent-crimson)" />
+            </span>
             <strong>L7 Waffynx Sidecar</strong>
             <small>AST & ML Inspection</small>
           </div>
-          <div className="flow-arrow">➔</div>
+          <div className="flow-arrow">
+            <IconArrowRight size={18} />
+          </div>
           <div className="flow-step">
-            <span className="flow-icon">🚀</span>
+            <span className="flow-icon">
+              <IconServer size={24} color="var(--accent-emerald)" />
+            </span>
             <strong>Target App / Upstream</strong>
             <small>Clean Legitimate Requests</small>
           </div>
@@ -96,7 +117,7 @@ export const HostFirewall: React.FC = () => {
 
         {bannedIPs.length === 0 ? (
           <EmptyState
-            icon="🧱"
+            icon={<IconFirewall size={36} color="var(--accent-amber)" />}
             title="No Active IP Bans"
             description="The host firewall table is currently clean. Bans are added dynamically when threshold limits are exceeded."
           />

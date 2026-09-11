@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { KpiCard } from "../../components/common/KpiCard";
 import { ToggleSwitch } from "../../components/common/ToggleSwitch";
 import { Badge } from "../../components/common/Badge";
+import { IconEye } from "../../components/common/Icons";
 
 interface UpstreamNode {
   id: string;
@@ -30,7 +31,7 @@ export const TrafficDirector: React.FC = () => {
 
   // Error page template preview state
   const [selectedErrorCode, setSelectedErrorCode] = useState<"404" | "403" | "500" | "502">("404");
-  const [showPreview, setShowPreview] = useState(false);
+  const [showPreview, setShowPreview] = useState(true);
 
   return (
     <div className="view-container">
@@ -197,7 +198,8 @@ export const TrafficDirector: React.FC = () => {
             className="btn-secondary"
             onClick={() => setShowPreview(!showPreview)}
           >
-            {showPreview ? "Hide Template Preview" : "👁️ Preview Active Template"}
+            <IconEye size={14} />
+            <span>{showPreview ? "Hide Template Preview" : "Preview Active Template"}</span>
           </button>
         </div>
 
@@ -207,7 +209,10 @@ export const TrafficDirector: React.FC = () => {
               key={code}
               type="button"
               className={`cat-btn ${selectedErrorCode === code ? "active" : ""}`}
-              onClick={() => setSelectedErrorCode(code)}
+              onClick={() => {
+                setSelectedErrorCode(code);
+                setShowPreview(true);
+              }}
             >
               HTTP {code} {code === "404" ? "Not Found" : code === "403" ? "Forbidden" : code === "500" ? "Server Error" : "Bad Gateway"}
             </button>
@@ -230,17 +235,21 @@ export const TrafficDirector: React.FC = () => {
                     ? "Page Not Found"
                     : selectedErrorCode === "403"
                     ? "Access Denied by Waffynx Security Policy"
-                    : "Service Temporarily Unavailable"}
+                    : selectedErrorCode === "500"
+                    ? "Internal Server Error"
+                    : "Service Temporarily Unavailable (Bad Gateway)"}
                 </h3>
                 <p className="preview-desc">
                   {selectedErrorCode === "404"
                     ? "The requested URL was not recognized by the routing layer. All access attempts are logged."
                     : selectedErrorCode === "403"
                     ? "Your request was inspected and flagged as potentially hostile by our edge application firewall."
+                    : selectedErrorCode === "500"
+                    ? "The upstream application returned an unhandled error. Diagnostic traces are withheld for security."
                     : "The upstream application pool is undergoing maintenance or experiencing temporary load."}
                 </p>
                 <div className="preview-incident-id">
-                  Incident ID: <code>wfx-{(Math.random() * 100000).toFixed(0)}-sec</code> • Protected by Waffynx
+                  Incident ID: <code>wfx-92481-sec</code> • Protected by Waffynx Edge Engine
                 </div>
               </div>
             </div>

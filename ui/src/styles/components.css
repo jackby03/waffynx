@@ -100,7 +100,28 @@
 }
 
 .nav-icon {
-  font-size: 1.1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: var(--text-dim);
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+
+.nav-btn:hover .nav-icon {
+  color: var(--text-main);
+}
+
+.nav-btn.active .nav-icon {
+  color: var(--accent-cyan);
+}
+
+.waf-icon {
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
 }
 
 .nav-label {
@@ -293,66 +314,234 @@
 }
 
 /* ============================================================
-   THREAT TICKER
+   THREAT FEED (ENTERPRISE SOC STREAM)
    ============================================================ */
 .ticker-strip {
   display: flex;
   align-items: center;
-  background: rgba(255, 0, 85, 0.06);
-  border: 1px solid rgba(255, 0, 85, 0.25);
+  justify-content: space-between;
+  min-height: 50px;
+  background: linear-gradient(90deg, rgba(28, 12, 22, 0.95) 0%, rgba(13, 17, 26, 0.95) 18%, rgba(13, 17, 26, 0.95) 100%);
+  border: 1px solid rgba(255, 0, 85, 0.28);
   border-radius: var(--radius-sm);
-  padding: 0.4rem 0.75rem;
+  padding: 0 1rem;
   gap: 1rem;
-  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 0, 85, 0.15);
+  position: relative;
+}
+
+.ticker-strip::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 0, 85, 0.6), transparent);
+  pointer-events: none;
+}
+
+.ticker-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-shrink: 0;
+  padding-right: 1rem;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ticker-beacon {
+  width: 8px;
+  height: 8px;
+  background: var(--accent-crimson);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--accent-crimson);
+  animation: threatPulse 1.8s infinite ease-in-out;
+}
+
+@keyframes threatPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.9;
+    box-shadow: 0 0 4px var(--accent-crimson);
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 1;
+    box-shadow: 0 0 14px var(--accent-crimson), 0 0 22px rgba(255, 0, 85, 0.4);
+  }
 }
 
 .ticker-label {
-  font-size: 0.72rem;
+  font-size: 0.74rem;
   font-weight: 800;
-  color: var(--accent-crimson);
-  letter-spacing: 0.75px;
+  color: #fff;
+  letter-spacing: 0.85px;
   white-space: nowrap;
-}
-
-.ticker-items {
-  display: flex;
-  gap: 0.75rem;
-  overflow-x: auto;
-  flex: 1;
-}
-
-.ticker-item {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-size: 0.8rem;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  cursor: pointer;
-  white-space: nowrap;
-  padding: 0.2rem 0.4rem;
-  border-radius: 4px;
+  gap: 0.35rem;
 }
 
-.ticker-item:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: #fff;
-}
-
-.ticker-time {
-  color: var(--text-dim);
-}
-.ticker-rule {
+.ticker-label-accent {
   color: var(--accent-crimson);
-  font-weight: 600;
 }
-.ticker-ip {
-  color: var(--accent-cyan);
+
+.ticker-count-badge {
+  background: rgba(255, 0, 85, 0.18);
+  color: #ff3366;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.12rem 0.5rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 0, 85, 0.3);
   font-family: var(--font-mono);
 }
-.ticker-path {
+
+.ticker-cards-row {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  overflow: hidden;
+  padding: 0.25rem 0;
+}
+
+.ticker-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: rgba(18, 24, 38, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  padding: 0.38rem 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  transition: all 0.15s ease-out;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  line-height: 1.35;
+}
+
+.ticker-card:hover {
+  background: rgba(28, 38, 58, 0.95);
+  border-color: rgba(255, 0, 85, 0.6);
+  box-shadow: 0 0 14px rgba(255, 0, 85, 0.25);
+  transform: translateY(-1px);
+}
+
+.ticker-card-badge {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  background: #ff0055;
+  color: #fff;
+  padding: 0.12rem 0.4rem;
+  border-radius: 3px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.ticker-card-rule {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #ff477e;
+  background: rgba(255, 0, 85, 0.1);
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 0, 85, 0.2);
+  flex-shrink: 0;
+}
+
+.ticker-card-ip {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--accent-cyan);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.ticker-card-path {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
   color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.ticker-card-time {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 0.35rem;
+}
+
+.ticker-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-shrink: 0;
+  padding-left: 1rem;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ticker-view-all-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-main);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.ticker-view-all-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+.ticker-live-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: var(--accent-emerald);
+  letter-spacing: 0.75px;
+}
+
+.ticker-live-indicator .live-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--accent-emerald);
+  border-radius: 50%;
+  box-shadow: 0 0 6px var(--accent-emerald);
+}
+
+@media (max-width: 1650px) {
+  .ticker-card:nth-child(3) {
+    display: none;
+  }
+}
+
+@media (max-width: 1180px) {
+  .ticker-card:nth-child(2) {
+    display: none;
+  }
 }
 
 /* ============================================================
@@ -772,8 +961,11 @@
 .search-icon {
   position: absolute;
   left: 0.75rem;
-  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--text-dim);
+  pointer-events: none;
 }
 
 .search-input {
@@ -795,11 +987,20 @@
 .search-clear {
   position: absolute;
   right: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: none;
   color: var(--text-dim);
   cursor: pointer;
   padding: 0.2rem;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s ease;
+}
+
+.search-clear:hover {
+  color: var(--text-main);
 }
 
 .table-card {
@@ -1130,33 +1331,49 @@
   gap: 0.75rem;
 }
 
-.btn-secondary {
+.drawer-footer .btn-secondary,
+.drawer-footer .btn-primary-danger {
   flex: 1;
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
   background: var(--bg-panel);
   border: 1px solid var(--border-subtle);
   color: var(--text-main);
   font-size: 0.82rem;
   font-weight: 600;
-  padding: 0.6rem;
+  padding: 0.5rem 1rem;
   border-radius: var(--radius-sm);
   cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition-fast);
 }
 
 .btn-secondary:hover {
   background: var(--bg-hover);
+  border-color: var(--border-accent);
+  color: #fff;
 }
 
 .btn-primary-danger {
-  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
   background: linear-gradient(135deg, #ff0055, #b8003d);
   border: none;
   color: #fff;
   font-size: 0.82rem;
   font-weight: 700;
-  padding: 0.6rem;
+  padding: 0.6rem 1rem;
   border-radius: var(--radius-sm);
   cursor: pointer;
   box-shadow: var(--glow-crimson);
+  transition: all var(--transition-fast);
 }
 
 /* ============================================================

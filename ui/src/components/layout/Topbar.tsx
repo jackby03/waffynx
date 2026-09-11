@@ -2,6 +2,7 @@ import React from "react";
 import type { ViewTab } from "./Sidebar";
 import { useAuth } from "../../context/AuthContext";
 import { useWaf } from "../../context/WafContext";
+import { IconFlask, IconShield } from "../common/Icons";
 
 interface TopbarProps {
   currentTab: ViewTab;
@@ -41,7 +42,10 @@ const TAB_TITLES: Record<ViewTab, { title: string; subtitle: string }> = {
 export const Topbar: React.FC<TopbarProps> = ({ currentTab }) => {
   const { session, logout } = useAuth();
   const { connected, isMock, status } = useWaf();
-  const viewInfo = TAB_TITLES[currentTab];
+  const viewInfo = TAB_TITLES[currentTab] || {
+    title: "Waffynx Control Room",
+    subtitle: "Unified Network & Application Security",
+  };
   const mode = status?.enforcement_mode || "blocking";
 
   return (
@@ -54,7 +58,7 @@ export const Topbar: React.FC<TopbarProps> = ({ currentTab }) => {
       <div className="topbar-actions">
         {isMock && (
           <span className="dev-pill" title="Local mock backend mode active">
-            🧪 DEV MOCK
+            <IconFlask size={13} /> DEV MOCK
           </span>
         )}
 
@@ -64,7 +68,9 @@ export const Topbar: React.FC<TopbarProps> = ({ currentTab }) => {
         </div>
 
         <div className={`mode-badge mode-${mode}`}>
-          <span className="mode-icon">🛡️</span>
+          <span className="mode-icon">
+            <IconShield size={14} />
+          </span>
           <span>MODE: {mode.toUpperCase()}</span>
         </div>
 

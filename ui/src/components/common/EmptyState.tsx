@@ -1,14 +1,15 @@
 import React from "react";
+import { IconShield } from "./Icons";
 
 interface EmptyStateProps {
-  icon?: string;
+  icon?: React.ReactNode;
   title: string;
   description?: string;
   action?: React.ReactNode;
 }
 
 export const EmptyState: React.FC<EmptyStateProps> = ({
-  icon = "🛡️",
+  icon = <IconShield size={36} color="var(--text-dim)" />,
   title,
   description,
   action,

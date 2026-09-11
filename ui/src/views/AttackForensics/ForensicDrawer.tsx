@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import type { WafEvent } from "../../api/types";
 import { Badge } from "../../components/common/Badge";
 import { useWaf } from "../../context/WafContext";
+import { IconClose, IconCopy, IconCheck, IconShield } from "../../components/common/Icons";
 
 interface ForensicDrawerProps {
   event: WafEvent | null;
@@ -59,7 +60,7 @@ export const ForensicDrawer: React.FC<ForensicDrawerProps> = ({ event, onClose }
             <h2 className="drawer-rule-title">{event.rule_id}</h2>
           </div>
           <button type="button" className="drawer-close-btn" onClick={onClose} aria-label="Close">
-            ✕
+            <IconClose size={16} />
           </button>
         </div>
 
@@ -125,10 +126,30 @@ export const ForensicDrawer: React.FC<ForensicDrawerProps> = ({ event, onClose }
         {/* Footer Actions */}
         <div className="drawer-footer">
           <button type="button" className="btn-secondary" onClick={handleCopyRaw}>
-            {copied ? "✓ Copied to Clipboard" : "📋 Copy Raw Request"}
+            {copied ? (
+              <>
+                <IconCheck size={14} color="var(--accent-emerald)" />
+                <span>Copied to Clipboard</span>
+              </>
+            ) : (
+              <>
+                <IconCopy size={14} />
+                <span>Copy Raw Request</span>
+              </>
+            )}
           </button>
           <button type="button" className="btn-primary-danger" onClick={handleQuickMitigate}>
-            {actionDone ? "✓ State Updated" : "🛡️ Update Edge Ban"}
+            {actionDone ? (
+              <>
+                <IconCheck size={14} />
+                <span>State Updated</span>
+              </>
+            ) : (
+              <>
+                <IconShield size={14} />
+                <span>Update Edge Ban</span>
+              </>
+            )}
           </button>
         </div>
       </div>

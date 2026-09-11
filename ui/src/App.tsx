@@ -120,7 +120,11 @@ export const App: React.FC = () => {
       {/* Main Content Area */}
       <main className="main-content">
         <Topbar currentTab={currentTab} />
-        <ThreatTicker events={events} onSelectEvent={(e) => setSelectedEvent(e)} />
+        <ThreatTicker
+          events={events}
+          onSelectEvent={(e) => setSelectedEvent(e)}
+          onViewAll={() => setCurrentTab("forensics")}
+        />
 
         {/* Tab Views */}
         {currentTab === "threats" && (
