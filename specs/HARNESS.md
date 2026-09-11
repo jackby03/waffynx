@@ -7,24 +7,13 @@
 
 ## 1. The SDD Hierarchy
 
-Every task follows a top-down governance model:
+Every task follows a strict top-down governance model:
 
-```
-[ Level 1: Global Governance ]
-  ├── constitution.md           <-- Supreme laws, security invariants, constraints
-  └── AGENTS.md                 <-- Dev environment setup, CLI commands, gotchas
-            │
-            ▼
-[ Level 2: Feature Lifecycle (under specs/<feature-id>-<name>/) ]
-  ├── spec.md                   <-- Functional Specification (What & Why, Scope)
-  ├── plan.md                   <-- Technical Architecture Plan (How, Contracts, Data models)
-  ├── tasks.md                  <-- Atomic Task Checklist with Definition of Done
-  └── clarifications.md         <-- Q&A Log resolving ambiguities before coding
-            │
-            ▼
-[ Level 3: Architectural Memory ]
-  └── docs/adr/                 <-- Architecture Decision Records (ADR)
-```
+| Level | Document Tier | Primary Artifacts | Purpose & Scope |
+| :--- | :--- | :--- | :--- |
+| **Level 1** | **Global Governance** | [`constitution.md`](../constitution.md)<br>[`AGENTS.md`](../AGENTS.md) | Supreme laws, security invariants, hard technical constraints, and operational directives. |
+| **Level 2** | **Feature Lifecycle** | `specs/<id>/spec.md`<br>`specs/<id>/plan.md`<br>`specs/<id>/tasks.md`<br>`specs/<id>/clarifications.md` | Functional specifications, technical contracts, atomic task checklists, and resolution logs. |
+| **Level 3** | **Architectural Memory** | [`docs/adr/`](../docs/adr/) | Architecture Decision Records capturing rationale, trade-offs, and design choices. |
 
 ---
 

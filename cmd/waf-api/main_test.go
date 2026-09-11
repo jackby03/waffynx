@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path"
 	"strings"
 	"testing"
 
@@ -42,6 +44,7 @@ func newTestAPIServer(t *testing.T, cfg *config.Config) (*apiServer, http.Handle
 		store:      marketplace.NewInMemoryStore(),
 		audit:      auditStore,
 		broker:     events.NewBroker(),
+		bannedIPs:  make(map[string]BannedIP),
 	}
 
 	srv.seedMarketplace()
@@ -66,6 +69,9 @@ func newTestAPIServer(t *testing.T, cfg *config.Config) (*apiServer, http.Handle
 	mux.HandleFunc("GET /api/v1/events", withCORS(withAuth(srv.handleSSE)))
 	mux.HandleFunc("POST /api/v1/events", withCORS(withAuth(srv.requireScope("events:write")(srv.handleIngestEvent))))
 	mux.HandleFunc("GET /api/v1/marketplace", withCORS(withAuth(srv.handleMarketplaceList)))
+	mux.HandleFunc("GET /api/v1/firewall/rules", withCORS(withAuth(srv.handleFirewallRules)))
+	mux.HandleFunc("POST /api/v1/firewall/block", withCORS(withAuth(requireAdmin(srv.handleFirewallBlock))))
+	mux.HandleFunc("DELETE /api/v1/firewall/unblock/{ip}", withCORS(withAuth(requireAdmin(srv.handleFirewallUnblock))))
 	mux.HandleFunc("GET /", srv.handleRoot)
 
 	return srv, mux
@@ -129,6 +135,32 @@ func TestAPI_RootServesDashboardForHTMLClients(t *testing.T) {
 	}
 	if !bytes.Contains(recorder.Body.Bytes(), []byte(`id="root"`)) {
 		t.Fatal("dashboard shell missing root element")
+	}
+}
+
+func TestAPI_UIDirServesFromDisk(t *testing.T) {
+	srv, handler := newTestAPIServer(t, nil)
+	tmpDir := t.TempDir()
+	srv.uiDir = tmpDir
+
+	customHTML := []byte(`<!doctype html><html><body><div id="disk-test">Waffynx Disk UI</div></body></html>`)
+	if err := os.WriteFile(path.Join(tmpDir, "index.html"), customHTML, 0o600); err != nil {
+		t.Fatalf("failed to write test index.html: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Accept", "text/html")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+	if !bytes.Contains(recorder.Body.Bytes(), []byte(`id="disk-test"`)) {
+		t.Fatalf("expected response from disk, got: %s", recorder.Body.String())
+	}
+	if cc := recorder.Header().Get("Cache-Control"); !strings.Contains(cc, "no-cache") {
+		t.Fatalf("expected Cache-Control to contain no-cache, got %q", cc)
 	}
 }
 
@@ -450,5 +482,75 @@ func TestAPI_SSE_Auth(t *testing.T) {
 
 	if rec.Code != http.StatusNoContent && rec.Code != http.StatusOK {
 		t.Errorf("expected status 200 or 204 for authenticated SSE request, got %d", rec.Code)
+	}
+}
+
+func TestAPI_FirewallRules(t *testing.T) {
+	srv, handler := newTestAPIServer(t, nil)
+
+	adminToken, err := srv.authMgr.GenerateToken("admin", "admin", []string{"read", "write"})
+	if err != nil {
+		t.Fatalf("failed to generate admin token: %v", err)
+	}
+	operatorToken, err := srv.authMgr.GenerateToken("operator", "operator", []string{"read"})
+	if err != nil {
+		t.Fatalf("failed to generate operator token: %v", err)
+	}
+
+	// 1. GET /api/v1/firewall/rules initially empty
+	req := httptest.NewRequest("GET", "/api/v1/firewall/rules", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	// 2. POST /api/v1/firewall/block with operator role -> 403 Forbidden
+	blockPayload := `{"ip":"198.51.100.42","reason":"SQLi automated scan","ttl":3600}`
+	req = httptest.NewRequest("POST", "/api/v1/firewall/block", strings.NewReader(blockPayload))
+	req.Header.Set("Authorization", "Bearer "+operatorToken)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for operator on firewall block, got %d", rec.Code)
+	}
+
+	// 3. POST /api/v1/firewall/block with admin role -> 201 Created
+	req = httptest.NewRequest("POST", "/api/v1/firewall/block", strings.NewReader(blockPayload))
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created for admin on firewall block, got %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	// 4. GET /api/v1/firewall/rules contains the blocked IP
+	req = httptest.NewRequest("GET", "/api/v1/firewall/rules", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), "198.51.100.42") {
+		t.Errorf("expected rules to contain blocked IP, got %s", rec.Body.String())
+	}
+
+	// 5. DELETE /api/v1/firewall/unblock/{ip}
+	req = httptest.NewRequest("DELETE", "/api/v1/firewall/unblock/198.51.100.42", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on unblock, got %d", rec.Code)
+	}
+
+	// 6. GET /api/v1/firewall/rules should no longer contain the IP
+	req = httptest.NewRequest("GET", "/api/v1/firewall/rules", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if strings.Contains(rec.Body.String(), "198.51.100.42") {
+		t.Errorf("expected IP to be removed after unblock, got %s", rec.Body.String())
 	}
 }

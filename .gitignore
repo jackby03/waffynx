@@ -46,11 +46,12 @@ secrets/
 coverage.html
 
 # UI
-ui/node_modules/
-ui/dist/
+**/node_modules/
+**/dist/
+**/.vite/
+**/*.tsbuildinfo
 ui/.env.local
-cmd/waf-api/ui/node_modules/
-cmd/waf-api/ui/tsconfig.tsbuildinfo
+cmd/waf-api/ui/.env.local
 
 # Temp
 tmp/

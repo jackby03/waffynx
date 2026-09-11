@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -29,6 +30,7 @@ import (
 	"github.com/jackby03/waffynx/internal/audit"
 	"github.com/jackby03/waffynx/internal/auth"
 	"github.com/jackby03/waffynx/internal/config"
+	"github.com/jackby03/waffynx/internal/firewall"
 	"github.com/jackby03/waffynx/internal/logging"
 	"github.com/jackby03/waffynx/internal/marketplace"
 	"github.com/jackby03/waffynx/internal/metrics"
@@ -44,6 +46,7 @@ var uiFiles embed.FS
 
 func main() {
 	var cfgFile string
+	var uiDir string
 
 	rootCmd := &cobra.Command{
 		Use:   "waf-api",
@@ -53,16 +56,28 @@ func main() {
 			if err != nil {
 				return fmt.Errorf("loading config: %w", err)
 			}
-			return runAPI(cfg, cfgFile)
+			if uiDir == "" {
+				uiDir = os.Getenv("WAFFYNX_UI_DIR")
+			}
+			return runAPI(cfg, cfgFile, uiDir)
 		},
 	}
 
 	rootCmd.Flags().StringVarP(&cfgFile, "config", "c", "/opt/waffynx/config/waffynx.yaml", "config file path")
+	rootCmd.Flags().StringVar(&uiDir, "ui-dir", "", "path to UI assets directory (serves from disk instead of embedded bundle)")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+type BannedIP struct {
+	IP        string    `json:"ip"`
+	Reason    string    `json:"reason"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+	TTL       int       `json:"ttl"`
 }
 
 type apiServer struct {
@@ -74,9 +89,13 @@ type apiServer struct {
 	store      *marketplace.InMemoryStore
 	audit      *audit.Store
 	broker     *events.Broker
+	firewallMu sync.RWMutex
+	bannedIPs  map[string]BannedIP
+	firewall   *firewall.Manager
+	uiDir      string
 }
 
-func runAPI(cfg *config.Config, configPath string) error {
+func runAPI(cfg *config.Config, configPath string, uiDir string) error {
 	logging.Info().Str("listen", cfg.API.Listen).Msg("starting management API")
 
 	if cfg.API.Auth.JWTSecret == "" || cfg.API.Auth.JWTSecret == "change-me-in-production" {
@@ -95,6 +114,17 @@ func runAPI(cfg *config.Config, configPath string) error {
 		auditStore, _ = audit.NewStore(2000, "")
 	}
 
+	var fwMgr *firewall.Manager
+	if cfg.Firewall.Enabled {
+		var fwErr error
+		fwMgr, fwErr = firewall.NewManager(cfg.Firewall)
+		if fwErr != nil {
+			logging.Warn().Err(fwErr).Msg("firewall manager initialization failed")
+		} else if startErr := fwMgr.Start(); startErr != nil {
+			logging.Warn().Err(startErr).Msg("firewall manager start failed")
+		}
+	}
+
 	srv := &apiServer{
 		cfg:        cfg,
 		configPath: configPath,
@@ -103,6 +133,9 @@ func runAPI(cfg *config.Config, configPath string) error {
 		store:      marketplace.NewInMemoryStore(),
 		audit:      auditStore,
 		broker:     events.NewBroker(),
+		bannedIPs:  make(map[string]BannedIP),
+		firewall:   fwMgr,
+		uiDir:      uiDir,
 	}
 
 	srv.seedMarketplace()
@@ -140,6 +173,9 @@ func runAPI(cfg *config.Config, configPath string) error {
 	mux.HandleFunc("GET /api/v1/marketplace/{name}", withCORS(withAuth(srv.handleMarketplaceGet)))
 	mux.HandleFunc("POST /api/v1/marketplace/install/{name}", withCORS(withAuth(requireAdmin(srv.handleMarketplaceInstall))))
 	mux.HandleFunc("DELETE /api/v1/marketplace/uninstall/{name}", withCORS(withAuth(requireAdmin(srv.handleMarketplaceUninstall))))
+	mux.HandleFunc("GET /api/v1/firewall/rules", withCORS(withAuth(srv.handleFirewallRules)))
+	mux.HandleFunc("POST /api/v1/firewall/block", withCORS(withAuth(requireAdmin(srv.handleFirewallBlock))))
+	mux.HandleFunc("DELETE /api/v1/firewall/unblock/{ip}", withCORS(withAuth(requireAdmin(srv.handleFirewallUnblock))))
 	mux.HandleFunc("GET /metrics", metrics.Handler().ServeHTTP)
 	mux.HandleFunc("GET /debug/pprof/", withAuth(requireAdmin(pprof.Index)))
 	mux.HandleFunc("GET /debug/pprof/cmdline", withAuth(requireAdmin(pprof.Cmdline)))
@@ -427,15 +463,40 @@ func (s *apiServer) handleUIAsset(w http.ResponseWriter, r *http.Request) {
 	if name == "" || strings.Contains(name, "..") {
 		name = "index.html"
 	}
-	data, err := uiFiles.ReadFile("ui/dist/" + name)
-	if err != nil {
-		data, err = uiFiles.ReadFile("ui/dist/index.html")
+
+	var data []byte
+	var err error
+
+	if s.uiDir != "" {
+		filePath := path.Join(s.uiDir, name)
+		data, err = os.ReadFile(filePath)
 		if err != nil {
-			http.Error(w, "dashboard assets unavailable", http.StatusNotFound)
-			return
+			indexPath := path.Join(s.uiDir, "index.html")
+			data, err = os.ReadFile(indexPath)
+			if err != nil {
+				http.Error(w, "dashboard assets unavailable", http.StatusNotFound)
+				return
+			}
+			name = "index.html"
 		}
-		name = "index.html"
+	} else {
+		data, err = uiFiles.ReadFile("ui/dist/" + name)
+		if err != nil {
+			data, err = uiFiles.ReadFile("ui/dist/index.html")
+			if err != nil {
+				http.Error(w, "dashboard assets unavailable", http.StatusNotFound)
+				return
+			}
+			name = "index.html"
+		}
 	}
+
+	if name == "index.html" {
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	} else {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	}
+
 	if contentType := mime.TypeByExtension(path.Ext(name)); contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	}
@@ -904,3 +965,139 @@ func (s *apiServer) writeSSEStats(w http.ResponseWriter, flusher http.Flusher) {
 	w.Write([]byte("\n\n"))
 	flusher.Flush()
 }
+
+func (s *apiServer) handleFirewallRules(w http.ResponseWriter, r *http.Request) {
+	s.firewallMu.RLock()
+	defer s.firewallMu.RUnlock()
+
+	cfg := s.readConfig()
+	backend := "nftables"
+	enabled := false
+	if cfg != nil {
+		backend = cfg.Firewall.Backend
+		enabled = cfg.Firewall.Enabled
+	}
+
+	list := make([]BannedIP, 0, len(s.bannedIPs))
+	now := time.Now()
+	for _, b := range s.bannedIPs {
+		if b.TTL > 0 && now.After(b.ExpiresAt) {
+			continue
+		}
+		list = append(list, b)
+	}
+
+	s.writeJSON(w, r, http.StatusOK, map[string]interface{}{
+		"enabled": enabled,
+		"backend": backend,
+		"rules":   list,
+	})
+}
+
+func (s *apiServer) userFromContext(ctx context.Context) string {
+	if claims, ok := ctx.Value("claims").(*auth.Claims); ok && claims != nil {
+		return claims.Username
+	}
+	return "admin"
+}
+
+func (s *apiServer) handleFirewallBlock(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IP     string `json:"ip"`
+		Reason string `json:"reason"`
+		TTL    int    `json:"ttl"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	req.IP = strings.TrimSpace(req.IP)
+	if req.IP == "" {
+		s.writeError(w, r, http.StatusBadRequest, "ip is required")
+		return
+	}
+	if net.ParseIP(req.IP) == nil {
+		s.writeError(w, r, http.StatusBadRequest, "invalid IP format")
+		return
+	}
+	if req.TTL <= 0 {
+		req.TTL = 3600
+	}
+	if req.Reason == "" {
+		req.Reason = "Manual ban from Control Room"
+	}
+
+	now := time.Now()
+	ban := BannedIP{
+		IP:        req.IP,
+		Reason:    req.Reason,
+		CreatedAt: now,
+		ExpiresAt: now.Add(time.Duration(req.TTL) * time.Second),
+		TTL:       req.TTL,
+	}
+
+	s.firewallMu.Lock()
+	s.bannedIPs[req.IP] = ban
+	s.firewallMu.Unlock()
+
+	if s.firewall != nil {
+		_ = s.firewall.BlockIP(req.IP)
+	}
+
+	if s.audit != nil {
+		s.audit.Record(audit.Event{
+			Actor:     s.userFromContext(r.Context()),
+			Action:    "firewall_ban",
+			Resource:  req.IP,
+			Result:    "success",
+			Details:   req.Reason,
+			Timestamp: now,
+		})
+	}
+
+	if s.broker != nil {
+		s.broker.Publish(events.WafEvent{
+			Type:      events.TypeBlocked,
+			Timestamp: now,
+			RemoteIP:  req.IP,
+			Path:      "/* (L3/L4 Network Ban)",
+			RuleID:    "kernel-nftables",
+			Reason:    req.Reason,
+		})
+	}
+
+	s.writeJSON(w, r, http.StatusCreated, ban)
+}
+
+func (s *apiServer) handleFirewallUnblock(w http.ResponseWriter, r *http.Request) {
+	ip := r.PathValue("ip")
+	if ip == "" || net.ParseIP(ip) == nil {
+		s.writeError(w, r, http.StatusBadRequest, "valid ip path parameter required")
+		return
+	}
+
+	s.firewallMu.Lock()
+	delete(s.bannedIPs, ip)
+	s.firewallMu.Unlock()
+
+	if s.firewall != nil {
+		_ = s.firewall.UnblockIP(ip)
+	}
+
+	if s.audit != nil {
+		s.audit.Record(audit.Event{
+			Actor:     s.userFromContext(r.Context()),
+			Action:    "firewall_unban",
+			Resource:  ip,
+			Result:    "success",
+			Details:   "unbanned via control room",
+			Timestamp: time.Now(),
+		})
+	}
+
+	s.writeJSON(w, r, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"ip":      ip,
+	})
+}
+

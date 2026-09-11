@@ -81,24 +81,29 @@ curl http://localhost:8080/                              # 200 OK (Allowed)
 curl "http://localhost:8080/?q=UNION+SELECT+1,2,3"       # 403 Forbidden (Blocked)
 ```
 
-## 🗺️ Roadmap
+## 🗺️ Enterprise Roadmap
 
-**✅ Implemented & Working:**
-- Native Nginx module & Sidecar socket communication
-- Core Policy Engine (Rule-based HTTP method matching)
-- UFW / nftables automated blocking agent
-- Memory & Redis-backed distributed rate-limiting
-- Load balancer proxy (upstream module)
-- C++ `open-appsec` bridge integration
-- Unit & Fuzz testing across core packages (~64 tests)
-- Kubernetes Helm Charts (Ingress + HPA support)
-- Docker Multi-arch support (`linux/amd64` & `linux/arm64`)
-- Full JWT enforcement & OIDC integration on management API
+For the detailed, exhaustive architectural specification of every module, refer to the master [**Enterprise Roadmap Document (docs/ROADMAP.md)**](docs/ROADMAP.md).
 
-**🚧 Pending / In Development:**
-- React/Vue single-page dashboard UI (`specs/001-dashboard-ui`)
-- Dynamic Plugin Marketplace & WASM runtime
-- gRPC API migration for sidecar evaluation
+### ✅ Production Foundations (P0 - Implemented & Working):
+- **Native Nginx Ingress C Module & Sidecar IPC:** Zero-copy Unix Domain Socket (`0600`) inspection pipeline.
+- **Core L7 Policy Engine:** Deterministic rule evaluation (SQLi, XSS, Path Traversal, Bot scanners).
+- **L3/L4 Kernel Blocking Agent:** Automated `nftables` / `ufw` drop synchronization (`waf-agent`).
+- **Distributed Rate Limiting:** High-performance in-memory and Redis-backed sliding window throttler.
+- **ML Anomaly Scoring Bridge:** Standalone daemon integration with `open-appsec`.
+- **Cyber-Ops SOC Control Room:** React 19 single-page application with mock dev environment and real-time SSE telemetry.
+- **Strict Cryptographic Invariants:** Constant-time token comparison, fail-closed enforcement, zero unauthorized dependencies.
+
+### 🚀 Upcoming Feature Pillars:
+1. **Traffic Director & Reverse Proxy (Phase 1):** Virtual Servers, Upstream Pools, Passive/Active Health Checks, Custom Error Pages (`404`, `403`, `500`), Server Cloaking and Stack Trace Stripping.
+2. **L7 WAF / ASM & Bot Defense (Phase 2):** Positive Security Model (white-lists), OpenAPI/Swagger schema validation, Anti-CSRF tokens, JS cryptographic challenges, CAPTCHA, and Client Fingerprinting (JA3/JA4).
+3. **Network & Transport Filtering - L3/L4 AFM (Phase 3):** Stateful packet inspection (SPI), hardware SYN Cookies, volumetric flood mitigation (UDP/ICMP/Smurf), and Route Domains.
+4. **SSL / TLS Cryptography & Orchestration (Phase 4):** SSL Offload / Bridging / Passthrough, mTLS with client certificates, CRL/OCSP stapling, and SNI dynamic routing.
+5. **Threat Intelligence & Reputation (Phase 5):** Automated Tor Exit Node & Anonymous Proxy blocking, GeoIP/ASN filtering (MaxMind), and dynamic IOC feed synchronization.
+6. **DNS Protocol Security - GTM / DNS Firewall (Phase 6):** Response Rate Limiting (RRL), DNS Cache Poisoning (Kaminsky) mitigation, DNSSEC validation, and DNS tunneling exfiltration detection.
+7. **Access & Identity Management - APM (Phase 7):** Pre-authentication perimeter proxy, SAML 2.0 & OIDC IdP/SP federation, and contextual dynamic RBAC.
+8. **Real-Time Rules Engine - iRules / WafRules (Phase 8):** Dynamic scripting engine for L4/L7 connection events, on-the-fly header rewrite, and payload modification.
+9. **High-Speed Logging & Distributed Telemetry (Phase 9):** High-speed asynchronous Syslog/HSL to SIEMs (Splunk, Elastic, Sentinel) and distributed session state sharing.
 
 ## 📖 Documentation
 
