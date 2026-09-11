@@ -4,6 +4,7 @@
 /waffynx
 /waf-agent
 /waf-api
+*.exe
 
 # Build artifacts
 *.o
@@ -47,7 +48,8 @@ coverage.html
 
 # UI
 **/node_modules/
-**/dist/
+**/dist/*
+!**/dist/placeholder.html
 **/.vite/
 **/*.tsbuildinfo
 ui/.env.local

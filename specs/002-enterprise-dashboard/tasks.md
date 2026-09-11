@@ -3,7 +3,7 @@
 **Related Spec:** [`spec.md`](./spec.md)
 **Related Plan:** [`plan.md`](./plan.md)
 **Status:** Complete
-**Progress:** 8 / 8 tasks completed
+**Progress:** 10 / 10 tasks completed
 
 Only one task may be `in_progress` at a time.
 
@@ -70,7 +70,20 @@ Only one task may be `in_progress` at a time.
   - **DoD:** `npm run dev` boots in <500ms on `http://localhost:5173/` with full live telemetry without requiring Vagrant VM.
 
 - [x] **Task 6.3: Modular Frontend Refactoring (Clean Architecture)**
-  - **Files:** `cmd/waf-api/ui/src/` (`api/`, `components/`, `views/`, `context/`, `styles/`)
+  - **Files:** `ui/src/` (`api/`, `components/`, `views/`, `context/`, `styles/`)
   - **Scope:** Decouple flat components into reusable atomic components (`common/`, `layout/`, `charts/`), dedicated views, centralized React contexts (`AuthContext`, `WafContext`), and modular CSS tokens.
   - **DoD:** `npx tsc --noEmit` passes with 0 errors; production build builds in <500ms.
+
+## Phase 7: UI Decoupling & Control Plane Modularization (`internal/api`)
+
+- [x] **Task 7.1: Relocate Frontend to Repository Root (`/ui`) & Go Embed Bridge**
+  - **Files:** `ui/`, `ui/embed.go`, `ui/dist/placeholder.html`, `.gitignore`, `Makefile`
+  - **Scope:** Move frontend from `cmd/waf-api/ui` to `/ui`, create clean `ui/embed.go` with `//go:embed all:dist`, add fallback placeholder so Go always builds out of the box on clean clones.
+  - **DoD:** `go build ./ui` passes with zero errors; `/ui` is independent top-level package.
+
+- [x] **Task 7.2: Refactor Management API into Modular `internal/api` Package**
+  - **Files:** `internal/api/` (`types.go`, `server.go`, `routes.go`, `middleware.go`, `handlers_*.go`, `server_test.go`), `cmd/waf-api/main.go`, `cmd/waf-api/main_test.go`
+  - **Scope:** Decompose 1,104-line `cmd/waf-api/main.go` into domain-specific modules in `internal/api`, slim `cmd/waf-api/main.go` down to 48 lines of CLI bootstrap, port all 12 tests to `server_test.go`.
+  - **DoD:** `go test -v ./internal/api/...` passes 12/12; `go build ./cmd/waf-api` passes; zero breaking changes to HTTP contracts.
+
 

@@ -191,6 +191,20 @@ vagrant-full-test:
 	@cd vagrant && vagrant ssh -c "bash /waffynx/vagrant/test.sh"
 
 # ============================================================
+# Frontend UI
+# ============================================================
+.PHONY: ui-install ui-build ui-dev
+
+ui-install:
+	@cd ui && npm install
+
+ui-build:
+	@cd ui && npm run build
+
+ui-dev:
+	@cd ui && npm run dev
+
+# ============================================================
 # Utilities
 # ============================================================
 clean:

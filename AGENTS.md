@@ -94,7 +94,9 @@ When implementing capabilities from [`docs/ROADMAP.md`](docs/ROADMAP.md), agents
 | `docs/` | Architecture | Master roadmap (`ROADMAP.md`) and Architecture Decision Records (`adr/`). |
 | `cmd/waffynx/` | Data Plane | Main engine CLI entrypoint (sidecar socket listener & proxy bootstrap). |
 | `cmd/waf-agent/` | Host Agent | Host firewall daemon (nftables/UFW synchronization). |
-| `cmd/waf-api/` | Control Plane | Management REST API (:9090) and telemetry ingestion. |
+| `cmd/waf-api/` | Control Plane | Management REST API CLI bootstrap (<60 lines). |
+| `ui/` | Control Plane | Waffynx Control Room single-page application (React 19 + TypeScript + Vite). |
+| `internal/api/` | Control Plane | Management REST API (:9090), SSE broker, middleware, and SPA file server. |
 | `internal/engine/` | Data Plane | Low-latency 3-stage inspection pipeline (orchestrator & Unix socket server). |
 | `internal/policy/` | Data Plane | Rule-based policy evaluation engine (conditions, operators, actions). |
 | `internal/plugin/` | Data Plane | Plugin interface, registry, and priority chain execution. |
