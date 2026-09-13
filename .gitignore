@@ -49,7 +49,7 @@ coverage.html
 # UI
 **/node_modules/
 **/dist/*
-!**/dist/placeholder.html
+!**/dist/index.html
 **/.vite/
 **/*.tsbuildinfo
 ui/.env.local
