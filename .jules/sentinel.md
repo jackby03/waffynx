@@ -79,3 +79,7 @@ Title: Insufficient Authorization & Unescaped JSON Responses
 Vulnerability: `waf-api` lacked RBAC checks on mutating endpoints, and `sidecar.go` / `request-validation` used direct string concatenation (`fmt.Fprintf`) for error responses.
 Learning: Valid JWT authentication does not imply administrative authorization. String interpolation into JSON responses risks JSON injection or corruption.
 Prevention: Enforce `requireRole("admin")` on administrative routes and always use standard library `json.Marshal` / `json.NewEncoder`.
+## 2026-09-14 - Global CORS Middleware Implementation
+**Vulnerability:** A cross-origin resource sharing (CORS) misconfiguration resulted from omitting CORS middleware on sensitive endpoints and explicitly hardcoding preflight handling only for the login route. Preflight 'OPTIONS' requests to other endpoints were unhandled and returning 405 Method Not Allowed.
+**Learning:** In Go 1.22's 'http.ServeMux', explicit method registration (e.g. 'POST /path') doesn't automatically match preflight 'OPTIONS' requests. Applying CORS middleware individually via wrapper functions risks accidental omission.
+**Prevention:** Always wrap the entire multiplexer with a global CORS middleware handler to ensure unified, fail-closed enforcement and correct HTTP response handling of preflight 'OPTIONS' methods.
