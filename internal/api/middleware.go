@@ -150,8 +150,8 @@ func (s *Server) auditMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func (s *Server) corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		allowedOrigin := ""
 		cfg := s.readConfig()
@@ -184,6 +184,6 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 			}
 			return
 		}
-		next.ServeHTTP(w, r)
-	})
+		next(w, r)
+	}
 }
