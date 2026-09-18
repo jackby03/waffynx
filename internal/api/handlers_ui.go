@@ -49,8 +49,12 @@ func (s *Server) handleUIAsset(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			data, err = ui.DistFS.ReadFile("dist/index.html")
 			if err != nil {
-				http.Error(w, "dashboard assets unavailable", http.StatusNotFound)
-				return
+				// Fallback to placeholder if index.html is missing (e.g. before npm run build)
+				data, err = ui.DistFS.ReadFile("dist/placeholder.html")
+				if err != nil {
+					http.Error(w, "dashboard assets unavailable", http.StatusNotFound)
+					return
+				}
 			}
 			name = "index.html"
 		}
