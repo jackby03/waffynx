@@ -8,42 +8,40 @@ import (
 )
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
-	withCORS := s.corsMiddleware
 	withAuth := s.authMiddleware(mux)
 	requireAdmin := s.requireRole("admin")
 
 	mux.HandleFunc("GET /health", s.handleHealth)
 
-	// Auth routes (supports preflight via OPTIONS)
-	mux.HandleFunc("POST /api/v1/auth/login", withCORS(s.handleLogin))
-	mux.HandleFunc("OPTIONS /api/v1/auth/login", withCORS(s.handleLogin))
+	// Auth routes
+	mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
 
 	// Status and Configuration
-	mux.HandleFunc("GET /api/v1/status", withCORS(withAuth(s.handleStatus)))
-	mux.HandleFunc("GET /api/v1/config", withCORS(withAuth(s.handleGetConfig)))
-	mux.HandleFunc("PUT /api/v1/config", withCORS(withAuth(requireAdmin(s.handleUpdateConfig))))
-	mux.HandleFunc("GET /api/v1/metrics", withCORS(withAuth(s.handleMetrics)))
+	mux.HandleFunc("GET /api/v1/status", withAuth(s.handleStatus))
+	mux.HandleFunc("GET /api/v1/config", withAuth(s.handleGetConfig))
+	mux.HandleFunc("PUT /api/v1/config", withAuth(requireAdmin(s.handleUpdateConfig)))
+	mux.HandleFunc("GET /api/v1/metrics", withAuth(s.handleMetrics))
 
 	// Plugins
-	mux.HandleFunc("GET /api/v1/plugins", withCORS(withAuth(s.handleListPlugins)))
-	mux.HandleFunc("GET /api/v1/plugins/{name}", withCORS(withAuth(s.handleGetPlugin)))
+	mux.HandleFunc("GET /api/v1/plugins", withAuth(s.handleListPlugins))
+	mux.HandleFunc("GET /api/v1/plugins/{name}", withAuth(s.handleGetPlugin))
 
 	// Audit & Real-time Events
-	mux.HandleFunc("GET /api/v1/audit", withCORS(withAuth(s.handleAuditQuery)))
-	mux.HandleFunc("POST /api/v1/events", withCORS(withAuth(s.requireScope("events:write")(s.handleIngestEvent))))
-	mux.HandleFunc("GET /api/v1/events", withCORS(withAuth(s.handleSSE)))
+	mux.HandleFunc("GET /api/v1/audit", withAuth(s.handleAuditQuery))
+	mux.HandleFunc("POST /api/v1/events", withAuth(s.requireScope("events:write")(s.handleIngestEvent)))
+	mux.HandleFunc("GET /api/v1/events", withAuth(s.handleSSE))
 
 	// Marketplace
-	mux.HandleFunc("GET /api/v1/marketplace", withCORS(withAuth(s.handleMarketplaceList)))
-	mux.HandleFunc("GET /api/v1/marketplace/categories", withCORS(withAuth(s.handleMarketplaceCategories)))
-	mux.HandleFunc("GET /api/v1/marketplace/{name}", withCORS(withAuth(s.handleMarketplaceGet)))
-	mux.HandleFunc("POST /api/v1/marketplace/install/{name}", withCORS(withAuth(requireAdmin(s.handleMarketplaceInstall))))
-	mux.HandleFunc("DELETE /api/v1/marketplace/uninstall/{name}", withCORS(withAuth(requireAdmin(s.handleMarketplaceUninstall))))
+	mux.HandleFunc("GET /api/v1/marketplace", withAuth(s.handleMarketplaceList))
+	mux.HandleFunc("GET /api/v1/marketplace/categories", withAuth(s.handleMarketplaceCategories))
+	mux.HandleFunc("GET /api/v1/marketplace/{name}", withAuth(s.handleMarketplaceGet))
+	mux.HandleFunc("POST /api/v1/marketplace/install/{name}", withAuth(requireAdmin(s.handleMarketplaceInstall)))
+	mux.HandleFunc("DELETE /api/v1/marketplace/uninstall/{name}", withAuth(requireAdmin(s.handleMarketplaceUninstall)))
 
 	// Host Firewall
-	mux.HandleFunc("GET /api/v1/firewall/rules", withCORS(withAuth(s.handleFirewallRules)))
-	mux.HandleFunc("POST /api/v1/firewall/block", withCORS(withAuth(requireAdmin(s.handleFirewallBlock))))
-	mux.HandleFunc("DELETE /api/v1/firewall/unblock/{ip}", withCORS(withAuth(requireAdmin(s.handleFirewallUnblock))))
+	mux.HandleFunc("GET /api/v1/firewall/rules", withAuth(s.handleFirewallRules))
+	mux.HandleFunc("POST /api/v1/firewall/block", withAuth(requireAdmin(s.handleFirewallBlock)))
+	mux.HandleFunc("DELETE /api/v1/firewall/unblock/{ip}", withAuth(requireAdmin(s.handleFirewallUnblock)))
 
 	// Prometheus Metrics & Profiling
 	mux.HandleFunc("GET /metrics", metrics.Handler().ServeHTTP)
