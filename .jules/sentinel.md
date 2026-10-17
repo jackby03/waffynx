@@ -79,3 +79,7 @@ Title: Insufficient Authorization & Unescaped JSON Responses
 Vulnerability: `waf-api` lacked RBAC checks on mutating endpoints, and `sidecar.go` / `request-validation` used direct string concatenation (`fmt.Fprintf`) for error responses.
 Learning: Valid JWT authentication does not imply administrative authorization. String interpolation into JSON responses risks JSON injection or corruption.
 Prevention: Enforce `requireRole("admin")` on administrative routes and always use standard library `json.Marshal` / `json.NewEncoder`.
+## 2025-02-27 - [Overly Permissive CORS Preflight Handling]
+**Vulnerability:** The application was improperly applying CORS middleware per-route (`mux.HandleFunc`) and routing preflight `OPTIONS` requests directly into business-logic endpoints (`/api/v1/auth/login`). This configuration creates a vulnerability where preflight requests can bypass restrictions or incorrectly map to sensitive handlers, especially with Go 1.22 exact path matching.
+**Learning:** Applying CORS middleware individually to `ServeMux` endpoints fails to intercept cross-origin preflight checks (`OPTIONS`) globally, leading to unhandled methods, overly permissive workarounds (like mapping OPTIONS to business logic), and a fragmented security posture.
+**Prevention:** Always wrap the global `http.ServeMux` at the server level with dedicated CORS middleware (e.g., `corsMiddleware(mux)`). This ensures all preflight requests are intercepted, validated against `AllowedOrigins`, and immediately resolved before any routing occurs.
