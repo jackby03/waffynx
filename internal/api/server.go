@@ -93,7 +93,7 @@ func NewServer(cfg *config.Config, configPath string, uiDir string) (*Server, er
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
-	return s.auditMiddleware(s.loggingMiddleware(mux))
+	return s.auditMiddleware(s.loggingMiddleware(s.corsMiddleware(mux)))
 }
 
 // Run boots the HTTP management API server and orchestrates graceful shutdown and SIGHUP hot reload.
