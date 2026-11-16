@@ -77,7 +77,7 @@ Before editing, record the task as `in_progress`. Before completion, verify its 
     ```
 4. For frontend changes, run the package-manager-appropriate lockfile install, build, lint, and tests from the UI directory. The exact commands MUST be recorded in `plan.md`.
 5. For Linux-only, Nginx, C, or C++ changes, run `make vagrant-test` or the relevant Linux verification command. Windows-only results are not sufficient.
-6. Ensure no regressions against `.jules/sentinel.md` vulnerability invariants.
+6. Ensure no regressions against the `docs/security/audit-log.md` vulnerability invariants.
 7. Update or document any major architectural shifts in `docs/adr/`.
 
 **Gate 4:** A feature is complete only when all applicable verification commands pass, all tasks are checked off, and the final diff contains no out-of-scope files. If an environment limitation prevents a check, document it explicitly and do not claim the gate passed.

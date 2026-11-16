@@ -1,14 +1,32 @@
-Date: 2024-05-24
+# Security Audit Log
+
+> **Purpose:** permanent record of every logged vulnerability and the fix that
+> closed it. Constitution §3.2 requires each entry to retain a regression test
+> that replicates the attack vector, so a test named in a `Regression test:`
+> line must never be deleted or weakened.
+>
+> **Known gap:** one entry (nginx request-body truncation) has no regression
+> test because the C module has no test harness. It is marked explicitly rather
+> than silently omitted.
+>
+> **Provenance:** this log was maintained as `.jules/sentinel.md` by the Jules
+> automation. That tool is being retired, so the content was migrated here on
+> 2026-11-16. Entry dates were re-derived from git history; three entries carried
+> an incorrect `2024-05-24` stamp inherited from automated PRs.
+
+Date: 2026-07-29
 Title: Overly Permissive CORS Policy Fixed
 Vulnerability: `cmd/waf-api/main.go` contained a hardcoded wildcard (`*`) in its `Access-Control-Allow-Origin` HTTP header on the management API (e.g. `corsMiddleware`, `handleRoot`, `handleSSE`).
 Learning: Global wildcard CORS headers blindly trust any origin, risking unauthorized cross-origin access and exposure of administration APIs to malicious websites. Unintended CORS exposure can happen in secondary endpoints like SSE or root status handlers.
 Prevention: Default CORS setups to restrict origins using a configured allowlist (`cfg.API.AllowedOrigins`). Validate the request `Origin` against the config, and only return wildcard headers or credential-allowing headers when strictly configured or validated.
+Regression test: TestAPI_CORS (internal/api/server_test.go).
 
-Date: 2024-05-24
+Date: 2026-07-29
 Title: Strict CORS Policy Implementation
 Vulnerability: `cmd/waf-api/main.go` returned CORS headers (`Access-Control-Allow-Methods`, `Access-Control-Allow-Headers`) and a `204 No Content` response to preflight `OPTIONS` requests even for unauthorized origins.
 Learning: Emitting any CORS-related headers for unauthorized origins can leak information about the API's capabilities and intended usage patterns. A preflight request from an unauthorized origin should be explicitly rejected.
 Prevention: Ensure that *all* CORS response headers are conditionally applied only after validating the request's origin against the allowlist. Reject unauthorized preflight `OPTIONS` requests with a `403 Forbidden` status code to signal explicit denial.
+Regression test: TestAPI_CORS (internal/api/server_test.go).
 
 ## 2024-05-XX - Weak Default JWT Secret Allowed
 * **Title:** Weak Default JWT Secret Allowed
@@ -50,38 +68,45 @@ Prevention: Ensure that *all* CORS response headers are conditionally applied on
 **Learning:** Failing to strictly validate API keys at startup can lead to unauthorized access to critical endpoints (like firewall control). Even if the default string is changed, short or easily guessable keys remain a vulnerability.
 **Prevention:** Always abort server startup if required security credentials (like API keys or JWT secrets) are empty, match known unsafe default values, or fail strict minimum length requirements (e.g., require at least 32 bytes).
 
-Date: 2024-05-24
+Date: 2026-08-28
 Title: Overly Permissive Unix Socket Permissions
 Vulnerability: `cmd/appsec-bridge/main.go` and `internal/engine/sidecar.go` set Unix domain socket file permissions to `0666` (world-readable and world-writable).
 Learning: Using `0666` on Unix domain sockets allows any local user on the host system to interact with or manipulate socket-based internal services, potentially leading to local privilege escalation or message spoofing.
 Prevention: Set Unix domain socket file permissions to restrictive modes (e.g., `0600` or `0660`) to restrict access strictly to the socket owner or intended group.
+Regression test: TestSidecarSocketPermissions (internal/engine/sidecar_test.go), TestSocketPermissions (cmd/appsec-bridge/main_test.go).
 
 Date: 2026-08-01
 Title: Missing Authentication on SSE Endpoint
 Vulnerability: `cmd/waf-api/main.go` registered `GET /api/v1/events` without `withAuth`, allowing unauthenticated clients to connect to the Server-Sent Events stream and receive live security event telemetry and stats.
 Learning: Streaming endpoints like SSE endpoints can easily be overlooked during middleware setup, leading to accidental exposure of sensitive telemetry data to unauthenticated observers.
 Prevention: Always ensure all API endpoints under protected routes (such as `/api/v1/`) are systematically wrapped with authentication middleware.
+Regression test: TestAPI_SSE_Auth (internal/api/server_test.go).
 
 Date: 2026-09-09
 Title: Host Agent Missing Authorization on SSE Event Stream
 Vulnerability: `cmd/waf-agent/main.go` connected to `/api/v1/events` without providing an `Authorization` header, causing automatic IP blocking to silently fail with 401 Unauthorized.
 Learning: Consumer microservices must be equipped with auth credentials matching the producer's access controls.
 Prevention: Ensure `waf-agent` config includes `auth_token` and injects `Authorization: Bearer <token>` into broker requests.
+Regression test: TestAgent_AuthMiddleware (cmd/waf-agent/main_test.go).
 
 Date: 2026-09-09
 Title: Nginx Module Request Body Truncation & Partial Send Bypass
 Vulnerability: `modules/ngx_waffynx/ngx_http_waffynx_module.c` only inspected the first buffer in `r->request_body->bufs` and used single `send()` without write loop, allowing WAF bypass on large bodies or saturated socket buffers when `fail_open` was active.
 Learning: Nginx request bodies are segmented across `ngx_chain_t` linked lists; socket transmission must loop until all bytes are sent.
 Prevention: Iterate full `ngx_chain_t` buffer chains and enforce loop for `send()`. Default `fail_open` to 0 (fail-closed).
+Regression test: NONE. Gap: the module has no C test harness, so this fix is unguarded (tracked in docs/security/audit-log.md).
 
 Date: 2026-09-09
 Title: Insufficient Authorization & Unescaped JSON Responses
 Vulnerability: `waf-api` lacked RBAC checks on mutating endpoints, and `sidecar.go` / `request-validation` used direct string concatenation (`fmt.Fprintf`) for error responses.
 Learning: Valid JWT authentication does not imply administrative authorization. String interpolation into JSON responses risks JSON injection or corruption.
 Prevention: Enforce `requireRole("admin")` on administrative routes and always use standard library `json.Marshal` / `json.NewEncoder`.
+Regression test: TestAPI_RBAC_RoleEnforcement (authorization half) and TestAPI_ErrorResponsesAreValidJSON (JSON-escaping half), both in internal/api/server_test.go.
 
 Date: 2026-11-16
 Title: CORS Preflight Unreachable on Every Authenticated Route
 Vulnerability: `corsMiddleware` was applied per-route (`withCORS(...)`) while Go 1.22's `http.ServeMux` matches method-specific patterns exactly. Only `/api/v1/auth/login` had an explicit `OPTIONS` mapping, so every other management route answered `405 Method Not Allowed` to a preflight request and returned no `Access-Control-Allow-*` headers — even though those same routes did emit CORS headers on real requests. A dashboard served from another origin could not call the API at all.
 Learning: Registering a middleware per route ties its coverage to the route table and silently degrades as routes are added. Adding `OPTIONS /path` next to `POST /path` is worse: it routes the preflight at a business handler and only works for the routes someone remembered to duplicate. Existing tests did not catch this because they exercised `/api/v1/auth/login`, the single route that worked.
 Prevention: Install CORS once, wrapping the mux, and let the middleware answer preflight before authentication — a browser never sends credentials on a preflight. Keep the path scope explicit (only `/api/v1/`) so wrapping the mux does not newly expose `/metrics` or `/debug/pprof` to browsers. Regression guard: `TestAPI_CORS_PreflightOnAuthenticatedRoutes` asserts `204` for an allowed origin on authenticated routes, `403` for a disallowed one, and that the non-`/api/v1/` endpoints stay untouched.
+Regression test: TestAPI_CORS_PreflightOnAuthenticatedRoutes (internal/api/server_test.go).
+

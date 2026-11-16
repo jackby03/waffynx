@@ -40,7 +40,7 @@ Agents must never violate the following core principles established in `constitu
 
 ### Quality & Regression Invariants (Constitution §3)
 * **Verification-First Delivery [§3.1]:** Automated tests are mandatory. Parsers, policy evaluators, and protocol decoders require both unit tests and fuzz tests (`go test -fuzz`).
-* **Regression Immutability [§3.2]:** Security fixes addressing logged vulnerabilities (e.g., in `.jules/sentinel.md`) must include a permanent regression test.
+* **Regression Immutability [§3.2]:** Security fixes addressing logged vulnerabilities (in `docs/security/audit-log.md`) must include a permanent regression test.
 * **Static Analysis [§3.3]:** Code must pass `golangci-lint` **with strict security and performance linters enabled** (`errcheck`, `govet`, `ineffassign`, `staticcheck`, `unused`, plus `gosec`, `bodyclose`, `nilerr`, `errorlint`, `copyloopvar`, `unconvert`, `misspell`) and return exit code `0`. Configuration lives in [`.golangci.yml`](.golangci.yml).
 
 ---
@@ -93,7 +93,7 @@ When implementing capabilities from [`docs/ROADMAP.md`](docs/ROADMAP.md), agents
 | `constitution.md` | Governance | Supreme architectural law and non-negotiable invariants. |
 | `AGENTS.md` | Governance | Operational context, agent directives, and constitutional alignment. |
 | `specs/` | Governance | Spec-Driven Development feature lifecycles (`spec.md`, `plan.md`, `tasks.md`). |
-| `.jules/sentinel.md` | Governance | Security audit log of logged vulnerabilities; every entry requires a retained regression test (Constitution §3.2). |
+| `docs/security/audit-log.md` | Governance | Security audit log of logged vulnerabilities; every entry requires a retained regression test (Constitution §3.2). |
 | `docs/` | Architecture | Master roadmap (`ROADMAP.md`) and Architecture Decision Records (`adr/`). |
 | `.golangci.yml` | Governance | Linter configuration enforcing Constitution §3.3 (standard + security/performance linters, `gofmt -s` formatter). |
 | `.gitattributes` | Governance | Pins `eol=lf` so the working tree satisfies Constitution §2.1 independently of `core.autocrlf`. |
@@ -137,6 +137,6 @@ Before declaring any task or feature complete, verify that:
 
 1. **Tests Pass:** All unit and integration tests pass with zero race conditions (`go test -race ./...`).
 2. **Zero Linter Warnings:** `GOOS=linux golangci-lint run ./...` returns exit code `0` with no baseline or merge-base filter. The tree is clean, so every finding is a regression.
-3. **Constitutional Invariants Intact:** Invariants in [`constitution.md`](constitution.md) and regression rules in [`.jules/sentinel.md`](.jules/sentinel.md) are strictly upheld.
+3. **Constitutional Invariants Intact:** Invariants in [`constitution.md`](constitution.md) and regression rules in [`docs/security/audit-log.md`](docs/security/audit-log.md) are strictly upheld.
 4. **Scope Boundaries Respected:** No modifications were made outside the declared task scope in `tasks.md`.
 5. **Spec Compliance:** Acceptance criteria in `spec.md` and task criteria in `tasks.md` are 100% met.

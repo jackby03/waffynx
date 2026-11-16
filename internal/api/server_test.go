@@ -628,3 +628,37 @@ func TestAPI_CORS_PreflightOnAuthenticatedRoutes(t *testing.T) {
 		}
 	})
 }
+
+// TestAPI_ErrorResponsesAreValidJSON guards the "Unescaped JSON Responses"
+// entry in docs/security/audit-log.md.
+//
+// Error bodies used to be built by interpolating the message into a JSON string
+// literal with fmt.Fprintf. Any quote, backslash or newline in a message that
+// carried user input produced a syntactically invalid document, so clients could
+// not parse the error (and on a permissive parser it became an injection).
+// writeError now routes through json.NewEncoder, and this test pins that.
+func TestAPI_ErrorResponsesAreValidJSON(t *testing.T) {
+	srv, _ := newTestAPIServer(t, nil)
+
+	// Every character class that breaks naive interpolation.
+	message := `invalid "value" \ with backslash,` + "\n" + `a <script>alert(1)</script> and a } brace`
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+	srv.writeError(rec, req, http.StatusBadRequest, message)
+
+	if !json.Valid(rec.Body.Bytes()) {
+		t.Fatalf("error response is not valid JSON: %s", rec.Body.String())
+	}
+
+	var payload map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to unmarshal error response: %v", err)
+	}
+	if payload["message"] != message {
+		t.Errorf("message did not round-trip:\n got %q\nwant %q", payload["message"], message)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %q", got)
+	}
+}
