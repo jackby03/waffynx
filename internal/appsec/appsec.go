@@ -14,19 +14,19 @@ import "context"
 type Verdict string
 
 const (
-	VerdictAllow    Verdict = "allow"
-	VerdictBlock    Verdict = "block"
+	VerdictAllow      Verdict = "allow"
+	VerdictBlock      Verdict = "block"
 	VerdictSuspicious Verdict = "suspicious"
 )
 
 // Result holds the ML evaluation output for a single HTTP request.
 type Result struct {
-	Verdict     Verdict   `json:"verdict"`
-	Score       float64   `json:"score"`        // 0.0 = safe, 1.0 = malicious
-	Confidence  float64   `json:"confidence"`   // model confidence in its verdict
-	Reasons     []string  `json:"reasons"`      // human-readable reasons
-	Anomalies   []string  `json:"anomalies"`    // detected anomalies (SQLi, XSS-like, etc.)
-	ModelName   string    `json:"model_name"`   // which model produced the verdict
+	Verdict    Verdict  `json:"verdict"`
+	Score      float64  `json:"score"`      // 0.0 = safe, 1.0 = malicious
+	Confidence float64  `json:"confidence"` // model confidence in its verdict
+	Reasons    []string `json:"reasons"`    // human-readable reasons
+	Anomalies  []string `json:"anomalies"`  // detected anomalies (SQLi, XSS-like, etc.)
+	ModelName  string   `json:"model_name"` // which model produced the verdict
 }
 
 // Features contains decoded, normalized request data for ML input.

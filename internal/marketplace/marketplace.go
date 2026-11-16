@@ -11,28 +11,28 @@ import (
 type PackageStatus string
 
 const (
-	StatusPublished PackageStatus = "published"
-	StatusInstalled PackageStatus = "installed"
-	StatusPending   PackageStatus = "pending"
+	StatusPublished  PackageStatus = "published"
+	StatusInstalled  PackageStatus = "installed"
+	StatusPending    PackageStatus = "pending"
 	StatusDeprecated PackageStatus = "deprecated"
 )
 
 type Package struct {
-	ID          string             `json:"id"`
-	Name        string             `json:"name"`
-	Version     string             `json:"version"`
-	Description string             `json:"description"`
-	Author      string             `json:"author"`
-	License     string             `json:"license"`
-	Category    string             `json:"category"`
-	Tags        []string           `json:"tags"`
-	Downloads   int64              `json:"downloads"`
-	Rating      float64            `json:"rating"`
-	Status      PackageStatus      `json:"status"`
-	PublishedAt time.Time          `json:"published_at"`
-	UpdatedAt   time.Time          `json:"updated_at"`
-	Checksum    string             `json:"checksum"`
-	Plugin      *plugin.Metadata   `json:"plugin,omitempty"`
+	ID          string           `json:"id"`
+	Name        string           `json:"name"`
+	Version     string           `json:"version"`
+	Description string           `json:"description"`
+	Author      string           `json:"author"`
+	License     string           `json:"license"`
+	Category    string           `json:"category"`
+	Tags        []string         `json:"tags"`
+	Downloads   int64            `json:"downloads"`
+	Rating      float64          `json:"rating"`
+	Status      PackageStatus    `json:"status"`
+	PublishedAt time.Time        `json:"published_at"`
+	UpdatedAt   time.Time        `json:"updated_at"`
+	Checksum    string           `json:"checksum"`
+	Plugin      *plugin.Metadata `json:"plugin,omitempty"`
 }
 
 type Filter struct {

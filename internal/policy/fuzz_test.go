@@ -12,7 +12,7 @@ func FuzzPolicyEvaluate(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, method, path, remoteIP string, body []byte) {
 		engine := NewRuleEngine()
-		
+
 		engine.AddRule(Rule{
 			ID: "rule1", Name: "block-post", Phase: PhaseRequest,
 			Enabled: true, Action: ActionBlock,
@@ -20,14 +20,14 @@ func FuzzPolicyEvaluate(f *testing.F) {
 				return req.Method == "POST"
 			},
 		})
-		
+
 		req := &Request{
 			Method:   method,
 			Path:     path,
 			RemoteIP: remoteIP,
 			Body:     body,
 		}
-		
+
 		engine.Evaluate(context.Background(), PhaseRequest, req)
 	})
 }

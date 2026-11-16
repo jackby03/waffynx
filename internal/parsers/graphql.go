@@ -6,11 +6,11 @@ import (
 )
 
 type GraphQLResult struct {
-	IsGraphQL     bool     `json:"is_graphql"`
-	IsIntrospection bool   `json:"is_introspection"`
-	QueryDepth    int      `json:"query_depth"`
-	IsBatched     bool     `json:"is_batched"`
-	Issues        []string `json:"issues,omitempty"`
+	IsGraphQL       bool     `json:"is_graphql"`
+	IsIntrospection bool     `json:"is_introspection"`
+	QueryDepth      int      `json:"query_depth"`
+	IsBatched       bool     `json:"is_batched"`
+	Issues          []string `json:"issues,omitempty"`
 }
 
 var introspectionFields = []string{

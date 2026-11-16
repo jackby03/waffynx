@@ -18,7 +18,7 @@ type OIDCManager struct {
 }
 
 type oidcProvider struct {
-	name    string
+	name     string
 	provider *oidc.Provider
 }
 
@@ -54,7 +54,7 @@ func (m *OIDCManager) Configure(providers []config.OIDCProvider) error {
 		}
 
 		m.providers[name] = &oidcProvider{
-			name:    name,
+			name:     name,
 			provider: provider,
 		}
 

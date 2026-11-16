@@ -28,17 +28,17 @@ type CustomRule struct {
 	Priority    int    `json:"priority"`
 	Action      Action `json:"action"`
 
-	Methods     []string `json:"methods,omitempty"`
-	PathPattern string   `json:"path_pattern,omitempty"`
-	PathExact   string   `json:"path_exact,omitempty"`
-	Hosts       []string `json:"hosts,omitempty"`
-	IPs         []string `json:"ips,omitempty"`
-	IPCIDRs     []string `json:"ip_cidrs,omitempty"`
-	HeaderName  string   `json:"header_name,omitempty"`
-	HeaderValue string   `json:"header_value,omitempty"`
-	BodyContains string  `json:"body_contains,omitempty"`
-	QueryParam  string   `json:"query_param,omitempty"`
-	QueryValue  string   `json:"query_value,omitempty"`
+	Methods      []string `json:"methods,omitempty"`
+	PathPattern  string   `json:"path_pattern,omitempty"`
+	PathExact    string   `json:"path_exact,omitempty"`
+	Hosts        []string `json:"hosts,omitempty"`
+	IPs          []string `json:"ips,omitempty"`
+	IPCIDRs      []string `json:"ip_cidrs,omitempty"`
+	HeaderName   string   `json:"header_name,omitempty"`
+	HeaderValue  string   `json:"header_value,omitempty"`
+	BodyContains string   `json:"body_contains,omitempty"`
+	QueryParam   string   `json:"query_param,omitempty"`
+	QueryValue   string   `json:"query_value,omitempty"`
 }
 
 type Engine struct {

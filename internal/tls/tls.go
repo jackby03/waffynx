@@ -24,11 +24,11 @@ type Manager struct {
 }
 
 type ACMEConfig struct {
-	Enabled    bool
-	Domains    []string
-	Email      string
-	CacheDir   string
-	Staging    bool
+	Enabled  bool
+	Domains  []string
+	Email    string
+	CacheDir string
+	Staging  bool
 }
 
 func NewManager() *Manager {

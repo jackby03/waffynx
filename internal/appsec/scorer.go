@@ -32,10 +32,10 @@ type BasicScorer struct {
 	enabled bool
 
 	// Attack patterns (same ones we'd feed to an ML feature extractor)
-	sqliPatterns    []string
-	xssPatterns     []string
-	pathTraversal   []string
-	cmdInjection    []string
+	sqliPatterns  []string
+	xssPatterns   []string
+	pathTraversal []string
+	cmdInjection  []string
 
 	// Rate tracking per IP (simple frequency anomaly)
 	ipFrequency     map[string]*ipCounter
@@ -43,7 +43,7 @@ type BasicScorer struct {
 }
 
 type ipCounter struct {
-	count     int
+	count       int
 	windowStart time.Time
 }
 
@@ -110,8 +110,8 @@ func (s *BasicScorer) Evaluate(ctx context.Context, features *Features) (*Result
 	}
 
 	var (
-		reasons   []string
-		anomalies []string
+		reasons    []string
+		anomalies  []string
 		totalScore float64
 	)
 
@@ -309,7 +309,7 @@ func analyzeCharDistribution(s string) float64 {
 
 	var (
 		upper, lower, digits, special, encoded int
-		total                                   = len(s)
+		total                                  = len(s)
 	)
 
 	for i := 0; i < len(s); i++ {

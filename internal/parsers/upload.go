@@ -7,13 +7,13 @@ import (
 )
 
 type FileUploadResult struct {
-	IsUpload      bool     `json:"is_upload"`
-	ContentType   string   `json:"content_type"`
-	Extension     string   `json:"extension,omitempty"`
-	Size          int      `json:"size"`
-	IsExecutable  bool     `json:"is_executable"`
-	MagicMatch    bool     `json:"magic_match"`
-	Issues        []string `json:"issues,omitempty"`
+	IsUpload     bool     `json:"is_upload"`
+	ContentType  string   `json:"content_type"`
+	Extension    string   `json:"extension,omitempty"`
+	Size         int      `json:"size"`
+	IsExecutable bool     `json:"is_executable"`
+	MagicMatch   bool     `json:"magic_match"`
+	Issues       []string `json:"issues,omitempty"`
 }
 
 var blockedExtensions = []string{
@@ -31,13 +31,13 @@ var blockedContentTypes = []string{
 }
 
 var magicSignatures = map[string][]byte{
-	"image/jpeg":        {0xFF, 0xD8, 0xFF},
-	"image/png":         {0x89, 0x50, 0x4E, 0x47},
-	"image/gif":         {0x47, 0x49, 0x46},
-	"application/pdf":   {0x25, 0x50, 0x44, 0x46},
-	"application/zip":   {0x50, 0x4B, 0x03, 0x04},
+	"image/jpeg":         {0xFF, 0xD8, 0xFF},
+	"image/png":          {0x89, 0x50, 0x4E, 0x47},
+	"image/gif":          {0x47, 0x49, 0x46},
+	"application/pdf":    {0x25, 0x50, 0x44, 0x46},
+	"application/zip":    {0x50, 0x4B, 0x03, 0x04},
 	"application/x-gzip": {0x1F, 0x8B},
-	"audio/mpeg":        {0xFF, 0xFB},
+	"audio/mpeg":         {0xFF, 0xFB},
 }
 
 func InspectFileUpload(r *http.Request, body []byte) *FileUploadResult {

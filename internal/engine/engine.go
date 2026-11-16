@@ -21,10 +21,10 @@ import (
 //   - Policy:  WAF rule evaluator
 //   - AppSec:  ML-based anomaly scorer (basic-go or open-appsec bridge)
 type Engine struct {
-	mu       sync.RWMutex
-	cfg      *config.Config
-	running  bool
-	cmd      *exec.Cmd
+	mu      sync.RWMutex
+	cfg     *config.Config
+	running bool
+	cmd     *exec.Cmd
 
 	sidecar  *Sidecar
 	chain    *plugin.Chain

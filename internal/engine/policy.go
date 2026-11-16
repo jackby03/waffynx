@@ -10,10 +10,10 @@ import (
 type PolicyAction string
 
 const (
-	ActionAllow PolicyAction = "allow"
-	ActionDeny  PolicyAction = "deny"
-	ActionLog   PolicyAction = "log"
-	ActionBlock PolicyAction = "block"
+	ActionAllow    PolicyAction = "allow"
+	ActionDeny     PolicyAction = "deny"
+	ActionLog      PolicyAction = "log"
+	ActionBlock    PolicyAction = "block"
 	ActionRedirect PolicyAction = "redirect"
 )
 

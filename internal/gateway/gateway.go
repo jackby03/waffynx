@@ -13,18 +13,18 @@ import (
 
 	"github.com/jackby03/waffynx/internal/config"
 	"github.com/jackby03/waffynx/internal/logging"
-	"github.com/jackby03/waffynx/internal/policy"
 	"github.com/jackby03/waffynx/internal/plugin"
+	"github.com/jackby03/waffynx/internal/policy"
 )
 
 type Gateway struct {
-	mu       sync.RWMutex
-	cfg      *config.Config
-	server   *http.Server
-	router   *Router
-	chain    *plugin.Chain
-	engine   policy.Evaluator
-	running  bool
+	mu      sync.RWMutex
+	cfg     *config.Config
+	server  *http.Server
+	router  *Router
+	chain   *plugin.Chain
+	engine  policy.Evaluator
+	running bool
 }
 
 func New(cfg *config.Config, eval policy.Evaluator, chain *plugin.Chain) *Gateway {
@@ -56,11 +56,11 @@ func (g *Gateway) Start() error {
 	mux.HandleFunc("/metrics", g.handleMetrics)
 
 	g.server = &http.Server{
-		Addr:         g.cfg.Listen,
-		Handler:      g.wrapWithPlugins(mux),
-		ReadTimeout:  time.Duration(g.cfg.Gateway.ReadTimeout) * time.Second,
-		WriteTimeout: time.Duration(g.cfg.Gateway.WriteTimeout) * time.Second,
-		IdleTimeout:  time.Duration(g.cfg.Gateway.IdleTimeout) * time.Second,
+		Addr:           g.cfg.Listen,
+		Handler:        g.wrapWithPlugins(mux),
+		ReadTimeout:    time.Duration(g.cfg.Gateway.ReadTimeout) * time.Second,
+		WriteTimeout:   time.Duration(g.cfg.Gateway.WriteTimeout) * time.Second,
+		IdleTimeout:    time.Duration(g.cfg.Gateway.IdleTimeout) * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
 
@@ -103,10 +103,10 @@ func (g *Gateway) handleRequest(w http.ResponseWriter, r *http.Request) {
 	route, params := g.router.Match(r.Host, r.URL.Path, r.Method)
 
 	result := g.engine.Evaluate(r.Context(), policy.PhaseRequest, &policy.Request{
-		Method:  r.Method,
-		Host:    r.Host,
-		Path:    r.URL.Path,
-		Headers: r.Header,
+		Method:   r.Method,
+		Host:     r.Host,
+		Path:     r.URL.Path,
+		Headers:  r.Header,
 		RemoteIP: r.RemoteAddr,
 	})
 
@@ -130,9 +130,9 @@ func (g *Gateway) handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.Transport = &http.Transport{
-		MaxIdleConns:        g.cfg.Gateway.MaxConnections,
-		IdleConnTimeout:     time.Duration(g.cfg.Gateway.IdleTimeout) * time.Second,
-		DisableCompression:  false,
+		MaxIdleConns:       g.cfg.Gateway.MaxConnections,
+		IdleConnTimeout:    time.Duration(g.cfg.Gateway.IdleTimeout) * time.Second,
+		DisableCompression: false,
 	}
 
 	r.URL.Path = params["path"]

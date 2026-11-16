@@ -39,10 +39,10 @@ type Suggestion struct {
 }
 
 type pathGroup struct {
-	prefix    string
-	count     int
-	blocked   int
-	lastSeen  time.Time
+	prefix   string
+	count    int
+	blocked  int
+	lastSeen time.Time
 }
 
 type Engine struct {
@@ -261,19 +261,19 @@ func (e *Engine) analyzeRate() []Suggestion {
 }
 
 type DatasetRecord struct {
-	URI          string  `json:"uri"`
-	Method       string  `json:"method"`
-	Host         string  `json:"host"`
-	RemoteIP     string  `json:"remote_ip"`
-	ContentType  string  `json:"content_type"`
-	URILength    int     `json:"uri_length"`
-	BodyLength   int     `json:"body_length"`
-	HasQuery     bool    `json:"has_query"`
-	QueryParams  int     `json:"query_params"`
-	Label        string  `json:"label"`
-	RuleID       string  `json:"rule_id,omitempty"`
-	Reason       string  `json:"reason,omitempty"`
-	Timestamp    string  `json:"timestamp"`
+	URI         string `json:"uri"`
+	Method      string `json:"method"`
+	Host        string `json:"host"`
+	RemoteIP    string `json:"remote_ip"`
+	ContentType string `json:"content_type"`
+	URILength   int    `json:"uri_length"`
+	BodyLength  int    `json:"body_length"`
+	HasQuery    bool   `json:"has_query"`
+	QueryParams int    `json:"query_params"`
+	Label       string `json:"label"`
+	RuleID      string `json:"rule_id,omitempty"`
+	Reason      string `json:"reason,omitempty"`
+	Timestamp   string `json:"timestamp"`
 }
 
 func (e *Engine) ExportDataset() []DatasetRecord {
@@ -283,19 +283,19 @@ func (e *Engine) ExportDataset() []DatasetRecord {
 	var dataset []DatasetRecord
 	for _, r := range e.records {
 		entry := DatasetRecord{
-			URI:        r.Path,
-			Method:     r.Method,
-			Host:       r.Host,
-			RemoteIP:   r.RemoteIP,
+			URI:         r.Path,
+			Method:      r.Method,
+			Host:        r.Host,
+			RemoteIP:    r.RemoteIP,
 			ContentType: r.ContentType,
-			URILength:  len(r.Path),
-			BodyLength: len(r.BodySnippet),
-			HasQuery:   strings.Contains(r.Path, "?"),
+			URILength:   len(r.Path),
+			BodyLength:  len(r.BodySnippet),
+			HasQuery:    strings.Contains(r.Path, "?"),
 			QueryParams: strings.Count(r.Path, "&") + 1,
-			Label:      string(r.Verdict),
-			RuleID:     r.RuleID,
-			Reason:     r.Reason,
-			Timestamp:  r.Timestamp.Format(time.RFC3339),
+			Label:       string(r.Verdict),
+			RuleID:      r.RuleID,
+			Reason:      r.Reason,
+			Timestamp:   r.Timestamp.Format(time.RFC3339),
 		}
 		if entry.HasQuery && !strings.Contains(r.Path, "=") {
 			entry.QueryParams = 0
