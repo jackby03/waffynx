@@ -162,8 +162,13 @@ jobs:
       # Per-package minimums, not a single global percentage: a global total is
       # dominated by whichever package has the most statements and hides
       # regressions in small security-critical ones. Floors only ratchet up.
+      #
+      # `set -o pipefail` is load-bearing: without it the pipeline reports tee's
+      # exit status, so the gate could fail and the job would still go green.
       - name: Coverage gates
-        run: go run ./tools/covergate -profile coverage.out | tee coverage.txt
+        run: |
+          set -o pipefail
+          go run ./tools/covergate -profile coverage.out | tee coverage.txt
 
       - name: Coverage summary
         run: |
