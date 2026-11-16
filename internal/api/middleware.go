@@ -158,8 +158,20 @@ func (s *Server) auditMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+// corsPathPrefix is the only path prefix CORS is applied to.
+//
+// Scoping matters: wrapping the whole mux would newly expose /metrics (which is
+// unauthenticated) and /debug/pprof to any browser on an allowed origin. Before
+// this middleware existed those paths sent no CORS headers at all.
+const corsPathPrefix = "/api/v1/"
+
+func (s *Server) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, corsPathPrefix) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		origin := r.Header.Get("Origin")
 		allowedOrigin := ""
 		cfg := s.readConfig()
@@ -192,6 +204,6 @@ func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 			return
 		}
-		next(w, r)
-	}
+		next.ServeHTTP(w, r)
+	})
 }

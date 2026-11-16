@@ -517,3 +517,114 @@ func TestAPI_FirewallRules(t *testing.T) {
 		t.Errorf("expected IP to be removed after unblock, got %s", rec.Body.String())
 	}
 }
+
+// TestAPI_CORS_PreflightOnAuthenticatedRoutes is the regression guard for the
+// preflight gap fixed in this change.
+//
+// corsMiddleware used to be applied per-route, and only /api/v1/auth/login had
+// an explicit OPTIONS mapping. Every other route therefore answered 405 to a
+// preflight request, so a dashboard served from another origin could not call
+// the API at all — including the routes that already carried CORS headers on
+// real requests. TestAPI_CORS above only ever exercised the one route that
+// worked, which is why the gap survived.
+func TestAPI_CORS_PreflightOnAuthenticatedRoutes(t *testing.T) {
+	cfg := &config.Config{
+		Name: "waffynx-test",
+		API: config.APIConfig{
+			Listen:         ":9090",
+			AllowedOrigins: []string{"https://app.example.com"},
+			Auth: config.AuthConfig{
+				JWTSecret: "test-secret-key-1234567890-must-be-32-chars",
+				TokenTTL:  3600,
+			},
+		},
+	}
+
+	_, handler := newTestAPIServer(t, cfg)
+
+	preflight := func(path, origin string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodOptions, path, nil)
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		req.Header.Set("Access-Control-Request-Method", "GET")
+		req.Header.Set("Access-Control-Request-Headers", "Authorization")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Routes that are behind authMiddleware. Preflight must be answered before
+	// authentication, because a browser never sends credentials on a preflight.
+	t.Run("allowed origin gets a preflight response on authenticated routes", func(t *testing.T) {
+		for _, path := range []string{
+			"/api/v1/status",
+			"/api/v1/config",
+			"/api/v1/plugins",
+			"/api/v1/audit",
+			"/api/v1/events",
+			"/api/v1/marketplace",
+			"/api/v1/firewall/rules",
+		} {
+			rec := preflight(path, "https://app.example.com")
+
+			if rec.Code != http.StatusNoContent {
+				t.Errorf("%s: expected preflight status 204, got %d", path, rec.Code)
+			}
+			if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "https://app.example.com" {
+				t.Errorf("%s: expected Access-Control-Allow-Origin, got %q", path, got)
+			}
+			if got := rec.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+				t.Errorf("%s: expected Access-Control-Allow-Credentials 'true', got %q", path, got)
+			}
+			if got := rec.Header().Get("Access-Control-Allow-Headers"); !strings.Contains(got, "Authorization") {
+				t.Errorf("%s: expected Authorization in Access-Control-Allow-Headers, got %q", path, got)
+			}
+		}
+	})
+
+	t.Run("disallowed origin is rejected on authenticated routes", func(t *testing.T) {
+		rec := preflight("/api/v1/status", "https://evil.example")
+
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("expected preflight status 403, got %d", rec.Code)
+		}
+		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("expected no Access-Control-Allow-Origin, got %q", got)
+		}
+	})
+
+	// CORS must not leak onto endpoints that never carried it. /metrics is
+	// unauthenticated, and /debug/pprof is admin-only but must not become
+	// readable from a browser on an allowed origin either.
+	t.Run("cors stays scoped to /api/v1", func(t *testing.T) {
+		for _, path := range []string{"/health", "/metrics", "/debug/pprof/", "/"} {
+			rec := preflight(path, "https://app.example.com")
+
+			if rec.Code == http.StatusNoContent {
+				t.Errorf("%s: expected no preflight handling outside /api/v1, got 204", path)
+			}
+			if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+				t.Errorf("%s: expected no Access-Control-Allow-Origin outside /api/v1, got %q", path, got)
+			}
+		}
+	})
+
+	// Non-preflight requests on an allowed origin keep getting the CORS headers
+	// they already received before this change; scoping must not regress that.
+	t.Run("actual requests still receive cors headers", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+		req.Header.Set("Origin", "https://app.example.com")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		// 401: no credentials supplied. The CORS headers must still be present so
+		// the browser can read the error instead of reporting an opaque failure.
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("expected status 401, got %d", rec.Code)
+		}
+		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "https://app.example.com" {
+			t.Errorf("expected Access-Control-Allow-Origin, got %q", got)
+		}
+	})
+}
