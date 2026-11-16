@@ -149,18 +149,30 @@ jobs:
       # external/graphqlparser/go files (`import "C"`) become buildable packages
       # that need modules absent from go.mod. It is vendored upstream code, not
       # part of this module; scripts/build-bridge.sh compiles it with g++.
+      #
+      # -coverpkg covers the whole module so statements exercised across package
+      # boundaries are counted. Without it, the inspection pipeline driven from
+      # cmd/waffynx reports as untested.
       - name: Test
         run: |
           pkgs=$(go list ./... | grep -v '/third_party/')
-          go test -race -coverprofile=coverage.out $pkgs
+          coverpkgs=$(echo "$pkgs" | paste -sd, -)
+          go test -race -coverpkg="$coverpkgs" -coverprofile=coverage.out $pkgs
+
+      # Per-package minimums, not a single global percentage: a global total is
+      # dominated by whichever package has the most statements and hides
+      # regressions in small security-critical ones. Floors only ratchet up.
+      - name: Coverage gates
+        run: go run ./tools/covergate -profile coverage.out | tee coverage.txt
 
       - name: Coverage summary
         run: |
-          go tool cover -func=coverage.out | tail -1
-          echo "### Coverage" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          go tool cover -func=coverage.out | tail -1 >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo '### Coverage'
+            echo '```'
+            cat coverage.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
