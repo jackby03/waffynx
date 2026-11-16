@@ -14,7 +14,8 @@ When resolving design, scope, or implementation ambiguities, artifacts strictly 
 4. **`specs/<feature>/tasks.md` — Atomic Execution Checklist:** Sequential tasks with explicit Definitions of Done (DoD).
 
 ### Strategic Reference Documents (Non-Governing)
-* **[`docs/ROADMAP.md`](docs/ROADMAP.md):** 14-pillar enterprise roadmap consolidating F5, Palo Alto Networks, Fortinet, Check Point, Cisco, and Cloudflare capabilities.
+* **[`docs/ROADMAP.md`](docs/ROADMAP.md):** active roadmap. Self-hosted WAF + reverse proxy, container-first, targeting near-total parity with Cloudflare WAF (WAF only).
+* **[`docs/FUTURE.md`](docs/FUTURE.md):** parked NGFW / SWG / ZTNA research. **Out of scope** — nothing here may be implemented under the current product direction (ADR-0003).
 * **[`docs/adr/`](docs/adr/):** Architectural Decision Records documenting historical context and technology choices.
 * **[`specs/HARNESS.md`](specs/HARNESS.md):** Detailed step-by-step operational loop for Spec-Driven Development.
 
@@ -40,7 +41,7 @@ Agents must never violate the following core principles established in `constitu
 
 ### Quality & Regression Invariants (Constitution §3)
 * **Verification-First Delivery [§3.1]:** Automated tests are mandatory. Parsers, policy evaluators, and protocol decoders require both unit tests and fuzz tests (`go test -fuzz`).
-* **Regression Immutability [§3.2]:** Security fixes addressing logged vulnerabilities (in `docs/security/audit-log.md`) must include a permanent regression test.
+* **Regression Immutability [§3.2]:** Security fixes addressing a known vulnerability must include a permanent regression test.
 * **Static Analysis [§3.3]:** Code must pass `golangci-lint` **with strict security and performance linters enabled** (`errcheck`, `govet`, `ineffassign`, `staticcheck`, `unused`, plus `gosec`, `bodyclose`, `nilerr`, `errorlint`, `copyloopvar`, `unconvert`, `misspell`) and return exit code `0`. Configuration lives in [`.golangci.yml`](.golangci.yml).
 
 ---
@@ -56,15 +57,15 @@ Every AI agent must execute tasks within the SDD framework:
 
 ---
 
-## 4. Tri-Architecture Mapping to Constitutional Planes
+## 4. Scope Mapping to Constitutional Planes
 
-When implementing capabilities from [`docs/ROADMAP.md`](docs/ROADMAP.md), agents must align with the constitutional planes:
+When implementing capabilities from [`docs/ROADMAP.md`](docs/ROADMAP.md), agents must align with the constitutional planes. The product is a **self-hosted WAF and reverse proxy, container-first**; anything in [`docs/FUTURE.md`](docs/FUTURE.md) is out of scope.
 
 | Constitutional Plane | System Subsystem | Roadmap Capabilities | Implementation Boundary |
 | :--- | :--- | :--- | :--- |
-| **Data Plane** | `modules/ngx_waffynx`<br>`internal/engine` | Full-Proxy Inverso (WAF/ASM), Forward Proxy (SWG/CASB), Bot Defense, iRules, Open-AppSec ML | Native Nginx C module + zero-copy Go sidecar via `0600` Unix socket. Sub-2ms hot path. |
-| **Host Enforcement Agent** | `cmd/waf-agent`<br>`internal/firewall` | Inline Packet Engine (NGFW), Stateful L2–L4 filtering, SYN cookies, Volumetric flood mitigation | Asynchronous nftables/eBPF kernel driver. No GC-heavy structures in packet loops. |
-| **Control Plane** | `cmd/waf-api`<br>`internal/api` | Management REST/gRPC API, Declarative IaC, SOC Control Room UI, High-Speed Logging (HSL) | Out-of-band management. Strictly prohibited from inline request data path. |
+| **Data Plane** | `modules/ngx_waffynx`<br>`internal/engine` | Reverse-proxy WAF inspection, rule engine, parsers, bot defense, API schema validation, pluggable AI scoring | Native Nginx C module + zero-copy Go sidecar via `0600` Unix socket. Sub-2ms hot path. |
+| **Host Enforcement Agent** | `cmd/waf-agent`<br>`internal/firewall` | Host `nftables`/`ufw` drop — **system mode only (P1)**. Never started in the container. | Asynchronous kernel driver. Must never be required for the core protection path. |
+| **Control Plane** | `cmd/waf-api`<br>`internal/api` | Sites/proxy-host management, policy and rule authoring, optional external-AI provider config, SOC Control Room UI, audit and security events | Out-of-band management. Strictly prohibited from inline request data path. |
 
 ---
 
@@ -93,7 +94,6 @@ When implementing capabilities from [`docs/ROADMAP.md`](docs/ROADMAP.md), agents
 | `constitution.md` | Governance | Supreme architectural law and non-negotiable invariants. |
 | `AGENTS.md` | Governance | Operational context, agent directives, and constitutional alignment. |
 | `specs/` | Governance | Spec-Driven Development feature lifecycles (`spec.md`, `plan.md`, `tasks.md`). |
-| `docs/security/audit-log.md` | Governance | Security audit log of logged vulnerabilities; every entry requires a retained regression test (Constitution §3.2). |
 | `docs/` | Architecture | Master roadmap (`ROADMAP.md`) and Architecture Decision Records (`adr/`). |
 | `.golangci.yml` | Governance | Linter configuration enforcing Constitution §3.3 (standard + security/performance linters, `gofmt -s` formatter). |
 | `.gitattributes` | Governance | Pins `eol=lf` so the working tree satisfies Constitution §2.1 independently of `core.autocrlf`. |
@@ -137,6 +137,6 @@ Before declaring any task or feature complete, verify that:
 
 1. **Tests Pass:** All unit and integration tests pass with zero race conditions (`go test -race ./...`).
 2. **Zero Linter Warnings:** `GOOS=linux golangci-lint run ./...` returns exit code `0` with no baseline or merge-base filter. The tree is clean, so every finding is a regression.
-3. **Constitutional Invariants Intact:** Invariants in [`constitution.md`](constitution.md) and regression rules in [`docs/security/audit-log.md`](docs/security/audit-log.md) are strictly upheld.
+3. **Constitutional Invariants Intact:** Invariants in [`constitution.md`](constitution.md) and the regression-test rule in its §3.2 are strictly upheld.
 4. **Scope Boundaries Respected:** No modifications were made outside the declared task scope in `tasks.md`.
 5. **Spec Compliance:** Acceptance criteria in `spec.md` and task criteria in `tasks.md` are 100% met.

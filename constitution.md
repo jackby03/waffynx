@@ -62,7 +62,7 @@
 
 ### 3.2 Regression Immutability
 
-- Any bug fix or security patch addressing a CVE or vulnerability logged in the security audit log (`docs/security/audit-log.md`) must include a permanently retained regression test replicating the attack vector.
+- Any bug fix or security patch addressing a known vulnerability must include a permanently retained regression test replicating the attack vector.
 
 ### 3.3 Static Analysis Compliance
 

@@ -1,6 +1,6 @@
 # ADR-0002: Unified Tri-Architecture Network & Application Security Engine (NGFW + ADC/WAF + SASE/ZTNA)
 
-* **Status:** Accepted
+* **Status:** Superseded by [ADR-0003](0003-product-scope-waf.md)
 * **Date:** 2026-09-10
 * **Author(s):** Waffynx Core Architecture Team
 * **Deciders:** Engineering Lead, Security Architect, Agent Governance
