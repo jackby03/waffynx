@@ -49,8 +49,14 @@ gateway:
   enable_rate_limiting: false
 
 # -- Host firewall integration (UFW / nftables) --
+# SYSTEM MODE ONLY. These drivers shell out to `nft` / `ufw` on the host, so they
+# need root and do nothing useful inside a container (without NET_ADMIN they fail;
+# with --net host they would touch the host, which is worse). The container
+# entrypoint does not start waf-agent and IP bans are enforced at the WAF layer
+# instead, which is why this defaults to disabled. Enable it only for a systemd
+# / bare-metal deployment.
 firewall:
-  enabled: true
+  enabled: false
   backend: "nftables"           # nftables, ufw
   default_in: "deny"            # deny, allow
   default_out: "allow"          # deny, allow
