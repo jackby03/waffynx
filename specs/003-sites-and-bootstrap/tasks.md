@@ -90,13 +90,15 @@
   - **Files:** `deploy/docker/entrypoint.sh`
   - **DoD:** fresh `docker run` with only env vars serves a protected site; no config file mounted.
 
-## Phase 6: CLI
+## Phase 6: CLI — **deferred out of this spec**
 
-- [ ] **Task 6.1: `waffynx site list|show`**
-  - **DoD:** talks to the API with a token; exits non-zero on auth failure with an actionable message.
+> Decision 5: no CLI surface for sites yet. The API is driven with `curl` until the
+> behaviour settles, then the command syntax is designed once. Task 6.3 is kept
+> because `verify --target` belongs to the existing self-test command rather than to
+> site management.
 
-- [ ] **Task 6.2: `waffynx site add|remove`**
-  - **DoD:** round-trips against a running instance; `--tls-cert/--tls-key` supported; errors surface the API status and body.
+- [ ] ~~**Task 6.1: `waffynx site list|show`**~~ — deferred
+- [ ] ~~**Task 6.2: `waffynx site add|remove`**~~ — deferred
 
 - [ ] **Task 6.3: `waffynx verify --target <url>`**
   - **DoD:** benign probe expects 2xx, SQLi probe expects 403; reports each result; exit code reflects mismatches.

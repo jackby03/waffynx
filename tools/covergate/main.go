@@ -44,6 +44,10 @@ var floors = map[string]float64{
 	"internal/ratelimit": 55,
 	"internal/firewall":  50,
 
+	// Pure validation and text rendering: there is no excuse for gaps here, so the
+	// floor is set high from the start.
+	"internal/sites": 90,
+
 	// `internal/engine` holds the inspection pipeline that decides whether an
 	// attack is blocked. It was at 34.9% until Sidecar.Decide was extracted and the
 	// HTTP handlers, PolicyStore and Engine wiring got direct tests.

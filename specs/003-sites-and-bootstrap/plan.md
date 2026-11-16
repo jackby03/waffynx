@@ -1,6 +1,6 @@
 # Technical Architecture Plan: Site Management & Zero-File Bootstrap
 
-**Status:** Draft — awaiting review
+**Status:** Approved
 **Related Spec:** [`spec.md`](./spec.md)
 **Author(s):** Waffynx Core Team
 **Last Updated:** 2026-11-16
