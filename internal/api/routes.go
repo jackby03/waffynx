@@ -24,6 +24,14 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/v1/config", withAuth(requireAdmin(s.handleUpdateConfig)))
 	mux.HandleFunc("GET /api/v1/metrics", withAuth(s.handleMetrics))
 
+	// Sites (reverse-proxy topology). Reads need auth; writes need admin, because a
+	// site change reconfigures what the proxy serves.
+	mux.HandleFunc("GET /api/v1/sites", withAuth(s.handleSiteList))
+	mux.HandleFunc("GET /api/v1/sites/{host}", withAuth(s.handleSiteGet))
+	mux.HandleFunc("POST /api/v1/sites", withAuth(requireAdmin(s.handleSiteCreate)))
+	mux.HandleFunc("PUT /api/v1/sites/{host}", withAuth(requireAdmin(s.handleSiteUpdate)))
+	mux.HandleFunc("DELETE /api/v1/sites/{host}", withAuth(requireAdmin(s.handleSiteDelete)))
+
 	// Plugins
 	mux.HandleFunc("GET /api/v1/plugins", withAuth(s.handleListPlugins))
 	mux.HandleFunc("GET /api/v1/plugins/{name}", withAuth(s.handleGetPlugin))

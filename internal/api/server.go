@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/jackby03/waffynx/internal/firewall"
 	"github.com/jackby03/waffynx/internal/logging"
 	"github.com/jackby03/waffynx/internal/marketplace"
+	"github.com/jackby03/waffynx/internal/sites"
 )
 
 // Server represents the Waffynx Management API (Control Plane).
@@ -37,6 +39,10 @@ type Server struct {
 	// in container mode, where kernel filtering is unavailable.
 	wafRules ruleInjector
 	uiDir    string
+
+	// siteApplier renders the reverse-proxy topology and makes it live. Injected so
+	// the HTTP layer can be tested without nginx.
+	siteApplier *sites.Applier
 }
 
 // NewServer initializes the management API server with verified security configurations.
@@ -90,6 +96,23 @@ func NewServer(cfg *config.Config, configPath string, uiDir string) (*Server, er
 			timeout = 2 * time.Second
 		}
 		srv.wafRules = newSidecarClient(cfg.Sidecar.SocketPath, timeout)
+	}
+
+	// Site changes are applied by running `nginx -t` and signalling the master
+	// through its pid file: the API does not own the nginx process, so it cannot
+	// signal a child handle like the engine does.
+	if cfg.Nginx.ConfigPath != "" {
+		srv.siteApplier = &sites.Applier{
+			Dir: filepath.Join(cfg.Nginx.ConfigPath, "sites"),
+			Validator: sites.NginxValidator{
+				BinaryPath: cfg.Nginx.BinaryPath,
+				ConfigPath: cfg.Nginx.ConfigPath,
+			},
+			Reloader: sites.NginxReloader{
+				BinaryPath: cfg.Nginx.BinaryPath,
+				ConfigPath: cfg.Nginx.ConfigPath,
+			},
+		}
 	}
 
 	srv.seedMarketplace()

@@ -285,3 +285,18 @@ func TestApplyIsSerialised(t *testing.T) {
 		t.Errorf("expected the last apply to win with 1 fragment, got %d: %v", len(onDisk), onDisk)
 	}
 }
+
+// TestApplyCreatesMissingDirectory covers the API path, where nothing else creates
+// the include directory before the first site is added.
+func TestApplyCreatesMissingDirectory(t *testing.T) {
+	base := t.TempDir()
+	dir := filepath.Join(base, "nginx", "conf", "sites")
+
+	a := &Applier{Dir: dir, Validator: &fakeValidator{}, Reloader: &fakeReloader{}}
+	if _, err := a.Apply(context.Background(), map[string]string{"a.example.com.conf": "server {}\n"}); err != nil {
+		t.Fatalf("Apply should create its directory: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "a.example.com.conf")); err != nil {
+		t.Errorf("fragment not written: %v", err)
+	}
+}

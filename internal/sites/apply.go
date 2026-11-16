@@ -70,6 +70,12 @@ func (a *Applier) Apply(ctx context.Context, fragments map[string]string) (Apply
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	// The applier owns this directory, so it creates it. nginx treats an include
+	// glob that matches nothing as non-fatal, so an empty directory is valid.
+	if err := os.MkdirAll(a.Dir, 0o750); err != nil {
+		return ApplyResult{}, fmt.Errorf("sites: creating %s: %w", a.Dir, err)
+	}
+
 	previous, err := readFragments(a.Dir)
 	if err != nil {
 		return ApplyResult{}, err

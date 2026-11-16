@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -117,28 +116,6 @@ func (e *Engine) Reload() error {
 	return e.cmd.Process.Signal(syscall.SIGHUP)
 }
 
-// nginxValidator runs `nginx -t` against the live configuration directory before
-// anything is reloaded. The directory argument is ignored: nginx always validates
-// the include path baked into its own nginx.conf, so passing another path would
-// give a false sense of safety.
-type nginxValidator struct {
-	binaryPath string
-	configPath string
-}
-
-func (v nginxValidator) ValidateConfig(ctx context.Context, _ string) error {
-	cmd := exec.CommandContext(ctx, v.binaryPath, "-t", "-c", filepath.Join(v.configPath, "nginx.conf"))
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		msg := strings.TrimSpace(string(out))
-		if msg == "" {
-			msg = "no output"
-		}
-		return fmt.Errorf("nginx -t: %s: %w", msg, err)
-	}
-	return nil
-}
-
 // engineReloader adapts Engine.Reload to the sites.Reloader interface.
 type engineReloader struct {
 	e *Engine
@@ -167,9 +144,9 @@ func (e *Engine) ApplySites(ctx context.Context, fragments map[string]string) (s
 	if applier == nil {
 		applier = &sites.Applier{
 			Dir: dir,
-			Validator: nginxValidator{
-				binaryPath: e.cfg.Nginx.BinaryPath,
-				configPath: e.cfg.Nginx.ConfigPath,
+			Validator: sites.NginxValidator{
+				BinaryPath: e.cfg.Nginx.BinaryPath,
+				ConfigPath: e.cfg.Nginx.ConfigPath,
 			},
 			Reloader: engineReloader{e: e},
 		}
