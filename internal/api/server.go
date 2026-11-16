@@ -93,7 +93,9 @@ func NewServer(cfg *config.Config, configPath string, uiDir string) (*Server, er
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
-	return s.auditMiddleware(s.loggingMiddleware(mux))
+	// CORS is installed once, around the mux, so every /api/v1/ route gets
+	// preflight handling without a per-route OPTIONS mapping.
+	return s.auditMiddleware(s.loggingMiddleware(s.corsMiddleware(mux)))
 }
 
 // Run boots the HTTP management API server and orchestrates graceful shutdown and SIGHUP hot reload.
