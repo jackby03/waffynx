@@ -374,7 +374,8 @@ func TestRuleEngine_ConcurrentAccess(t *testing.T) {
 
 			for j := 0; j < iterations; j++ {
 				engine.Evaluate(ctx, PhaseRequest, req)
-				if j%3 == 0 {
+				switch j % 3 {
+				case 0:
 					engine.AddRule(Rule{
 						ID:      ruleID,
 						Phase:   PhaseRequest,
@@ -382,7 +383,7 @@ func TestRuleEngine_ConcurrentAccess(t *testing.T) {
 						Match:   func(ctx context.Context, req *Request) bool { return req.Path == "/test" },
 						Action:  ActionBlock,
 					})
-				} else if j%3 == 1 {
+				case 1:
 					engine.RemoveRule(ruleID)
 				}
 			}

@@ -19,7 +19,6 @@ type Manager struct {
 	mu           sync.RWMutex
 	certificates map[string]*tls.Certificate
 	clientCAs    *x509.CertPool
-	config       *tls.Config
 	autoCert     bool
 	acmeManager  *autocert.Manager
 }

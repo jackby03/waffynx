@@ -358,9 +358,10 @@ func parseUFWRules(output string) []Rule {
 		}
 
 		action := strings.ToLower(fields[1])
-		if action == "allow" {
+		switch action {
+		case "allow":
 			rule.Action = "accept"
-		} else if action == "deny" || action == "reject" {
+		case "deny", "reject":
 			rule.Action = action
 		}
 

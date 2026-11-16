@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -92,7 +93,14 @@ func run(socketPath, logLevel string) error {
 		handleEvaluate(w, r, scorer)
 	})
 
-	server := &http.Server{Handler: mux}
+	// ReadHeaderTimeout bounds how long a client may take to send request
+	// headers, mitigating Slowloris-style resource exhaustion (gosec G112).
+	// WriteTimeout is deliberately unset: this connection is a Unix socket and
+	// the API serves no long-lived streams.
+	server := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 
 	go func() {
 		logging.Info().Str("socket", socketPath).Msg("appsec-bridge listening")
