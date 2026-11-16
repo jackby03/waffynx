@@ -1,61 +1,65 @@
-feat(sites): transactional apply with rollback, and sites: in the config
+feat(api): sites CRUD that actually applies, with atomic persistence
 
-Fases 2 y 3 de SPEC-003.
+Fase 4 de SPEC-003, mas la tarea 3.2 (persistencia atomica) que vivia aqui.
 
-Fase 2 - apply.go:
+Endpoints:
 
-El orden es write -> validate -> reload, con rollback en cualquier fallo. Un
-proxy con una configuracion que no paso nginx -t es peor que un apply
-fallido.
+  GET    /api/v1/sites            autenticado
+  GET    /api/v1/sites/{host}     autenticado
+  POST   /api/v1/sites            requireAdmin
+  PUT    /api/v1/sites/{host}     requireAdmin
+  DELETE /api/v1/sites/{host}     requireAdmin
 
-- Applier escribe los fragmentos con fichero temporal + rename por fichero,
-  asi nginx nunca lee uno a medias, y a 0600.
-- Valida DESPUES de escribir, no antes: 'nginx -t' tiene que leer el
-  directorio de include real, si no valida otra cosa. Hay test que comprueba
-  que el validador ve los ficheros ya en disco.
-- Si la validacion falla: restaura el estado anterior byte a byte y NO
-  recarga. El proxy se queda con lo que ya tenia.
-- Si la recarga falla: restaura y reintenta la recarga, porque nginx puede
-  haber cargado parcialmente. El error del rollback nunca se traga: se anexa
-  al principal con %w.
-- Un fichero cuyo contenido no cambia no se reescribe, para que un apply sea
-  un no-op real y no genere ruido.
-- Los fragmentos que ya no corresponden se borran.
-- Mutex: los applies se serializan, un reload no puede dispararse a mitad de
-  escritura de otro.
-- Los nombres de fragmento se validan (sin separadores, sin .., con .conf):
-  es defensa en profundidad, aunque Validate ya los genera seguros.
+Leer la topologia lo puede hacer cualquier usuario autenticado; cambiarla
+reconfigura lo que el proxy sirve, asi que exige admin.
 
-Fase 2.3 - Engine.ApplySites: validador real que ejecuta 'nginx -t -c
-<config_path>/nginx.conf' y adaptador al Reload() existente. El validador
-ignora el directorio que le pasa el Applier a proposito: nginx valida el
-include horneado en su propio nginx.conf, y apuntarlo a otro sitio daria una
-falsa sensacion de seguridad. Rechaza configurar sin nginx.config_path en
-lugar de crear un directorio relativo por accidente.
+El orden de commitSites es el contrato: se aplica al proxy y solo despues se
+persiste. Una topologia que nginx rechaza no puede llegar al disco, porque un
+reinicio la resucitaria. Y si la escritura falla despues de aplicar, se
+re-aplica la topologia anterior para que runtime y disco coincidan.
 
-Fase 3.1 - sites: en la configuracion:
+mergeSitesIntoConfig reescribe solo la clave sites: del documento, asi que
+las demas claves sobreviven aunque el operador edite el YAML a mano. El
+resultado se valida con config.Parse, la misma implementacion que usa el
+loader: si parsea, es seguro renderizarlo.
 
-- config.Config gana Sites []sites.Site, distinto de Routes (que sigue
-  siendo del gateway congelado).
-- config.Parse valida con sites.ValidateSet: una sola implementacion de las
-  reglas para el loader, el API y el renderer. Un host con ';' se rechaza al
-  cargar el fichero, no al renderizar.
-- internal/sites no importa nada interno, asi que config -> sites no crea
-  ciclo.
+writeFileAtomic usa fichero temporal + rename y 0600 desde la creacion, porque
+el config lleva el secreto JWT.
 
-configs/waffynx.yaml documenta sites: comentado y con el motivo: el render y
-el apply aun no estan cableados al arranque, y anadir un sitio ahi hoy
-validaria pero no protegeria nada. Es justo la promesa falsa que este
-proyecto intenta evitar.
+Decision de arquitectura: el API no es dueno del proceso nginx, asi que no
+puede senalizar un hijo como hace el Engine. Usa `nginx -s reload`, que senala
+al master por su pid file. Por eso NginxValidator y NginxReloader se mueven de
+internal/engine a internal/sites: una sola implementacion de "hablar con
+nginx", reutilizada por el motor y por el API. El Engine conserva su propio
+reloader porque el si posee el proceso.
 
-Tests: 8 del Applier (exito, rollback por validacion, rollback por reload,
-borrado de huerfanos, no-op cuando nada cambia, nombres que escapan, wiring,
-serializacion), 4 de config (parseo, inyeccion, duplicados, puerto), y 3
-Linux-only del Engine con un nginx falso y 'nginx -t' real via script. Los
-Linux-only se typechequean con GOOS=linux go vet.
+Tambien: Applier ahora crea su directorio. Antes solo lo creaba el Engine, y
+el camino del API fallaba con "cannot find the path" en el primer apply. El
+directorio es del Applier por definicion.
 
-Cobertura: internal/sites 90.1% (baja de 94.5 por el codigo nuevo), config
-100%, engine 81.2%, total 44.4% -> 45.3%.
+Config: nginx.http_listen y nginx.tls_listen (:8080 / :8443) porque el
+renderer necesita los listeners y antes vivian solo dentro de nginx.conf.
 
-Las tareas 2.1, 2.2, 2.3 y 3.1 quedan hechas. La 3.2 (persistencia atomica
-del YAML desde el API) va con la fase 4, porque vive en handlers_sites.go.
+Tests (11 de API, con validador y reloader falsos para no depender de nginx):
+
+- crear aplica Y persiste: fragmento escrito y validado, un reload, config
+  con sites:, claves ajenas intactas, y visible por GET.
+- crear rechaza host con inyeccion, upstream sin puerto, host vacio y TLS sin
+  key: 400 y el fichero no se toca.
+- duplicado: 409.
+- nginx rechaza: 500 con el mensaje de nginx, config intacta, sin reload y sin
+  fragmentos huerfanos. Es el fail-closed del spec.
+- update reemplaza el upstream en el fragmento; renombrar por body da 400
+  porque la URL mentiria.
+- delete quita fragmento y clave del config; segundo delete da 404.
+- RBAC: viewer lista pero no crea ni borra; sin token, 401.
+- orden estable en el listado.
+
+Mas tests de nginx.go: configuracion incompleta, ejecucion real de nginx -t
+con un script falso, stderr de nginx propagado, y reload correcto y fallido
+(estos con build tag !windows, typechequeados con GOOS=linux go vet).
+
+Cobertura: api 58.8%, sites pendiente de confirmar en Linux (los tests de
+nginx.go solo corren alli), engine 81.2%, total 46.5%.
+
+Sigue sin validarse contra nginx compilado con el modulo: eso es la tarea 7.1.

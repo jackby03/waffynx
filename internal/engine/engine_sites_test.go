@@ -69,7 +69,7 @@ func engineWithSites(t *testing.T) (*Engine, *fakeReloader, string) {
 	reloader := &fakeReloader{}
 	e.siteApplier = &sites.Applier{
 		Dir:       filepath.Join(dir, "sites"),
-		Validator: nginxValidator{binaryPath: binary, configPath: dir},
+		Validator: sites.NginxValidator{BinaryPath: binary, ConfigPath: dir},
 		Reloader:  reloader,
 	}
 	return e, reloader, filepath.Join(dir, "sites")
@@ -82,7 +82,7 @@ func TestNginxValidatorSurfacesTheErrorMessage(t *testing.T) {
 		t.Fatalf("writing nginx.conf: %v", err)
 	}
 
-	v := nginxValidator{binaryPath: binary, configPath: dir}
+	v := sites.NginxValidator{BinaryPath: binary, ConfigPath: dir}
 	if err := v.ValidateConfig(context.Background(), dir); err != nil {
 		t.Fatalf("expected a clean config to validate, got: %v", err)
 	}

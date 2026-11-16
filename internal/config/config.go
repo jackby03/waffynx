@@ -45,8 +45,13 @@ type LoggingConfig struct {
 }
 
 type NginxConfig struct {
-	BinaryPath        string `yaml:"binary_path"`
-	ConfigPath        string `yaml:"config_path"`
+	BinaryPath string `yaml:"binary_path"`
+	ConfigPath string `yaml:"config_path"`
+	// HTTPListen and TLSListen are the listeners the renderer writes into each
+	// generated server block. They live here so the topology has a single source
+	// of truth instead of being duplicated in nginx.conf.
+	HTTPListen        string `yaml:"http_listen"`
+	TLSListen         string `yaml:"tls_listen"`
 	WorkerProcesses   int    `yaml:"worker_processes"`
 	WorkerConnections int    `yaml:"worker_connections"`
 	EnableHTTP2       bool   `yaml:"enable_http2"`
@@ -168,6 +173,8 @@ func defaultConfig() *Config {
 		Nginx: NginxConfig{
 			BinaryPath:        "/opt/waffynx/nginx/sbin/nginx",
 			ConfigPath:        "/opt/waffynx/nginx/conf",
+			HTTPListen:        ":8080",
+			TLSListen:         ":8443",
 			WorkerProcesses:   0,
 			WorkerConnections: 65535,
 			EnableHTTP2:       true,
