@@ -1,12 +1,19 @@
 <div align="center">
   <h1>🛡️ Waffynx</h1>
-  <p><b>Next-generation Web Application Firewall</b></p>
-  <p>Native Nginx integration • High-performance Go sidecar • ML Anomaly Detection</p>
+  <p><b>The self-hosted Web Application Firewall that runs as one container</b></p>
+  <p>Native Nginx integration • High-performance Go sidecar • Pluggable AI • No feature gating</p>
 </div>
 
 <br/>
 
-Waffynx is a modern Web Application Firewall (WAF) designed for zero-latency overhead and advanced threat protection. It seamlessly integrates directly into Nginx via a custom C module and evaluates requests through a high-performance Go sidecar utilizing rule-based policies and Machine Learning anomaly scoring.
+Waffynx is a self-hosted Web Application Firewall and reverse proxy. It is meant to be
+Cloudflare-WAF-grade protection on hardware you control: one container, no host
+privileges, and every capability available to everyone — there is no license check,
+no feature tier and no telemetry.
+
+Requests are inspected by a native Nginx C module that hands evaluation to a
+high-performance Go sidecar over a `0600` Unix socket: plugins, a policy engine and
+an ML scorer, in that order.
 
 ---
 
@@ -21,8 +28,9 @@ Waffynx is a modern Web Application Firewall (WAF) designed for zero-latency ove
   * `rate-limit`: Distributed token bucket (Redis-backed).
   * `geo-block`: MaxMind IP intelligence.
 * **C++ Machine Learning Bridge**: Swappable ML engine (integrates with open-appsec) for behavioral entropy analysis and pattern detection.
-* **Enterprise Management**: REST API with JWT authentication, a single-page Dashboard UI, and Prometheus metrics out of the box.
-* **Host Firewall Agent**: Automated IP blocking via nftables/UFW integration.
+* **Management Plane**: REST API with JWT/OIDC authentication and RBAC, a single-page control-room UI, and Prometheus metrics out of the box.
+* **Privilege-free IP blocking**: bans are enforced at the WAF layer, so they work in a container with no `NET_ADMIN`. Kernel-level `nftables`/`ufw` drops are an *optional* system-mode enhancement (`waf-agent`).
+* **`waffynx verify`**: a functional self-test that drives benign and malicious requests through the real inspection pipeline and reports what was blocked and why.
 
 ## 🏗️ Architecture
 
@@ -47,63 +55,94 @@ flowchart LR
 
 ## ⚡ Quick Start
 
-> **Note**: Waffynx requires a Linux environment (Debian/Ubuntu) or WSL.
+> Waffynx targets **Linux**. The container path requires no host privileges; the
+> host-firewall agent is system mode only.
 
-### 1. Prerequisites
-Ensure you have the required build tools and Go installed:
-```bash
-sudo apt-get update && sudo apt-get install -y build-essential libpcre2-dev libssl-dev zlib1g-dev
-```
+### Container (recommended, no host privileges)
 
-### 2. Clone & Build
 ```bash
 git clone --recurse-submodules https://github.com/jackby03/waffynx.git
 cd waffynx
 
-# Build the custom Nginx proxy
-make nginx-checkout
-make nginx-configure
-make nginx-build
+docker build -f deploy/docker/Dockerfile -t waffynx .
 
-# Build the Go components (CLI, Agent, API, Bridge)
-make build
-make bridge-build
+# The management API refuses to start with the placeholder JWT secret, so
+# generate a real one in a config you mount:
+cp configs/waffynx.yaml waffynx.local.yaml
+sed -i "s/change-me-in-production/$(openssl rand -hex 32)/" waffynx.local.yaml
+
+docker run --rm -p 8080:8080 -p 8443:8443 -p 9090:9090 \
+  -v "$PWD/waffynx.local.yaml:/opt/waffynx/config/waffynx.yaml:ro" \
+  waffynx
 ```
 
-### 3. Run Locally (Development)
-You can utilize our Vagrant environment for a complete out-of-the-box sandbox:
+A published multi-arch image and a one-command bootstrap (no file editing at all)
+are Phase 0 work in progress — see [docs/ROADMAP.md](docs/ROADMAP.md).
+
+### Verify that it actually protects
+
 ```bash
-make vagrant-up
-make vagrant-ssh
-
-# Inside the VM, Waffynx is automatically provisioned and running:
-curl http://localhost:8080/                              # 200 OK (Allowed)
-curl "http://localhost:8080/?q=UNION+SELECT+1,2,3"       # 403 Forbidden (Blocked)
+waffynx verify -c waffynx.local.yaml
 ```
 
-## 🗺️ Enterprise Roadmap
+Runs benign and malicious requests through the real inspection pipeline and exits
+non-zero on any mismatch. No proxy, upstream or network needed.
 
-For the detailed, exhaustive architectural specification of every module, refer to the master [**Enterprise Roadmap Document (docs/ROADMAP.md)**](docs/ROADMAP.md).
+```
+       CASE                         WANT   GOT    DETAIL
+  ok   benign: prose query          allow  allow
+  ok   sqli: comment terminator     block  block  waf pattern: '--
+  ok   xss: script tag              block  block  waf pattern: <script
+  skip scanner: sqlmap              block  allow  bot-protection mode=log
 
-### ✅ Production Foundations (P0 - Implemented & Working):
-- **Native Nginx Ingress C Module & Sidecar IPC:** Zero-copy Unix Domain Socket (`0600`) inspection pipeline.
-- **Core L7 Policy Engine:** Deterministic rule evaluation (SQLi, XSS, Path Traversal, Bot scanners).
-- **L3/L4 Kernel Blocking Agent:** Automated `nftables` / `ufw` drop synchronization (`waf-agent`).
-- **Distributed Rate Limiting:** High-performance in-memory and Redis-backed sliding window throttler.
-- **ML Anomaly Scoring Bridge:** Standalone daemon integration with `open-appsec`.
-- **Cyber-Ops SOC Control Room:** React 19 single-page application with mock dev environment and real-time SSE telemetry.
-- **Strict Cryptographic Invariants:** Constant-time token comparison, fail-closed enforcement, zero unauthorized dependencies.
+  20 passed, 0 failed, 1 skipped (of 21)
+```
 
-### 🚀 Upcoming Feature Pillars:
-1. **Traffic Director & Reverse Proxy (Phase 1):** Virtual Servers, Upstream Pools, Passive/Active Health Checks, Custom Error Pages (`404`, `403`, `500`), Server Cloaking and Stack Trace Stripping.
-2. **L7 WAF / ASM & Bot Defense (Phase 2):** Positive Security Model (white-lists), OpenAPI/Swagger schema validation, Anti-CSRF tokens, JS cryptographic challenges, CAPTCHA, and Client Fingerprinting (JA3/JA4).
-3. **Network & Transport Filtering - L3/L4 AFM (Phase 3):** Stateful packet inspection (SPI), hardware SYN Cookies, volumetric flood mitigation (UDP/ICMP/Smurf), and Route Domains.
-4. **SSL / TLS Cryptography & Orchestration (Phase 4):** SSL Offload / Bridging / Passthrough, mTLS with client certificates, CRL/OCSP stapling, and SNI dynamic routing.
-5. **Threat Intelligence & Reputation (Phase 5):** Automated Tor Exit Node & Anonymous Proxy blocking, GeoIP/ASN filtering (MaxMind), and dynamic IOC feed synchronization.
-6. **DNS Protocol Security - GTM / DNS Firewall (Phase 6):** Response Rate Limiting (RRL), DNS Cache Poisoning (Kaminsky) mitigation, DNSSEC validation, and DNS tunneling exfiltration detection.
-7. **Access & Identity Management - APM (Phase 7):** Pre-authentication perimeter proxy, SAML 2.0 & OIDC IdP/SP federation, and contextual dynamic RBAC.
-8. **Real-Time Rules Engine - iRules / WafRules (Phase 8):** Dynamic scripting engine for L4/L7 connection events, on-the-fly header rewrite, and payload modification.
-9. **High-Speed Logging & Distributed Telemetry (Phase 9):** High-speed asynchronous Syslog/HSL to SIEMs (Splunk, Elastic, Sentinel) and distributed session state sharing.
+### From source (system mode / host agent)
+
+```bash
+sudo apt-get update && sudo apt-get install -y build-essential libpcre2-dev libssl-dev zlib1g-dev
+
+make nginx-checkout && make nginx-configure && make nginx-build
+make build && make bridge-build
+```
+
+For a full sandbox, `make vagrant-up && make vagrant-ssh` provisions a Linux VM
+with Waffynx running:
+
+```bash
+curl http://localhost:8080/                          # 200 OK (allowed)
+curl "http://localhost:8080/?q=UNION+SELECT+1,2,3"   # 403 Forbidden (blocked)
+```
+
+## 🗺️ Roadmap
+
+Product scope, phases and the Cloudflare-WAF parity matrix live in
+[**docs/ROADMAP.md**](docs/ROADMAP.md). NGFW, VPN, SD-WAN, DLP and forward-proxy
+work is explicitly out of scope and parked in [docs/FUTURE.md](docs/FUTURE.md).
+
+### ✅ Working today
+
+* **Native Nginx ingress C module + Go sidecar** over a `0600` Unix socket.
+* **L7 policy engine**: SQLi, XSS, path traversal, command injection, scanner signatures.
+* **WAF-layer IP blocking** with no privileges, plus optional kernel drop in system mode.
+* **Rate limiting**, in-memory and Redis-backed.
+* **ML anomaly scoring**, bundled (pure Go) or through the open-appsec bridge.
+* **Management API** (JWT/OIDC, RBAC) and the React control room.
+* **`waffynx verify`** functional self-test.
+
+### 🚧 Phase 0 — in progress
+
+* Site management (domain → upstream → TLS) from the API and CLI.
+* Bootstrap from environment variables, so `docker run` needs no file editing.
+* Published multi-arch image.
+
+### 📅 Next
+
+* **Phase 1**: rule expression language, managed rule catalog, IP/geo/ASN lists, staged mode, security events.
+* **Phase 2**: bot defense, API schema validation, SIEM export.
+* **Phase 3**: pluggable external AI (Anthropic, OpenAI, Gemini, Vertex, local) with per-provider privacy controls — the differentiator, deliberately last.
+* **GUI work comes after the CLI and API settle.**
 
 ## 📖 Documentation
 
@@ -112,4 +151,9 @@ For the detailed, exhaustive architectural specification of every module, refer 
 
 ## 📄 License
 
-This project is licensed under the MIT License.
+**Not yet chosen.** No `LICENSE` file exists in this repository, so no rights are
+granted beyond what GitHub's terms allow. The licence is deliberately pending a
+market study; a public commitment will land with the `LICENSE` file.
+
+This README previously declared MIT without shipping the file, which is a claim the
+repository could not back. Tracked in [docs/ROADMAP.md](docs/ROADMAP.md) §7 (gap 5).
