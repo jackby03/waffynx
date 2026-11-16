@@ -33,7 +33,10 @@ type Server struct {
 	firewallMu sync.RWMutex
 	bannedIPs  map[string]BannedIP
 	firewall   *firewall.Manager
-	uiDir      string
+	// wafRules enforces bans at the WAF layer. This is the only path that works
+	// in container mode, where kernel filtering is unavailable.
+	wafRules ruleInjector
+	uiDir    string
 }
 
 // NewServer initializes the management API server with verified security configurations.
@@ -76,6 +79,17 @@ func NewServer(cfg *config.Config, configPath string, uiDir string) (*Server, er
 		bannedIPs:  make(map[string]BannedIP),
 		firewall:   fwMgr,
 		uiDir:      uiDir,
+	}
+
+	// Bans are enforced through the sidecar, which evaluates custom rules on
+	// every request. Without it, a ban can only fall back to the host firewall,
+	// which does not exist in container deployments.
+	if cfg.Sidecar.SocketPath != "" {
+		timeout := time.Duration(cfg.Sidecar.TimeoutMs) * time.Millisecond
+		if timeout <= 0 {
+			timeout = 2 * time.Second
+		}
+		srv.wafRules = newSidecarClient(cfg.Sidecar.SocketPath, timeout)
 	}
 
 	srv.seedMarketplace()

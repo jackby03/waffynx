@@ -63,8 +63,7 @@ WAF scope only. "Today" reflects the code, not intentions.
 | IP / CIDR / country / ASN lists | Yes | ⚠️ geo plugin + config blocklist; no list CRUD, no ASN | 1 |
 | Security events / WAF analytics | Yes | ⚠️ forensics UI, audit ring, SSE — no query/aggregation | 1 |
 | Exposed / leaked credentials check | Yes | ❌ | 1 |
-| **Site / Proxy Host management** (the core UX) | via zone setup | ❌ **not possible without editing YAML** | **0** |
-| Bot management (bot score, verified bots) | Yes | ⚠️ heuristics only (`plugins/bot-protection`) | 2 |
+| **Site / Proxy Host management** (the core UX) | via zone setup | ❌ **not possible without editing YAML** | **0** || Bot management (bot score, verified bots) | Yes | ⚠️ heuristics only (`plugins/bot-protection`) | 2 |
 | JS challenge / managed challenge | Yes | ❌ | 2 |
 | API Shield (OpenAPI/JSON-schema validation) | Yes | ❌ (GraphQL parsing only) | 2 |
 | Logpush / SIEM export | Yes | ⚠️ events publisher + audit file; no push to SIEM | 2 |
@@ -89,10 +88,13 @@ Sequenced by "what makes it a product" — not by "what is interesting to build"
 
 ### Phase 0 — The product exists *(current)*
 
-- **Sites / Proxy Hosts CRUD** (API + UI): domain, upstream, TLS, which policies apply. Without this the only way to protect a site is editing a 136-line YAML.
-- **Bootstrap from environment variables + first-run wizard**: admin password, listen ports, default upstream. No file editing before first boot.
+**Surfaces are built CLI/API-first. The GUI comes last**, once the behaviour is settled and driven by terminal workflows — building screens against behaviour that still moves is wasted work.
+
+- **Site management from the CLI and API**: add/list/remove a protected site (domain, upstream, TLS, which policies apply). Without it the only way to protect a site is editing a 136-line YAML.
+- **Ban / allow IPs from the CLI and API**, enforced at the WAF layer so it works with no privileges (done — see §7, gap 1).
+- **Bootstrap from environment variables**: admin password, listen ports, default upstream. No file editing before first boot.
 - **Publish the image** (GHCR, multi-arch) and a one-command compose with automatic TLS. `deploy/helm/values.yaml` already points at `ghcr.io/jackby03/waffynx`; nothing publishes it.
-- **Fix the container-mode IP block** (§7 gap 1).
+- **GUI last**: the control-room UI catches up once the CLI and API stabilise.
 
 ### Phase 1 — Parity basics
 
@@ -142,8 +144,8 @@ Sequenced by "what makes it a product" — not by "what is interesting to build"
 
 Ordered by severity. All verified in the code, not assumed.
 
-1. **IP blocking silently reports success in container mode.** `internal/api/handlers_firewall.go` calls `_ = s.firewall.BlockIP(req.IP)` — the error is discarded — and `s.firewall` is the host `nftables`/`ufw` manager. In a container it either fails or only touches the container's own netns, and the API returns `201 Created` with a ban record either way. That is a fail-open "protected" claim, which violates Constitution §1.1. Needs a WAF-layer deny that works with no privileges.
-2. **No site/Proxy Host CRUD.** Topology lives only in YAML (`routes:`).
+1. **IP blocking now works at the WAF layer (fixed).** The handler used to call `_ = s.firewall.BlockIP(req.IP)`: the error was discarded and `s.firewall` is the host `nftables`/`ufw` manager, so in a container the API answered `201 Created` while nothing was enforced. Bans are now injected as a custom rule in the sidecar (the only enforcement point that needs no privileges) and the kernel drop is an optional enhancement. If neither layer can enforce, the API returns `503` instead of claiming success.
+2. **No site/Proxy Host management.** Topology lives only in YAML (`routes:`).
 3. **No environment-variable bootstrap.** The only env var read is `WAFFYNX_UI_DIR`; everything else is a 136-line YAML copied into the image.
 4. **The image is never published.** No workflow builds or pushes it, so `docker pull` is impossible and the Helm chart references a registry path that does not exist.
 5. **No `LICENSE` file.** The product is described as the open-source alternative to Cloudflare WAF, but the repository grants no license. This also blocks adoption and any managed-ruleset contribution. Needs a deliberate choice (e.g. Apache-2.0 for adoption vs AGPL-3.0 to deter closed SaaS resale).
