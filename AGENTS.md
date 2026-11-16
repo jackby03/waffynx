@@ -80,7 +80,7 @@ When implementing capabilities from [`docs/ROADMAP.md`](docs/ROADMAP.md), agents
 * **Run specific test:** `go test -v ./internal/policy -run TestPolicyEvaluate`
 * **Run fuzz tests:** `go test -fuzz=FuzzPolicyEvaluate -fuzztime=10s ./internal/policy` (see also `FuzzParseRequest` in `internal/parsers`)
 * **Lint / Static analysis:** `GOOS=linux golangci-lint run ./...` (also runs the `gofmt -s` formatter)
-* **Format check:** `gofmt -s -l .` (on Windows set `git config core.autocrlf input`, otherwise CRLF in the worktree makes this flag every file)
+* **Format check:** `gofmt -s -l .` (`.gitattributes` pins `eol=lf`, so the working tree stays LF regardless of a contributor's `core.autocrlf`)
 * **Compile C++ bridge (Linux):** `make bridge-build` (outputs `bin/libwaffynx_bridge.so`)
 * **Vagrant VM test cycle (Windows dev):** `make vagrant-test` (executes end-to-end integration test inside the Linux VM)
 
@@ -96,6 +96,7 @@ When implementing capabilities from [`docs/ROADMAP.md`](docs/ROADMAP.md), agents
 | `.jules/sentinel.md` | Governance | Security audit log of logged vulnerabilities; every entry requires a retained regression test (Constitution §3.2). |
 | `docs/` | Architecture | Master roadmap (`ROADMAP.md`) and Architecture Decision Records (`adr/`). |
 | `.golangci.yml` | Governance | Linter configuration enforcing Constitution §3.3 (standard + security/performance linters, `gofmt -s` formatter). |
+| `.gitattributes` | Governance | Pins `eol=lf` so the working tree satisfies Constitution §2.1 independently of `core.autocrlf`. |
 | `cmd/waffynx/` | Data Plane | Main engine CLI entrypoint (sidecar socket listener & proxy bootstrap). |
 | `cmd/waf-agent/` | Host Agent | Host firewall daemon (nftables/UFW synchronization). |
 | `cmd/waf-api/` | Control Plane | Management REST API CLI bootstrap (<60 lines). |
