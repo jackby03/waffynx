@@ -27,59 +27,43 @@ reverse proxy. Se documenta la distinción para que nadie las confunda.
 
 ---
 
-## Open decisions — need your call before implementation
+## Resolved decisions
 
-### 1. Generación del secreto JWT (bloqueante)
+All five were settled on 2026-11-16. The chosen option is in bold.
 
-Si `WAFFYNX_JWT_SECRET` no está definido, hay dos caminos:
+### 1. JWT secret generation — **generate and persist**
 
-- **(a) Generar y persistir** en `$DATA/jwt.secret` con `0600`, reutilizándolo en
-  reinicios. Es lo que hacen NPM y compañía: `docker run` funciona de verdad.
-- **(b) Exigirlo y abortar** si falta. Máximo rigor (§1.1 fail-closed), pero
-  rompe el objetivo «un comando» y obliga a un `-e` extra.
+If `WAFFYNX_JWT_SECRET` is unset, generate 32 random bytes and persist them to
+`$DATA/jwt.secret` with `0600`, reusing them across restarts.
 
-**Propuesta: (a)**, porque (b) ya es el comportamiento actual del código y es
-justo lo que impide el `docker run` sin ficheros. El riesgo de (a) —que alguien
-pierda el volumen y rote el secreto sin saberlo— se mitiga logueando en `WARN`
-que se generó y dónde.
+Requiring the variable instead would keep the current behaviour, which is exactly
+what blocks `docker run` without mounted files. The risk of losing the volume and
+silently rotating the secret is mitigated by logging at `WARN` that it was
+generated and where it lives.
 
-### 2. ¿El renderer reescribe `nginx.conf` o solo `sites/*.conf`?
+### 2. Renderer scope — **fragments only**
 
-- **(a) Solo fragmentos** en `conf/sites/*.conf`, con `nginx.conf` como plantilla
-  estática que los incluye. Cambios pequeños, menos riesgo de romper el bloque
-  `http {}`.
-- **(b) Regenerar `nginx.conf` completo** desde cero en cada apply. Control total,
-  pero cualquier directiva que añadas a mano se pierde silenciosamente.
+The renderer writes `conf/sites/*.conf`; `nginx.conf` stays a template that
+`include`s them. Regenerating the whole file would let a `site add` silently eat
+any directive an operator added by hand.
 
-**Propuesta: (a).** Menos superficie de rotura y el operador conserva la
-posibilidad de ajustar `nginx.conf` a mano sin que el siguiente `site add` se lo
-coma.
+### 3. TLS scope — **certificate paths only, no ACME**
 
-### 3. Alcance de TLS en esta iteración
+This spec accepts `cert_file` / `key_file`. Automatic issuance needs port 80,
+renewal scheduling and persisted ACME state; that is its own spec. `--tls-auto`
+does not exist yet and the README does not promise it.
 
-Este spec acepta **rutas a certificados existentes**. La emisión automática
-(ACME/Let's Encrypt) queda fuera y necesita su propio spec, porque implica
-exponer el puerto 80, gestionar renovaciones y persistir estado de ACME.
+### 4. CLI transport — **API is the single write path**
 
-**Propuesta:** confirmarlo así. Sin esto, `--tls-auto` no existe todavía y el
-README debe decirlo (hoy ya no lo promete).
+When the CLI lands it talks to the management API. Bootstrap is covered by
+environment variables, so there is no need for an offline file-writing mode.
 
-### 4. ¿`waffynx site` habla con el API o escribe el fichero?
+### 5. Shorthand syntax (`waffynx -rp -h … -d … -https`) — **deferred**
 
-- **(a) API** (propuesto): un único camino de escritura, funciona contra un
-  contenedor remoto, valida en caliente. Requiere token.
-- **(b) Fichero** directo: sin auth, útil para IaC, pero no vale contra un
-  contenedor remoto ni para el caso de uso principal.
-
-**Propuesta: (a).** Para bootstrap existe el camino de variables de entorno, así
-que no hace falta un modo offline.
-
-### 5. Sintaxis taquigráfica (`waffynx -rp -h sitio.com -d 127.0.10.4 -https`)
-
-La que imaginabas. **Propuesta: no implementarla en este spec.** Los subcomandos
-con nombre son autodocumentados y componibles; la forma corta se puede añadir
-después como azúcar sobre `site add` sin tocar nada más. Si la prefieres como
-interfaz principal, dímelo y la pongo como alias desde el principio.
+Named subcommands first. The shorthand can be added later as sugar over
+`site add` without touching anything else. **The entire CLI surface for sites is
+deferred out of this spec**: the API is enough to drive it with `curl`, and the
+syntax should be designed once the behaviour is settled.
 
 ---
 

@@ -1,6 +1,6 @@
 # Functional Specification: Site Management & Zero-File Bootstrap
 
-**Status:** Draft — awaiting review
+**Status:** Approved — 2026-11-16 (decisions recorded in [`clarifications.md`](./clarifications.md))
 **Feature ID:** `SPEC-003`
 **Author(s):** Waffynx Core Team
 **Created:** 2026-11-16
@@ -69,6 +69,9 @@ module, edit YAML, run". That is the opposite of the product thesis.
 
 ### 2.2 Out-of-Scope (Deliberately Excluded)
 
+- ⛔ **Any CLI surface for sites.** Deferred entirely (`clarifications.md`, decision 5).
+  The API is driven with `curl` until the behaviour settles; the command syntax is
+  designed afterwards.
 - ⛔ **GUI screens** for sites. Phase 0 is CLI/API-first; the control room comes
   after the behaviour settles.
 - ⛔ **Automatic certificate issuance (ACME)**. This spec accepts cert/key file
