@@ -115,7 +115,7 @@ bridge-clean:
 # ============================================================
 # Development
 # ============================================================
-.PHONY: dev proto lint test
+.PHONY: dev proto lint test cover
 
 dev:
 	@echo "Starting development environment..."
@@ -133,6 +133,12 @@ lint:
 
 test:
 	@$(GO) test -race -coverprofile=coverage.out ./...
+
+# Coverage with cross-package instrumentation, then the per-package floors.
+# `test` above does not count coverage exercised across package boundaries.
+cover:
+	@$(GO) test -race -coverpkg=./... -coverprofile=coverage.out ./...
+	@$(GO) run ./tools/covergate -profile coverage.out
 
 test-all:
 	@echo "Running all tests..."

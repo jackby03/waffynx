@@ -77,6 +77,7 @@ When implementing capabilities from [`docs/ROADMAP.md`](docs/ROADMAP.md), agents
 
 * **Build Go binaries:** `make build` (outputs `waffynx`, `waf-agent`, `waf-api`, `appsec-bridge` to `bin/`)
 * **Run all unit tests:** `go test -race ./...` (use `make test`, which covers `./...` including `cmd/`)
+* **Coverage with per-package floors:** `make cover` (equivalently `go test -race -coverpkg=./... -coverprofile=coverage.out ./...` then `go run ./tools/covergate -profile coverage.out`). Floors live in `tools/covergate/main.go` and only ratchet up.
 * **Run single test package:** `go test -v -race ./internal/<package>`
 * **Run specific test:** `go test -v ./internal/policy -run TestPolicyEvaluate`
 * **Run fuzz tests:** `go test -fuzz=FuzzPolicyEvaluate -fuzztime=10s ./internal/policy` (see also `FuzzParseRequest` in `internal/parsers`)
