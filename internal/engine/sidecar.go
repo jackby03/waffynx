@@ -136,6 +136,122 @@ func (s *Sidecar) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"status":"ok","service":"waffynx-sidecar"}`))
 }
 
+// Decision is the outcome of the inspection pipeline for a single request.
+//
+// It exists so the pipeline has exactly one implementation: handleEvaluate
+// translates it into an HTTP response, and `waffynx verify` reads it to report
+// what the engine would do. A second copy of these stages would drift.
+type Decision struct {
+	Allow  bool
+	Stage  string // plugin-chain | custom-rule | policy | appsec | ""
+	RuleID string
+	Reason string
+	// ResponseWritten is true when a plugin already wrote the response itself,
+	// in which case the caller must not write another one.
+	ResponseWritten bool
+}
+
+// Decide runs the inspection pipeline (plugins -> custom rules -> policy -> ML)
+// and reports the verdict without writing a response.
+func (s *Sidecar) Decide(w http.ResponseWriter, r *http.Request, req *policy.Request, body []byte) Decision {
+	// Plugins look at ctx.Request which is the SIDECAR request (/evaluate),
+	// not the ORIGINAL. We inject the original request data into ctx.Values
+	// so plugins can access it.
+	ctx := plugin.NewContext(context.Background(), w, r)
+	ctx.Values["wn_method"] = req.Method
+	ctx.Values["wn_uri"] = req.Path
+	ctx.Values["wn_host"] = req.Host
+	ctx.Values["wn_ip"] = req.RemoteIP
+	ctx.Values["wn_ua"] = r.Header.Get("X-WN-UA")
+	ctx.Values["wn_ct"] = r.Header.Get("X-WN-CT")
+	ctx.Values["wn_ref"] = r.Header.Get("X-WN-Ref")
+	if len(body) > 0 {
+		ctx.Values["wn_body"] = string(body)
+	}
+
+	// Stage 1a: plugin chain
+	ctx, err := s.chain.Execute(ctx, plugin.PhasePreRequest)
+	if err != nil {
+		logging.Warn().Err(err).Msg("plugin chain blocked request")
+		return Decision{
+			Stage:           "plugin-chain",
+			RuleID:          "plugin-chain",
+			Reason:          err.Error(),
+			ResponseWritten: ctx.StatusCode != 0,
+		}
+	}
+
+	// Stage 1b: custom rules (this is where an IP ban lands)
+	if s.rules != nil {
+		rulesResult := s.rules.Evaluate(req)
+		if rulesResult.Action != wrules.ActionAllow && rulesResult.Action != wrules.ActionLog {
+			logging.Warn().Str("rule_id", rulesResult.RuleID).Msg("custom rule blocked request")
+			return Decision{Stage: "custom-rule", RuleID: rulesResult.RuleID, Reason: rulesResult.Reason}
+		}
+	}
+
+	// Stage 2: policy engine
+	policyResult := s.engine.Evaluate(ctx, policy.PhaseRequest, req)
+	if policyResult.Action != policy.ActionAllow && policyResult.Action != policy.ActionLog {
+		logging.Warn().
+			Str("action", string(policyResult.Action)).
+			Str("rule_id", policyResult.RuleID).
+			Str("reason", policyResult.Reason).
+			Msg("policy blocked request")
+		return Decision{Stage: "policy", RuleID: policyResult.RuleID, Reason: policyResult.Reason}
+	}
+
+	// Stage 3: ML-based anomaly detection
+	if s.scorer != nil {
+		appsecResult, err := s.scorer.Evaluate(ctx, &appsec.Features{
+			Method:      req.Method,
+			URI:         req.Path,
+			Host:        req.Host,
+			ClientIP:    req.RemoteIP,
+			UserAgent:   r.Header.Get("X-WN-UA"),
+			ContentType: r.Header.Get("X-WN-CT"),
+			Referer:     r.Header.Get("X-WN-Ref"),
+			Body:        body,
+			URILength:   len(req.Path),
+			PayloadSize: int64(len(body)),
+			HasPayload:  len(body) > 0,
+			QueryParams: parseQueryParams(req.Path),
+		})
+		if err != nil {
+			logging.Warn().Err(err).Msg("appsec scorer error, allowing request")
+		} else {
+			logging.Debug().
+				Str("model", appsecResult.ModelName).
+				Float64("score", appsecResult.Score).
+				Float64("confidence", appsecResult.Confidence).
+				Str("verdict", string(appsecResult.Verdict)).
+				Strs("anomalies", appsecResult.Anomalies).
+				Msg("appsec evaluation")
+
+			if appsecResult.Verdict == appsec.VerdictBlock {
+				logging.Warn().
+					Float64("score", appsecResult.Score).
+					Strs("reasons", appsecResult.Reasons).
+					Msg("appsec blocked request")
+				return Decision{
+					Stage:  "appsec",
+					RuleID: "appsec-" + appsecResult.ModelName,
+					Reason: fmt.Sprintf("ML anomaly: %s", strings.Join(appsecResult.Reasons, "; ")),
+				}
+			}
+
+			if appsecResult.Verdict == appsec.VerdictSuspicious {
+				logging.Warn().
+					Float64("score", appsecResult.Score).
+					Strs("reasons", appsecResult.Reasons).
+					Msg("appsec suspicious request (allowing)")
+			}
+		}
+	}
+
+	return Decision{Allow: true}
+}
+
 func (s *Sidecar) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 	req := &policy.Request{
 		Method:   r.Header.Get("X-WN-M"),
@@ -165,104 +281,18 @@ func (s *Sidecar) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 		Int("body_len", len(bodyBytes)).
 		Msg("evaluating request")
 
-	// Plugins look at ctx.Request which is the SIDECAR request (/evaluate),
-	// not the ORIGINAL. We inject the original request data into ctx.Values
-	// so plugins can access it.
-	ctx := plugin.NewContext(context.Background(), w, r)
-	ctx.Values["wn_method"] = req.Method
-	ctx.Values["wn_uri"] = req.Path
-	ctx.Values["wn_host"] = req.Host
-	ctx.Values["wn_ip"] = req.RemoteIP
-	ctx.Values["wn_ua"] = r.Header.Get("X-WN-UA")
-	ctx.Values["wn_ct"] = r.Header.Get("X-WN-CT")
-	ctx.Values["wn_ref"] = r.Header.Get("X-WN-Ref")
-	if len(bodyBytes) > 0 {
-		ctx.Values["wn_body"] = string(bodyBytes)
-	}
-	ctx, err = s.chain.Execute(ctx, plugin.PhasePreRequest)
-	if err != nil {
-		logging.Warn().Err(err).Msg("plugin chain blocked request")
-		if ctx.StatusCode == 0 {
-			s.respondDeny(w, "plugin-chain", err.Error())
-		}
-		s.recordLearning(req, "block", "plugin-chain", err.Error(), start)
+	decision := s.Decide(w, r, req, bodyBytes)
+
+	if decision.Allow {
+		s.respondAllow(w)
+		s.recordLearning(req, "allow", "", "", start)
 		return
 	}
 
-	if s.rules != nil {
-		rulesResult := s.rules.Evaluate(req)
-		if rulesResult.Action != wrules.ActionAllow && rulesResult.Action != wrules.ActionLog {
-			logging.Warn().Str("rule_id", rulesResult.RuleID).Msg("custom rule blocked request")
-			s.respondDeny(w, rulesResult.RuleID, rulesResult.Reason)
-			s.recordLearning(req, "block", rulesResult.RuleID, rulesResult.Reason, start)
-			return
-		}
+	if !decision.ResponseWritten {
+		s.respondDeny(w, decision.RuleID, decision.Reason)
 	}
-
-	// Stage 2: Run through policy engine
-	policyResult := s.engine.Evaluate(ctx, policy.PhaseRequest, req)
-
-	if policyResult.Action != policy.ActionAllow && policyResult.Action != policy.ActionLog {
-		logging.Warn().
-			Str("action", string(policyResult.Action)).
-			Str("rule_id", policyResult.RuleID).
-			Str("reason", policyResult.Reason).
-			Msg("policy blocked request")
-		s.respondDeny(w, policyResult.RuleID, policyResult.Reason)
-		s.recordLearning(req, "block", policyResult.RuleID, policyResult.Reason, start)
-		return
-	}
-
-	// Stage 3: ML-based anomaly detection
-	if s.scorer != nil {
-		appsecResult, err := s.scorer.Evaluate(ctx, &appsec.Features{
-			Method:      req.Method,
-			URI:         req.Path,
-			Host:        req.Host,
-			ClientIP:    req.RemoteIP,
-			UserAgent:   r.Header.Get("X-WN-UA"),
-			ContentType: r.Header.Get("X-WN-CT"),
-			Referer:     r.Header.Get("X-WN-Ref"),
-			Body:        bodyBytes,
-			URILength:   len(req.Path),
-			PayloadSize: int64(len(bodyBytes)),
-			HasPayload:  len(bodyBytes) > 0,
-			QueryParams: parseQueryParams(req.Path),
-		})
-		if err != nil {
-			logging.Warn().Err(err).Msg("appsec scorer error, allowing request")
-		} else {
-			logging.Debug().
-				Str("model", appsecResult.ModelName).
-				Float64("score", appsecResult.Score).
-				Float64("confidence", appsecResult.Confidence).
-				Str("verdict", string(appsecResult.Verdict)).
-				Strs("anomalies", appsecResult.Anomalies).
-				Msg("appsec evaluation")
-
-			if appsecResult.Verdict == appsec.VerdictBlock {
-				logging.Warn().
-					Float64("score", appsecResult.Score).
-					Strs("reasons", appsecResult.Reasons).
-					Msg("appsec blocked request")
-				reason := fmt.Sprintf("ML anomaly: %s", strings.Join(appsecResult.Reasons, "; "))
-				s.respondDeny(w, "appsec-"+appsecResult.ModelName, reason)
-				s.recordLearning(req, "block", "appsec-"+appsecResult.ModelName, reason, start)
-				return
-			}
-
-			if appsecResult.Verdict == appsec.VerdictSuspicious {
-				logging.Warn().
-					Float64("score", appsecResult.Score).
-					Strs("reasons", appsecResult.Reasons).
-					Msg("appsec suspicious request (allowing)")
-			}
-		}
-	}
-
-	// All stages passed: allow
-	s.respondAllow(w)
-	s.recordLearning(req, "allow", "", "", start)
+	s.recordLearning(req, "block", decision.RuleID, decision.Reason, start)
 }
 
 // parseQueryParams extracts query parameters from a URI string.

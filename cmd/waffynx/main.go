@@ -79,7 +79,7 @@ and a plugin marketplace into a unified management platform.`,
 
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "/opt/waffynx/config/waffynx.yaml", "config file path")
 	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "log level (debug, info, warn, error)")
-	rootCmd.AddCommand(startCmd, checkCmd, versionCmd)
+	rootCmd.AddCommand(startCmd, checkCmd, newVerifyCmd(&cfgFile), versionCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

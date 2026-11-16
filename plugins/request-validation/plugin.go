@@ -67,6 +67,14 @@ func (p *RequestValidationPlugin) Init(config map[string]interface{}) error {
 		"onerror=", "onload=",
 		"union select", "union/**/select",
 		"or 1=1", "' or '1'='1",
+		// SQL comment terminators: the classic way to truncate the remainder of a
+		// query ("admin'--"). Found missing by `waffynx verify`.
+		"'--", "\"--",
+		// Time-based blind SQLi and schema/file access primitives.
+		"sleep(", "pg_sleep(", "benchmark(",
+		"information_schema",
+		"into outfile", "into dumpfile",
+		"load_file(",
 		"exec(", "system(",
 		"${", "{{",
 	}
