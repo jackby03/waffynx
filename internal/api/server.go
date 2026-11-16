@@ -135,13 +135,19 @@ func (s *Server) Run(ctx context.Context) error {
 					logging.Error().Err(err).Msg("reload failed")
 					continue
 				}
+				// Build the OIDC manager first and keep the running configuration if
+				// it cannot be initialised: swapping in a manager whose providers
+				// failed to load would silently disable OIDC (fail-closed).
+				newOIDC := auth.NewOIDCManager()
+				if len(newCfg.API.Auth.OIDC) > 0 {
+					if cfgErr := newOIDC.Configure(newCfg.API.Auth.OIDC); cfgErr != nil {
+						logging.Error().Err(cfgErr).Msg("reload rejected: invalid OIDC configuration")
+						continue
+					}
+				}
 				s.configMu.Lock()
 				s.cfg = newCfg
 				s.authMgr = auth.NewManager(newCfg.API.Auth.JWTSecret, newCfg.API.Auth.TokenTTL)
-				newOIDC := auth.NewOIDCManager()
-				if len(newCfg.API.Auth.OIDC) > 0 {
-					newOIDC.Configure(newCfg.API.Auth.OIDC)
-				}
 				s.oidcMgr = newOIDC
 				s.configMu.Unlock()
 			case syscall.SIGINT, syscall.SIGTERM:

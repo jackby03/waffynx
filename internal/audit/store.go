@@ -37,7 +37,10 @@ func NewStore(maxSize int, filePath string) (*Store, error) {
 	}
 
 	if filePath != "" {
-		f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		// 0600: the audit log carries client IPs, request paths and rule
+		// decisions. Operators that ship it elsewhere should run the collector as
+		// the same user rather than widen the file mode (gosec G302).
+		f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 		if err != nil {
 			return nil, fmt.Errorf("opening audit log: %w", err)
 		}
@@ -65,9 +68,14 @@ func (s *Store) Record(e Event) {
 		if err != nil {
 			return
 		}
+		// Single write: two separate calls could leave a torn line if the first
+		// succeeds and the second fails. The error is logged rather than dropped
+		// because a silently failing audit sink is an audit gap (Constitution §1.1).
+		line := append(data, '\n')
 		s.fileMu.Lock()
-		s.file.Write(data)
-		s.file.Write([]byte("\n"))
+		if _, werr := s.file.Write(line); werr != nil {
+			logging.Error().Err(werr).Msg("audit log write failed")
+		}
 		s.fileMu.Unlock()
 	}
 }

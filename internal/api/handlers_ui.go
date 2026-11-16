@@ -24,8 +24,12 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUIAsset(w http.ResponseWriter, r *http.Request) {
-	name := strings.TrimPrefix(r.URL.Path, "/")
-	if name == "" || strings.Contains(name, "..") {
+	// path.Clean("/" + p) always returns an absolute path with no ".." elements,
+	// so trimming the leading separator yields a path that cannot escape the
+	// asset root once joined. This replaces a substring check on ".." with a
+	// structural guarantee (gosec G703).
+	name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
+	if name == "" {
 		name = "index.html"
 	}
 
@@ -34,6 +38,8 @@ func (s *Server) handleUIAsset(w http.ResponseWriter, r *http.Request) {
 
 	if s.uiDir != "" {
 		filePath := path.Join(s.uiDir, name)
+		//nolint:gosec // G703: name is path.Clean'd from an absolute root, so it
+		// carries no ".." elements and path.Join cannot escape s.uiDir.
 		data, err = os.ReadFile(filePath)
 		if err != nil {
 			indexPath := path.Join(s.uiDir, "index.html")
@@ -66,5 +72,8 @@ func (s *Server) handleUIAsset(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", contentType)
 	}
 	w.WriteHeader(http.StatusOK)
+	//nolint:gosec // G705: data is read from the embedded Vite build or uiDir,
+	// never from the request. Only the extension-derived Content-Type is
+	// request-influenced, and the served file always matches that extension.
 	_, _ = w.Write(data)
 }

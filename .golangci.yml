@@ -38,6 +38,10 @@ linters:
 
     gosec:
       excludes:
+        # G104 (unhandled errors) duplicates errcheck, which is configured here
+        # with the ResponseWriter exclusion and owns this signal. Keeping both
+        # would report the same 30 sites twice under different names.
+        - G104
         # G304: every flagged site loads an OPERATOR-supplied path (config file,
         # nginx binary, TLS cert). None is derived from request data.
         - G304
@@ -56,21 +60,21 @@ linters:
       # compiled by g++ in scripts/build-bridge.sh.
       - third_party
     rules:
-      # Test files: cleanup errors (`defer x.Close()`) and fixture file modes
-      # are noise. G112 (Slowloris) stays enabled everywhere because the
-      # sidecar and bridge servers are production listeners.
+      # Test files: cleanup (`defer x.Close()`) and fixture errors are not
+      # actionable, and the suite asserts behaviour through other means.
       - path: _test\.go
         linters:
           - errcheck
+      # File-mode findings raised by test fixtures are likewise noise. G112
+      # (Slowloris) is deliberately NOT excluded: it guards real listeners.
+      - path: _test\.go
+        linters:
           - gosec
         text: G30[246]
 
 issues:
-  # Baseline: main already carries legacy linter debt that predates this
-  # configuration. Reporting is scoped to issues introduced since the merge
-  # base with main, so CI stays actionable without hiding old debt behind
-  # blanket exclusions. Burn-down is tracked separately.
-  new-from-merge-base: origin/main
+  # No baseline: the tree is clean, so every finding is a regression. Keep it
+  # that way rather than reintroducing a merge-base filter (AGENTS.md §7.2).
   max-issues-per-linter: 0
   max-same-issues: 0
 

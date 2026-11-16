@@ -130,7 +130,7 @@ func (p *GeoBlockPlugin) Execute(ctx *plugin.Context) (*plugin.Context, error) {
 
 func (p *GeoBlockPlugin) Close() error {
 	if p.db != nil {
-		p.db.Close()
+		return p.db.Close()
 	}
 	return nil
 }

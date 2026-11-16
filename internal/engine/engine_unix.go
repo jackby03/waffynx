@@ -55,7 +55,9 @@ func (e *Engine) Start(ctx context.Context) error {
 		Msg("starting nginx engine with waffynx module")
 
 	if err := e.cmd.Start(); err != nil {
-		e.sidecar.Stop()
+		if stopErr := e.sidecar.Stop(); stopErr != nil {
+			logging.Warn().Err(stopErr).Msg("stopping sidecar after failed nginx start")
+		}
 		return fmt.Errorf("starting nginx: %w", err)
 	}
 
@@ -78,9 +80,13 @@ func (e *Engine) Stop() error {
 	if e.cmd != nil && e.cmd.Process != nil {
 		if err := e.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 			logging.Warn().Err(err).Msg("SIGTERM failed, sending SIGKILL")
-			e.cmd.Process.Kill()
+			if killErr := e.cmd.Process.Kill(); killErr != nil {
+				logging.Error().Err(killErr).Msg("SIGKILL failed")
+			}
 		}
-		e.cmd.Wait()
+		if err := e.cmd.Wait(); err != nil {
+			logging.Warn().Err(err).Msg("nginx exited with error")
+		}
 	}
 
 	// Then stop the sidecar
