@@ -12,6 +12,14 @@ import (
 	"github.com/jackby03/waffynx/internal/logging"
 )
 
+// ctxKey is the unexported type used for every context key defined by this
+// package. Using a dedicated type instead of a bare string prevents key
+// collisions with values set by other packages (staticcheck SA1029).
+type ctxKey string
+
+// claimsKey is the context key holding the authenticated *auth.Claims.
+const claimsKey ctxKey = "claims"
+
 func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -47,7 +55,7 @@ func (s *Server) authMiddleware(mux *http.ServeMux) func(http.HandlerFunc) http.
 						Role:     role,
 						Scopes:   []string{"read", "write"},
 					}
-					ctx := context.WithValue(r.Context(), "claims", claims)
+					ctx := context.WithValue(r.Context(), claimsKey, claims)
 					logging.Debug().Str("user", username).Str("provider", provider).Msg("OIDC authenticated")
 					next(w, r.WithContext(ctx))
 					return
@@ -61,7 +69,7 @@ func (s *Server) authMiddleware(mux *http.ServeMux) func(http.HandlerFunc) http.
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), "claims", claims)
+			ctx := context.WithValue(r.Context(), claimsKey, claims)
 			next(w, r.WithContext(ctx))
 		}
 	}
@@ -70,7 +78,7 @@ func (s *Server) authMiddleware(mux *http.ServeMux) func(http.HandlerFunc) http.
 func (s *Server) requireRole(role string) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			claims, ok := r.Context().Value("claims").(*auth.Claims)
+			claims, ok := r.Context().Value(claimsKey).(*auth.Claims)
 			if !ok || claims == nil {
 				s.writeError(w, r, http.StatusUnauthorized, "unauthorized")
 				return
@@ -87,7 +95,7 @@ func (s *Server) requireRole(role string) func(http.HandlerFunc) http.HandlerFun
 func (s *Server) requireScope(scope string) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			claims, ok := r.Context().Value("claims").(*auth.Claims)
+			claims, ok := r.Context().Value(claimsKey).(*auth.Claims)
 			if !ok || claims == nil {
 				s.writeError(w, r, http.StatusUnauthorized, "unauthorized")
 				return
@@ -131,7 +139,7 @@ func (s *Server) auditMiddleware(next http.Handler) http.Handler {
 
 		actor := "anonymous"
 		actorIP := r.RemoteAddr
-		if claims, ok := r.Context().Value("claims").(*auth.Claims); ok && claims != nil {
+		if claims, ok := r.Context().Value(claimsKey).(*auth.Claims); ok && claims != nil {
 			actor = claims.Username
 		}
 

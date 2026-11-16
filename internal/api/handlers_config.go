@@ -116,7 +116,9 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := os.WriteFile(s.configPath, merged, 0644); err != nil {
+	// 0600: the runtime config carries the API JWT secret and TLS material, so
+	// it must not be readable by other local users (Constitution §2.2, gosec G306).
+	if err := os.WriteFile(s.configPath, merged, 0600); err != nil {
 		s.writeError(w, r, http.StatusInternalServerError, "failed to write config file: "+err.Error())
 		return
 	}

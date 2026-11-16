@@ -6,8 +6,97 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.22"
+  NODE_VERSION: "22"
+  # Pinned so local runs (scoop/brew/install.sh) and CI agree on the rule set.
+  GOLANGCI_LINT_VERSION: "v2.15.0"
+
 jobs:
-  go-test:
+  # Fast feedback. No C++ or Node toolchain: the embedded ui/dist/placeholder.html
+  # keeps the ui package compilable, and golangci-lint only loads Go packages.
+  lint:
+    name: Lint & format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # .golangci.yml uses `new-from-merge-base: origin/main`, which needs a
+          # full history to resolve the merge base.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" "${GOLANGCI_LINT_VERSION}"
+
+      # Runs the linters plus the gofmt -s formatter configured in .golangci.yml,
+      # so there is no separate formatting step to drift out of sync.
+      - name: golangci-lint
+        env:
+          # Constitution §2.1: Linux is the sole production runtime. GOOS=linux is
+          # what makes engine_unix.go (not engine_windows.go) the linted file.
+          GOOS: linux
+          # CGO_ENABLED=0 keeps this job self-contained: no C++ toolchain and no
+          # submodules are needed, because internal/appsec/bridge_cpp_stub.go is
+          # analysed instead of the `linux && cgo` shim. It also stops
+          # third_party/open-appsec/external/graphqlparser/go (`import "C"`) from
+          # turning into a package that cannot typecheck against libgraphqlparser.
+          # The real cgo path is compiled in the test job, which does build the
+          # bridge.
+          CGO_ENABLED: "0"
+        run: golangci-lint run ./...
+
+  # Constitution §2.1: waf-api and waf-agent must be pure static binaries.
+  static-build:
+    name: Static build (CGO_ENABLED=0, linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build
+        run: CGO_ENABLED=0 GOOS=linux go build -buildvcs=false -o bin/ ./cmd/...
+
+      - name: Assert static linkage
+        run: |
+          status=0
+          for b in waf-api waf-agent; do
+            out=$(ldd "bin/$b" 2>&1 || true)
+            case "$out" in
+              *"not a dynamic executable"*|*"statically linked"*)
+                echo "OK  $b is statically linked"
+                ;;
+              *)
+                echo "::error file=cmd/$b/main.go::$b is not a static binary (Constitution §2.1): $out"
+                status=1
+                ;;
+            esac
+          done
+          exit $status
+
+  test:
+    name: Test (race, full module)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -18,29 +107,15 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
 
-      - name: Build Go (no CGo)
-        run: CGO_ENABLED=0 go build -buildvcs=false -o bin/ ./cmd/...
-
-      - name: Test Go
-        run: CGO_ENABLED=0 go test -coverprofile=coverage.out ./internal/...
-
-      - name: Coverage
-        run: go tool cover -func=coverage.out
-
-  cpp-build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
-          submodules: recursive
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.22"
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
 
       - name: Install C++ dependencies
         run: |
@@ -57,21 +132,44 @@ jobs:
             libgtest-dev libgmock-dev \
             libbrotli-dev libxml2-dev
 
-      - name: Build C++ Bridge
+      # Required before any CGO_ENABLED=1 build: internal/appsec/bridge_cpp_linux.go
+      # is gated on `linux && cgo` and links -lwaffynx_bridge.
+      - name: Build C++ bridge
         run: make bridge-build
 
-      - name: Build Go with CGo (appsec-bridge-cpp)
+      # ui/embed.go embeds all:dist, and TestAPI_RootServesDashboardForHTMLClients
+      # asserts the Vite shell is served. Without this step the suite fails.
+      - name: Build UI
+        run: cd ui && npm ci && npm run build
+
+      # -race requires CGO, so the environment default (CGO_ENABLED=1) is used here.
+      # ./... (not ./internal/...) so cmd/ is covered too.
+      #
+      # third_party is excluded explicitly: with CGO enabled its
+      # external/graphqlparser/go files (`import "C"`) become buildable packages
+      # that need modules absent from go.mod. It is vendored upstream code, not
+      # part of this module; scripts/build-bridge.sh compiles it with g++.
+      - name: Test
         run: |
-          CGO_ENABLED=1 go build -buildvcs=false -ldflags="-s -w" \
-            -o bin/appsec-bridge-cpp ./cmd/appsec-bridge
-          ls -lh bin/
+          pkgs=$(go list ./... | grep -v '/third_party/')
+          go test -race -coverprofile=coverage.out $pkgs
 
-      - name: Test Go CGo Bridge
-        run: CGO_ENABLED=1 go test -v ./internal/appsec/...
+      - name: Coverage summary
+        run: |
+          go tool cover -func=coverage.out | tail -1
+          echo "### Coverage" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          go tool cover -func=coverage.out | tail -1 >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload artifacts
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+
+      - name: Upload bridge artifacts
         uses: actions/upload-artifact@v4
         with:
           name: bridge-libs
-          path: bin/*
-
+          path: bin/*.so

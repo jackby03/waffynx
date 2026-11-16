@@ -99,7 +99,14 @@ func (s *Sidecar) Start() error {
 	mux.HandleFunc("/rules/delete", s.handleRulesDelete)
 	mux.HandleFunc("/events", s.handleSSE)
 
-	s.server = &http.Server{Handler: mux}
+	// ReadHeaderTimeout bounds how long a client may take to send request
+	// headers, mitigating Slowloris-style resource exhaustion (gosec G112).
+	// WriteTimeout must stay unset: the /events endpoint is a long-lived SSE
+	// stream that a write deadline would sever.
+	s.server = &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 
 	go func() {
 		logging.Info().

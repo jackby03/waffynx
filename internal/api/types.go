@@ -18,7 +18,7 @@ type BannedIP struct {
 
 // UserFromContext extracts the authenticated username from the request context.
 func UserFromContext(ctx context.Context) string {
-	if claims, ok := ctx.Value("claims").(*auth.Claims); ok && claims != nil {
+	if claims, ok := ctx.Value(claimsKey).(*auth.Claims); ok && claims != nil {
 		return claims.Username
 	}
 	return "admin"
