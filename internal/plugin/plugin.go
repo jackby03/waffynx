@@ -7,11 +7,11 @@ import (
 type Phase string
 
 const (
-	PhasePreRequest  Phase = "pre_request"
-	PhasePostRequest Phase = "post_request"
-	PhasePreResponse Phase = "pre_response"
+	PhasePreRequest   Phase = "pre_request"
+	PhasePostRequest  Phase = "post_request"
+	PhasePreResponse  Phase = "pre_response"
 	PhasePostResponse Phase = "post_response"
-	PhaseLog         Phase = "log"
+	PhaseLog          Phase = "log"
 )
 
 type Plugin interface {
@@ -27,15 +27,15 @@ type Plugin interface {
 }
 
 type Metadata struct {
-	Name        string `json:"name"`
-	Version     string `json:"version"`
-	Description string `json:"description"`
-	Author      string `json:"author"`
-	License     string `json:"license"`
-	Phase       Phase  `json:"phase"`
-	Priority    int    `json:"priority"`
+	Name        string   `json:"name"`
+	Version     string   `json:"version"`
+	Description string   `json:"description"`
+	Author      string   `json:"author"`
+	License     string   `json:"license"`
+	Phase       Phase    `json:"phase"`
+	Priority    int      `json:"priority"`
 	Tags        []string `json:"tags,omitempty"`
-	Homepage    string `json:"homepage,omitempty"`
+	Homepage    string   `json:"homepage,omitempty"`
 }
 
 type PluginConstructor func() Plugin

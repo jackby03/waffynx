@@ -138,10 +138,10 @@ func TestEvaluate_IPMatch(t *testing.T) {
 func TestEvaluate_IPCIDR(t *testing.T) {
 	e := NewEngine()
 	e.AddRule(CustomRule{
-		ID:       "block-range",
-		Enabled:  true,
-		Action:   ActionBlock,
-		IPCIDRs:  []string{"10.0.0.0/8"},
+		ID:      "block-range",
+		Enabled: true,
+		Action:  ActionBlock,
+		IPCIDRs: []string{"10.0.0.0/8"},
 	})
 
 	result := e.Evaluate(&policy.Request{RemoteIP: "10.1.2.3", Path: "/"})

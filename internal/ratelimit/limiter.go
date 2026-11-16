@@ -48,7 +48,7 @@ func NewRedisLimiter(cfg Config) (*RedisLimiter, error) {
 	defer cancel()
 
 	if err := client.Ping(ctx).Err(); err != nil {
-		client.Close()
+		_ = client.Close()
 		return nil, fmt.Errorf("redis connection failed at %s: %w", cfg.Addr, err)
 	}
 

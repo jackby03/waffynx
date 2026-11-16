@@ -116,6 +116,17 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Build the OIDC manager before touching disk: if the providers cannot be
+	// initialised, reject the update instead of persisting a configuration the
+	// running server cannot apply (fail-closed, Constitution §1.1).
+	newOIDC := auth.NewOIDCManager()
+	if len(newCfg.API.Auth.OIDC) > 0 {
+		if cfgErr := newOIDC.Configure(newCfg.API.Auth.OIDC); cfgErr != nil {
+			s.writeError(w, r, http.StatusBadRequest, "invalid OIDC configuration: "+cfgErr.Error())
+			return
+		}
+	}
+
 	// 0600: the runtime config carries the API JWT secret and TLS material, so
 	// it must not be readable by other local users (Constitution §2.2, gosec G306).
 	if err := os.WriteFile(s.configPath, merged, 0600); err != nil {
@@ -125,10 +136,6 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 
 	s.cfg = newCfg
 	s.authMgr = auth.NewManager(newCfg.API.Auth.JWTSecret, newCfg.API.Auth.TokenTTL)
-	newOIDC := auth.NewOIDCManager()
-	if len(newCfg.API.Auth.OIDC) > 0 {
-		newOIDC.Configure(newCfg.API.Auth.OIDC)
-	}
 	s.oidcMgr = newOIDC
 
 	logging.Info().Msg("config updated and written to disk")

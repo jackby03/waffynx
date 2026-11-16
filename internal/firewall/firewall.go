@@ -92,22 +92,22 @@ func (m *Manager) Start() error {
 
 func (m *Manager) BlockIP(ip string) error {
 	rule := Rule{
-		Table:    "filter",
-		Chain:    "INPUT",
-		Source:   ip,
-		Action:   "drop",
-		Comment:  "Waffynx block",
+		Table:   "filter",
+		Chain:   "INPUT",
+		Source:  ip,
+		Action:  "drop",
+		Comment: "Waffynx block",
 	}
 	return m.backend.AddRule(rule)
 }
 
 func (m *Manager) UnblockIP(ip string) error {
 	rule := Rule{
-		Table:    "filter",
-		Chain:    "INPUT",
-		Source:   ip,
-		Action:   "drop",
-		Comment:  "Waffynx block",
+		Table:   "filter",
+		Chain:   "INPUT",
+		Source:  ip,
+		Action:  "drop",
+		Comment: "Waffynx block",
 	}
 	return m.backend.RemoveRule(rule)
 }

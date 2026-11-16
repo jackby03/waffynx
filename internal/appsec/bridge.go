@@ -56,7 +56,7 @@ func (b *BridgeScorer) Health(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("open-appsec bridge unreachable: %w", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("open-appsec bridge unhealthy: status %d", resp.StatusCode)
 	}
@@ -90,7 +90,7 @@ func (b *BridgeScorer) Evaluate(ctx context.Context, features *Features) (*Resul
 			ModelName:  b.Name(),
 		}, nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var result Result
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {

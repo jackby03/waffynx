@@ -183,7 +183,9 @@ func runAgent(cfg *config.AgentConfig) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	server.Shutdown(ctx)
+	if err := server.Shutdown(ctx); err != nil {
+		logging.Warn().Err(err).Msg("agent server shutdown")
+	}
 
 	return nil
 }
@@ -229,7 +231,7 @@ func (s *agentServer) connectEventBroker(ctx context.Context) {
 
 		if resp.StatusCode != http.StatusOK {
 			logging.Error().Int("status", resp.StatusCode).Msg("event broker rejected connection, retrying")
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			select {
 			case <-ctx.Done():
 				return
@@ -239,7 +241,7 @@ func (s *agentServer) connectEventBroker(ctx context.Context) {
 		}
 
 		s.readSSEStream(ctx, resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		select {
 		case <-ctx.Done():
@@ -250,7 +252,7 @@ func (s *agentServer) connectEventBroker(ctx context.Context) {
 }
 
 func (s *agentServer) readSSEStream(ctx context.Context, body io.ReadCloser) {
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 	reader := bufio.NewReader(body)
 
 	for {
@@ -392,6 +394,8 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if data != nil {
-		json.NewEncoder(w).Encode(data)
+		if err := json.NewEncoder(w).Encode(data); err != nil {
+			logging.Warn().Err(err).Msg("writing JSON response")
+		}
 	}
 }

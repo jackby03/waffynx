@@ -88,7 +88,10 @@ func (p *Pool) roundRobin() *Target {
 	}
 
 	n := atomic.AddUint64(&p.index, 1)
-	idx := int(n) % len(p.targets)
+	// Reduce before converting: int(n) alone can go negative once the counter
+	// passes math.MaxInt64 on 64-bit, or almost immediately on 32-bit, which
+	// would produce a negative index and panic below (gosec G115).
+	idx := int(n % uint64(len(p.targets))) //nolint:gosec // modulo by len() bounds the result below len, which always fits in int
 
 	for i := 0; i < len(p.targets); i++ {
 		t := p.targets[(idx+i)%len(p.targets)]
@@ -127,8 +130,12 @@ func (p *Pool) ipHash(remoteAddr string) *Target {
 	}
 
 	h := fnv.New32a()
-	h.Write([]byte(host))
-	idx := int(h.Sum32() % uint32(len(p.targets)))
+	if _, err := h.Write([]byte(host)); err != nil {
+		return p.roundRobin()
+	}
+	// Reduce in uint64 space so neither the uint32 conversion of len() nor the
+	// conversion back to int can overflow (gosec G115).
+	idx := int(uint64(h.Sum32()) % uint64(len(p.targets))) //nolint:gosec // same bound: result < len(p.targets)
 
 	for i := 0; i < len(p.targets); i++ {
 		t := p.targets[(idx+i)%len(p.targets)]
@@ -199,7 +206,7 @@ func (p *Pool) checkAll(path string) {
 			t.healthy.Store(true)
 		}
 		if resp != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 	}
 }

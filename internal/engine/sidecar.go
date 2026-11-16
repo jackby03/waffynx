@@ -125,7 +125,9 @@ func (s *Sidecar) Stop() error {
 	if err := s.server.Close(); err != nil {
 		return err
 	}
-	os.Remove(s.socketPath)
+	if err := os.Remove(s.socketPath); err != nil && !os.IsNotExist(err) {
+		logging.Warn().Err(err).Str("socket", s.socketPath).Msg("removing sidecar socket")
+	}
 	return nil
 }
 
@@ -302,14 +304,23 @@ func (s *Sidecar) respondAllow(w http.ResponseWriter) {
 func (s *Sidecar) respondDeny(w http.ResponseWriter, ruleID, reason string) {
 	w.Header().Set("X-WN-Verdict", "deny")
 	w.Header().Set("X-WN-Rule", ruleID)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusForbidden)
 
-	_ = json.NewEncoder(w).Encode(map[string]string{
+	s.writeJSON(w, http.StatusForbidden, map[string]string{
 		"error":   "blocked by WAF",
 		"rule_id": ruleID,
 		"reason":  reason,
 	})
+}
+
+// writeJSON writes v as a JSON response body. The encoding error is logged
+// rather than returned: headers and the status line are already committed by
+// this point, so the log is the only remaining signal.
+func (s *Sidecar) writeJSON(w http.ResponseWriter, status int, v interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		logging.Warn().Err(err).Msg("writing sidecar JSON response")
+	}
 }
 
 func (s *Sidecar) handleLearningSuggestions(w http.ResponseWriter, r *http.Request) {
@@ -319,9 +330,7 @@ func (s *Sidecar) handleLearningSuggestions(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	suggestions := s.learning.Suggestions()
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(suggestions)
+	s.writeJSON(w, http.StatusOK, suggestions)
 }
 
 func (s *Sidecar) handleLearningStats(w http.ResponseWriter, r *http.Request) {
@@ -331,9 +340,7 @@ func (s *Sidecar) handleLearningStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	stats := s.learning.Stats()
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(stats)
+	s.writeJSON(w, http.StatusOK, stats)
 }
 
 func (s *Sidecar) handleRulesList(w http.ResponseWriter, r *http.Request) {
@@ -343,9 +350,7 @@ func (s *Sidecar) handleRulesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rules := s.rules.List()
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(rules)
+	s.writeJSON(w, http.StatusOK, rules)
 }
 
 func (s *Sidecar) handleRulesAdd(w http.ResponseWriter, r *http.Request) {
@@ -360,9 +365,7 @@ func (s *Sidecar) handleRulesAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	rule.ID = fmt.Sprintf("custom-%d", time.Now().UnixNano())
 	s.rules.AddRule(rule)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(rule)
+	s.writeJSON(w, http.StatusCreated, rule)
 }
 
 func (s *Sidecar) handleRulesDelete(w http.ResponseWriter, r *http.Request) {
@@ -419,9 +422,7 @@ func (s *Sidecar) handleSSE(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Sidecar) writeSidecarError(w http.ResponseWriter, msg string, code int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	s.writeJSON(w, code, map[string]string{"error": msg})
 }
 
 func (s *Sidecar) handleLearningDataset(w http.ResponseWriter, r *http.Request) {
@@ -431,9 +432,7 @@ func (s *Sidecar) handleLearningDataset(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	dataset := s.learning.ExportDataset()
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(dataset)
+	s.writeJSON(w, http.StatusOK, dataset)
 }
 
 func (s *Sidecar) recordLearning(req *policy.Request, verdict, ruleID, reason string, start time.Time) {

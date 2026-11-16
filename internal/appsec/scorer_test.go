@@ -25,9 +25,9 @@ func TestBasicScorer_SQLiURL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := s.Evaluate(ctx, &Features{
-				URI:     tt.uri,
-				Host:    "example.com",
-				Method:  "GET",
+				URI:    tt.uri,
+				Host:   "example.com",
+				Method: "GET",
 			})
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -156,10 +156,10 @@ func TestBasicScorer_BodyInspection(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := s.Evaluate(ctx, &Features{
-				URI:      tt.uri,
-				Body:     tt.body,
-				Host:     "example.com",
-				Method:   "POST",
+				URI:        tt.uri,
+				Body:       tt.body,
+				Host:       "example.com",
+				Method:     "POST",
 				HasPayload: true,
 			})
 			if err != nil {
@@ -205,9 +205,9 @@ func TestCalculateEntropy(t *testing.T) {
 		expected float64
 	}{
 		{"", 0},
-		{"aaaa", 0},              // all same = 0 entropy
-		{"ab", 1.0},              // 50/50 = 1 bit
-		{"abcd", 2.0},             // 4 unique = 2 bits
+		{"aaaa", 0},   // all same = 0 entropy
+		{"ab", 1.0},   // 50/50 = 1 bit
+		{"abcd", 2.0}, // 4 unique = 2 bits
 	}
 
 	for _, tt := range tests {
@@ -384,4 +384,3 @@ func TestCPPBridgeScorer_StubOrDisabled(t *testing.T) {
 
 	_ = scorer.Close()
 }
-

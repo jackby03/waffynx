@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -78,7 +79,7 @@ func run(socketPath, logLevel string) error {
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", socketPath, err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	if err := os.Chmod(socketPath, 0600); err != nil {
 		return fmt.Errorf("chmod: %w", err)
@@ -115,8 +116,12 @@ func run(socketPath, logLevel string) error {
 	sig := <-sigCh
 
 	logging.Info().Str("signal", sig.String()).Msg("shutting down")
-	server.Close()
-	os.Remove(socketPath)
+	if err := server.Close(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		logging.Warn().Err(err).Msg("closing bridge server")
+	}
+	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
+		logging.Warn().Err(err).Str("socket", socketPath).Msg("removing bridge socket")
+	}
 	return nil
 }
 
@@ -154,7 +159,9 @@ func handleEvaluate(w http.ResponseWriter, r *http.Request, scorer appsec.Scorer
 		Msg("evaluation complete")
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		logging.Warn().Err(err).Msg("writing evaluate response")
+	}
 }
 
 // parseQueryParams extracts query parameters from a URI string.

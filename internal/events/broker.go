@@ -82,7 +82,7 @@ func (p *Publisher) Publish(event WafEvent) error {
 	if err != nil {
 		return fmt.Errorf("posting event: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusAccepted {
 		return fmt.Errorf("event API returned %s", resp.Status)
 	}
