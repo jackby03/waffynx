@@ -46,9 +46,12 @@ var floors = map[string]float64{
 
 	// `internal/engine` holds the inspection pipeline that decides whether an
 	// attack is blocked. It was at 34.9% until Sidecar.Decide was extracted and the
-	// HTTP handlers, PolicyStore and Engine wiring got direct tests; the floor is
-	// now pinned just below the achieved 81.5%.
-	"internal/engine": 80,
+	// HTTP handlers, PolicyStore and Engine wiring got direct tests.
+	//
+	// Note the floor is measured on Linux, which compiles engine_unix.go (the nginx
+	// lifecycle) and therefore reports ~3 points less than a Windows run, where
+	// that file is excluded by its build tag.
+	"internal/engine": 75,
 
 	// `internal/api` is the control plane, still the weakest of the gated set.
 	// Raise it as handlers gain tests.
