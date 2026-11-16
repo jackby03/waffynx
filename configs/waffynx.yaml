@@ -140,3 +140,30 @@ plugins:
         - "application/json"
         - "application/x-www-form-urlencoded"
         - "multipart/form-data"
+
+# -- Reverse-proxy topology (SPEC-003) --
+#
+# `sites:` is the host -> upstream list that gets rendered into nginx fragments
+# under <nginx.config_path>/sites/ and made live with `nginx -t` + reload. It is
+# validated by the same rules the management API uses, so a host containing ';'
+# or '{' is rejected at load time rather than injected into nginx.
+#
+# It is intentionally left commented out: rendering and applying are not wired into
+# startup yet (SPEC-003 phases 2/4). Adding a site here today would parse and
+# validate but protect nothing, which is exactly the kind of false promise this
+# project is trying to avoid.
+#
+# sites:
+#   - host: "app.example.com"
+#     upstream: "10.0.0.5:8080"
+#     tls:
+#       cert_file: "/opt/waffynx/certs/app.example.com.crt"
+#       key_file: "/opt/waffynx/certs/app.example.com.key"
+#     headers:
+#       X-Frame-Options: "DENY"
+#
+#   - host: "*.api.example.com"
+#     upstream: "http://api-backend:9000"
+#     paths:
+#       - path: "/v2"
+#         upstream: "http://api-backend-v2:9000"

@@ -5,22 +5,28 @@ import (
 	"os"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/jackby03/waffynx/internal/sites"
 )
 
 type Config struct {
-	Name     string          `yaml:"name"`
-	Version  string          `yaml:"version"`
-	Listen   string          `yaml:"listen"`
-	Logging  LoggingConfig   `yaml:"logging"`
-	Sidecar  SidecarConfig   `yaml:"sidecar"`
-	Nginx    NginxConfig     `yaml:"nginx"`
-	AppSec   AppSecConfig    `yaml:"appsec"`
-	Gateway  GatewayConfig   `yaml:"gateway"`
-	TLS      TLSGlobalConfig `yaml:"tls"`
-	Routes   []RouteConfig   `yaml:"routes"`
-	Plugins  []PluginConfig  `yaml:"plugins"`
-	Firewall FirewallConfig  `yaml:"firewall"`
-	API      APIConfig       `yaml:"api"`
+	Name    string          `yaml:"name"`
+	Version string          `yaml:"version"`
+	Listen  string          `yaml:"listen"`
+	Logging LoggingConfig   `yaml:"logging"`
+	Sidecar SidecarConfig   `yaml:"sidecar"`
+	Nginx   NginxConfig     `yaml:"nginx"`
+	AppSec  AppSecConfig    `yaml:"appsec"`
+	Gateway GatewayConfig   `yaml:"gateway"`
+	TLS     TLSGlobalConfig `yaml:"tls"`
+	// Sites is the reverse-proxy topology: host -> upstream, rendered into nginx
+	// fragments. Distinct from Routes, which belongs to the frozen forward-proxy
+	// gateway.
+	Sites    []sites.Site   `yaml:"sites"`
+	Routes   []RouteConfig  `yaml:"routes"`
+	Plugins  []PluginConfig `yaml:"plugins"`
+	Firewall FirewallConfig `yaml:"firewall"`
+	API      APIConfig      `yaml:"api"`
 }
 
 type SidecarConfig struct {
@@ -212,6 +218,11 @@ func (c *Config) validate() error {
 	}
 	if c.Firewall.Backend != "ufw" && c.Firewall.Backend != "nftables" {
 		return fmt.Errorf("firewall backend must be 'ufw' or 'nftables', got: %s", c.Firewall.Backend)
+	}
+	// One validation implementation for sites, shared by the config loader, the
+	// management API and the renderer: anything that parses here is safe to render.
+	if err := sites.ValidateSet(c.Sites); err != nil {
+		return fmt.Errorf("sites: %w", err)
 	}
 	return nil
 }

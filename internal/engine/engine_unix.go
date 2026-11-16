@@ -4,14 +4,18 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/jackby03/waffynx/internal/events"
 	"github.com/jackby03/waffynx/internal/logging"
+	"github.com/jackby03/waffynx/internal/sites"
 )
 
 // Start launches the Go sidecar first, then nginx.
@@ -111,4 +115,66 @@ func (e *Engine) Reload() error {
 
 	logging.Info().Msg("reloading nginx configuration")
 	return e.cmd.Process.Signal(syscall.SIGHUP)
+}
+
+// nginxValidator runs `nginx -t` against the live configuration directory before
+// anything is reloaded. The directory argument is ignored: nginx always validates
+// the include path baked into its own nginx.conf, so passing another path would
+// give a false sense of safety.
+type nginxValidator struct {
+	binaryPath string
+	configPath string
+}
+
+func (v nginxValidator) ValidateConfig(ctx context.Context, _ string) error {
+	cmd := exec.CommandContext(ctx, v.binaryPath, "-t", "-c", filepath.Join(v.configPath, "nginx.conf"))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			msg = "no output"
+		}
+		return fmt.Errorf("nginx -t: %s: %w", msg, err)
+	}
+	return nil
+}
+
+// engineReloader adapts Engine.Reload to the sites.Reloader interface.
+type engineReloader struct {
+	e *Engine
+}
+
+func (r engineReloader) Reload(context.Context) error {
+	return r.e.Reload()
+}
+
+// ApplySites renders the given fragments into the nginx include directory and
+// makes them live.
+//
+// The order is write -> `nginx -t` -> reload, with a rollback on any failure. A
+// rejected configuration never becomes live, and a failed reload leaves the
+// previous fragments on disk.
+func (e *Engine) ApplySites(ctx context.Context, fragments map[string]string) (sites.ApplyResult, error) {
+	if e.cfg.Nginx.ConfigPath == "" {
+		return sites.ApplyResult{}, errors.New("applying sites: nginx config path is not configured")
+	}
+	dir := filepath.Join(e.cfg.Nginx.ConfigPath, "sites")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return sites.ApplyResult{}, fmt.Errorf("creating sites directory: %w", err)
+	}
+
+	applier := e.siteApplier
+	if applier == nil {
+		applier = &sites.Applier{
+			Dir: dir,
+			Validator: nginxValidator{
+				binaryPath: e.cfg.Nginx.BinaryPath,
+				configPath: e.cfg.Nginx.ConfigPath,
+			},
+			Reloader: engineReloader{e: e},
+		}
+		e.siteApplier = applier
+	}
+
+	return applier.Apply(ctx, fragments)
 }

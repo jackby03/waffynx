@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -212,6 +213,84 @@ firewall:
 		_, err := LoadAgent(filePath)
 		if err == nil {
 			t.Error("expected error for invalid agent yaml, got nil")
+		}
+	})
+}
+
+// TestParseSites covers SPEC-003 task 3.1: the reverse-proxy topology lives in the
+// same config file and goes through the same validator, so anything that parses is
+// safe to render.
+func TestParseSites(t *testing.T) {
+	t.Run("valid site is parsed and normalised on render", func(t *testing.T) {
+		cfg, err := Parse([]byte(`
+name: sites-test
+sites:
+  - host: example.com
+    upstream: 10.0.0.5:8080
+  - host: "*.example.com"
+    upstream: http://backend:80
+    tls:
+      cert_file: /certs/wild.crt
+      key_file: /certs/wild.key
+`))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if len(cfg.Sites) != 2 {
+			t.Fatalf("expected 2 sites, got %d", len(cfg.Sites))
+		}
+		if cfg.Sites[0].Host != "example.com" || cfg.Sites[0].Upstream != "10.0.0.5:8080" {
+			t.Errorf("unexpected first site: %+v", cfg.Sites[0])
+		}
+		if cfg.Sites[1].TLS == nil || cfg.Sites[1].TLS.CertFile != "/certs/wild.crt" {
+			t.Errorf("TLS block was not parsed: %+v", cfg.Sites[1].TLS)
+		}
+	})
+
+	t.Run("directive injection is rejected at load time", func(t *testing.T) {
+		_, err := Parse([]byte(`
+name: sites-test
+sites:
+  - host: "example.com; return 200"
+    upstream: 10.0.0.5:8080
+`))
+		if err == nil {
+			t.Fatal("expected a config with an injecting host to be rejected")
+		}
+		if !strings.Contains(err.Error(), "sites") {
+			t.Errorf("expected the error to point at sites, got: %v", err)
+		}
+	})
+
+	t.Run("duplicate hosts are rejected", func(t *testing.T) {
+		_, err := Parse([]byte(`
+name: sites-test
+sites:
+  - host: example.com
+    upstream: 10.0.0.5:8080
+  - host: EXAMPLE.com
+    upstream: 10.0.0.6:8080
+`))
+		if err == nil {
+			t.Fatal("expected duplicate hosts to be rejected")
+		}
+		if !strings.Contains(err.Error(), "duplicate site") {
+			t.Errorf("expected a duplicate-site error, got: %v", err)
+		}
+	})
+
+	t.Run("missing upstream port is rejected", func(t *testing.T) {
+		_, err := Parse([]byte(`
+name: sites-test
+sites:
+  - host: example.com
+    upstream: backend
+`))
+		if err == nil {
+			t.Fatal("expected an upstream without a port to be rejected")
+		}
+		if !strings.Contains(err.Error(), "explicit port") {
+			t.Errorf("expected an explicit-port error, got: %v", err)
 		}
 	})
 }

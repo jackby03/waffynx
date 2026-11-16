@@ -12,6 +12,7 @@ import (
 	"github.com/jackby03/waffynx/internal/plugin"
 	"github.com/jackby03/waffynx/internal/policy"
 	wrules "github.com/jackby03/waffynx/internal/rules"
+	"github.com/jackby03/waffynx/internal/sites"
 )
 
 // Engine orchestrates the WAF runtime:
@@ -36,6 +37,11 @@ type Engine struct {
 	broker   *events.Broker
 
 	policies *PolicyStore
+
+	// siteApplier renders the reverse-proxy topology into nginx fragments and
+	// makes them live. Kept on the engine so its mutex serialises applies across
+	// the whole process, not per request.
+	siteApplier *sites.Applier
 }
 
 func New(cfg *config.Config) *Engine {

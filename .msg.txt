@@ -1,45 +1,61 @@
-feat(sites): untrusted-input validator and nginx fragment renderer (SPEC-003 phase 1)
+feat(sites): transactional apply with rollback, and sites: in the config
 
-Phase 1 de SPEC-003. El spec quedo aprobado con las cinco decisiones
-resueltas (generar y persistir el secreto JWT, solo fragmentos con include,
-TLS por rutas de certificado, API como unico camino de escritura, y CLI
-diferida). La sintaxis del CLI se aplaza entera, como pediste.
+Fases 2 y 3 de SPEC-003.
 
-internal/sites es un paquete nuevo, puro: no hace I/O propio, asi que se
-testea sin filesystem ni nginx. Depende de internal/config, nunca al reves.
+Fase 2 - apply.go:
 
-Validacion (site.go):
+El orden es write -> validate -> reload, con rollback en cualquier fallo. Un
+proxy con una configuracion que no paso nginx -t es peor que un apply
+fallido.
 
-- host: nombres DNS con etiquetas 1..63, wildcard '*.dominio' permitido,
-  rechazo de IPs literales, de '..', de puntos al principio o al final, y de
-  cualquier caracter de una lista explicita de inyeccion. Se RECHAZA, no se
-  escapa: un host con ';' inyectaria directivas nginx.
-- upstream: host:port o scheme://host:port con puerto obligatorio, sin
-  credenciales, sin path, sin query. nginx defaultearia a 80 en silencio.
-- tls: ambos ficheros obligatorios y sin caracteres de inyeccion en la ruta.
-- paths: prefijo con barra inicial, sin '..' ni espacios, sin duplicados.
-- Validate devuelve TODOS los problemas en una pasada (ValidationError con
-  lista), para que el 400 del API sea accionable de una vez.
-- ValidateSet ademas rechaza hosts duplicados normalizados.
+- Applier escribe los fragmentos con fichero temporal + rename por fichero,
+  asi nginx nunca lee uno a medias, y a 0600.
+- Valida DESPUES de escribir, no antes: 'nginx -t' tiene que leer el
+  directorio de include real, si no valida otra cosa. Hay test que comprueba
+  que el validador ve los ficheros ya en disco.
+- Si la validacion falla: restaura el estado anterior byte a byte y NO
+  recarga. El proxy se queda con lo que ya tenia.
+- Si la recarga falla: restaura y reintenta la recarga, porque nginx puede
+  haber cargado parcialmente. El error del rollback nunca se traga: se anexa
+  al principal con %w.
+- Un fichero cuyo contenido no cambia no se reescribe, para que un apply sea
+  un no-op real y no genere ruido.
+- Los fragmentos que ya no corresponden se borran.
+- Mutex: los applies se serializan, un reload no puede dispararse a mitad de
+  escritura de otro.
+- Los nombres de fragmento se validan (sin separadores, sin .., con .conf):
+  es defensa en profundidad, aunque Validate ya los genera seguros.
 
-Renderer (render.go): un server block por sitio, con las mismas directivas
-que el nginx.conf que ya funciona. Un PathRule '/' define el upstream por
-defecto y no emite un segundo location / (nginx lo rechazaria). /health va
-con 'waffynx off' para que un sidecar caido no haga parecer el sitio caido
-al orquestador. Salida determinista: sitios y headers ordenados.
+Fase 2.3 - Engine.ApplySites: validador real que ejecuta 'nginx -t -c
+<config_path>/nginx.conf' y adaptador al Reload() existente. El validador
+ignora el directorio que le pasa el Applier a proposito: nginx valida el
+include horneado en su propio nginx.conf, y apuntarlo a otro sitio daria una
+falsa sensacion de seguridad. Rechaza configurar sin nginx.config_path en
+lugar de crear un directorio relativo por accidente.
 
-Dos bugs que encontro la revision de los golden files, y que las aserciones
-unitarias no veian:
+Fase 3.1 - sites: en la configuracion:
 
-1. Emitia 'listen :8443;' para sitios TLS, SIN la palabra ssl. nginx habria
-   terminado la conexion como HTTP plano.
-2. Emitia 'listen :8080;' cuando la forma probada es 'listen 8080;'.
+- config.Config gana Sites []sites.Site, distinto de Routes (que sigue
+  siendo del gateway congelado).
+- config.Parse valida con sites.ValidateSet: una sola implementacion de las
+  reglas para el loader, el API y el renderer. Un host con ';' se rechaza al
+  cargar el fichero, no al renderizar.
+- internal/sites no importa nada interno, asi que config -> sites no crea
+  ciclo.
 
-Ambos corregidos en listenDirective, con test.
+configs/waffynx.yaml documenta sites: comentado y con el motivo: el render y
+el apply aun no estan cableados al arranque, y anadir un sitio ahi hoy
+validaria pero no protegeria nada. Es justo la promesa falsa que este
+proyecto intenta evitar.
 
-Cobertura: internal/sites al 94.5%, con suelo de 90 en covergate. Total del
-modulo 41.8% -> 44.4%.
+Tests: 8 del Applier (exito, rollback por validacion, rollback por reload,
+borrado de huerfanos, no-op cuando nada cambia, nombres que escapan, wiring,
+serializacion), 4 de config (parseo, inyeccion, duplicados, puerto), y 3
+Linux-only del Engine con un nginx falso y 'nginx -t' real via script. Los
+Linux-only se typechequean con GOOS=linux go vet.
 
-Fase 1 de tasks.md completa (tareas 1.1 y 1.2). La 1.3 (plantilla de
-nginx.conf con include) queda para cuando exista el apply, porque todavia no
-hay nada que incluya.
+Cobertura: internal/sites 90.1% (baja de 94.5 por el codigo nuevo), config
+100%, engine 81.2%, total 44.4% -> 45.3%.
+
+Las tareas 2.1, 2.2, 2.3 y 3.1 quedan hechas. La 3.2 (persistencia atomica
+del YAML desde el API) va con la fase 4, porque vive en handlers_sites.go.
