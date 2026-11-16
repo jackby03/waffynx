@@ -1,0 +1,23 @@
+# Constitution §2.1: source is LF-only. `eol=lf` forces LF in the working tree
+# regardless of a contributor's core.autocrlf setting, which otherwise rewrites
+# checkouts to CRLF on Windows and makes `gofmt -s -l .` (and the gofmt formatter
+# in golangci-lint) report every file as unformatted.
+#
+# `text=auto` lets git detect binary content; the explicit binary overrides below
+# are belt-and-braces for the asset types this repo actually tracks.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.so binary
+*.a binary
+*.zip binary
+*.gz binary
