@@ -10,6 +10,13 @@ import (
 	"unicode"
 )
 
+const (
+	// Entropy threshold constants for normalizing Shannon entropy scores (4.5-8.0 -> 0.0-1.0).
+	minEntropyThreshold = 4.5
+	maxEntropyThreshold = 8.0
+	entropyRange        = maxEntropyThreshold - minEntropyThreshold
+)
+
 // BasicScorer provides ML-like anomaly detection in pure Go.
 //
 // It uses heuristics similar to what an ML model would learn:
@@ -161,8 +168,8 @@ func (s *BasicScorer) Evaluate(ctx context.Context, features *Features) (*Result
 			entropy = bodyEntropy
 		}
 	}
-	if entropy > 4.5 {
-		entropyScore := (entropy - 4.5) / 3.5 // normalize 4.5-8.0 -> 0.0-1.0
+	if entropy > minEntropyThreshold {
+		entropyScore := (entropy - minEntropyThreshold) / entropyRange // normalize 4.5-8.0 -> 0.0-1.0
 		if entropyScore > 1.0 {
 			entropyScore = 1.0
 		}
