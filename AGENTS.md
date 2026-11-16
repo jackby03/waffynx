@@ -135,7 +135,7 @@ When implementing capabilities from [`docs/ROADMAP.md`](docs/ROADMAP.md), agents
 Before declaring any task or feature complete, verify that:
 
 1. **Tests Pass:** All unit and integration tests pass with zero race conditions (`go test -race ./...`).
-2. **Zero Linter Warnings:** `GOOS=linux golangci-lint run ./...` returns exit code `0` (baseline scoped to `origin/main`, see `.golangci.yml`).
+2. **Zero Linter Warnings:** `GOOS=linux golangci-lint run ./...` returns exit code `0` with no baseline or merge-base filter. The tree is clean, so every finding is a regression.
 3. **Constitutional Invariants Intact:** Invariants in [`constitution.md`](constitution.md) and regression rules in [`.jules/sentinel.md`](.jules/sentinel.md) are strictly upheld.
 4. **Scope Boundaries Respected:** No modifications were made outside the declared task scope in `tasks.md`.
 5. **Spec Compliance:** Acceptance criteria in `spec.md` and task criteria in `tasks.md` are 100% met.
