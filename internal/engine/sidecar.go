@@ -363,7 +363,12 @@ func (s *Sidecar) handleRulesAdd(w http.ResponseWriter, r *http.Request) {
 		s.writeSidecarError(w, "invalid rule JSON", http.StatusBadRequest)
 		return
 	}
-	rule.ID = fmt.Sprintf("custom-%d", time.Now().UnixNano())
+	// A caller-supplied ID is honoured so that rules can be managed
+	// deterministically (e.g. "ip-ban-<ip>" must be removable by that same ID).
+	// Only generate one when the caller did not supply it.
+	if rule.ID == "" {
+		rule.ID = fmt.Sprintf("custom-%d", time.Now().UnixNano())
+	}
 	s.rules.AddRule(rule)
 	s.writeJSON(w, http.StatusCreated, rule)
 }
