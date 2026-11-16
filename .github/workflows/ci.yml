@@ -32,10 +32,6 @@ jobs:
           # .golangci.yml uses `new-from-merge-base: origin/main`, which needs a
           # full history to resolve the merge base.
           fetch-depth: 0
-          # internal/appsec/bridge_cpp_linux.go is gated on `linux && cgo` and
-          # #includes "waffynx_bridge.h" from this submodule. Without it the cgo
-          # preprocessor fails as soon as a C compiler is present.
-          submodules: recursive
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -52,10 +48,17 @@ jobs:
       # so there is no separate formatting step to drift out of sync.
       - name: golangci-lint
         env:
-          # Constitution §2.1: Linux is the sole production runtime. Without this
-          # the data-plane files behind build tags are skipped and their Windows
-          # stubs are linted instead.
+          # Constitution §2.1: Linux is the sole production runtime. GOOS=linux is
+          # what makes engine_unix.go (not engine_windows.go) the linted file.
           GOOS: linux
+          # CGO_ENABLED=0 keeps this job self-contained: no C++ toolchain and no
+          # submodules are needed, because internal/appsec/bridge_cpp_stub.go is
+          # analysed instead of the `linux && cgo` shim. It also stops
+          # third_party/open-appsec/external/graphqlparser/go (`import "C"`) from
+          # turning into a package that cannot typecheck against libgraphqlparser.
+          # The real cgo path is compiled in the test job, which does build the
+          # bridge.
+          CGO_ENABLED: "0"
         run: golangci-lint run ./...
 
   # Constitution §2.1: waf-api and waf-agent must be pure static binaries.
