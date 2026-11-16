@@ -48,6 +48,13 @@ linters:
 
   exclusions:
     generated: lax
+    paths:
+      # third_party/open-appsec is a git submodule of vendored C/C++ sources.
+      # Its external/graphqlparser/go files use `import "C"`, so on a host with a
+      # C compiler they become Go packages that depend on modules absent from
+      # go.mod. We never build them as part of this module; the bridge is
+      # compiled by g++ in scripts/build-bridge.sh.
+      - third_party
     rules:
       # Test files: cleanup errors (`defer x.Close()`) and fixture file modes
       # are noise. G112 (Slowloris) stays enabled everywhere because the

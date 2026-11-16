@@ -32,6 +32,10 @@ jobs:
           # .golangci.yml uses `new-from-merge-base: origin/main`, which needs a
           # full history to resolve the merge base.
           fetch-depth: 0
+          # internal/appsec/bridge_cpp_linux.go is gated on `linux && cgo` and
+          # #includes "waffynx_bridge.h" from this submodule. Without it the cgo
+          # preprocessor fails as soon as a C compiler is present.
+          submodules: recursive
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -137,8 +141,15 @@ jobs:
 
       # -race requires CGO, so the environment default (CGO_ENABLED=1) is used here.
       # ./... (not ./internal/...) so cmd/ is covered too.
+      #
+      # third_party is excluded explicitly: with CGO enabled its
+      # external/graphqlparser/go files (`import "C"`) become buildable packages
+      # that need modules absent from go.mod. It is vendored upstream code, not
+      # part of this module; scripts/build-bridge.sh compiles it with g++.
       - name: Test
-        run: go test -race -coverprofile=coverage.out ./...
+        run: |
+          pkgs=$(go list ./... | grep -v '/third_party/')
+          go test -race -coverprofile=coverage.out $pkgs
 
       - name: Coverage summary
         run: |
