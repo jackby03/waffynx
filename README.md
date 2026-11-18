@@ -13,14 +13,14 @@ no feature tier and no telemetry.
 
 Requests are inspected by a native Nginx C module that hands evaluation to a
 high-performance Go sidecar over a `0600` Unix socket: plugins, a policy engine and
-an ML scorer, in that order.
+an anomaly scorer, in that order.
 
 ---
 
 ## 🚀 Key Features
 
-* **Native Nginx Integration**: Intercepts requests at the ACCESS phase with near-zero latency. Uses a heavily optimized, stripped-down Nginx binary (868KB).
-* **Multi-Stage Evaluation Pipeline**: Traffic flows through a chain of dynamic plugins, a robust policy engine, and finally an ML anomaly scorer.
+* **Native Nginx Integration**: Intercepts requests at the ACCESS phase with near-zero latency. Runs upstream nginx, built from the official release tag with only the modules it needs and stripped (881 KB).
+* **Multi-Stage Evaluation Pipeline**: Traffic flows through a chain of dynamic plugins, a robust policy engine, and finally the anomaly scorer.
 * **Deep Body Inspection**: Detects SQLi, XSS, Command Injection, and Path Traversal even within complex POST bodies (JSON, GraphQL, File Uploads).
 * **Built-in Protection Plugins**:
   * `request-validation`: Strict schema enforcement.
@@ -44,11 +44,11 @@ flowchart LR
     subgraph Waffynx Pipeline
         Sidecar --> Plugins[Plugins]
         Plugins --> Policy[Policy Engine]
-        Policy --> ML[ML Bridge]
+        Policy --> Scorer[Anomaly Scorer]
     end
     
-    ML -. 204 Allow .-> Nginx
-    ML -. 403 Block .-> Nginx
+    Scorer -. 204 Allow .-> Nginx
+    Scorer -. 403 Block .-> Nginx
     
     Nginx --> Backend[(Upstream Servers)]
 ```
@@ -148,7 +148,7 @@ work is explicitly out of scope and parked in [docs/FUTURE.md](docs/FUTURE.md).
 * **L7 policy engine**: SQLi, XSS, path traversal, command injection, scanner signatures.
 * **WAF-layer IP blocking** with no privileges, plus optional kernel drop in system mode.
 * **Rate limiting**, in-memory and Redis-backed.
-* **ML anomaly scoring**, built in (pure Go) or delegated to a scorer you run and point at.
+* **Anomaly scoring**, built in: signature patterns plus Shannon entropy with hand-tuned weights, so a verdict is explainable and adds no network call. Or delegate to any engine speaking the scorer socket.
 * **Management API** (JWT/OIDC, RBAC) and the React control room.
 * **`waffynx verify`** functional self-test.
 * **Zero-file bootstrap**: `docker run` with `WAFFYNX_SITE_HOST`/`_UPSTREAM` protects a site, no config file needed.
