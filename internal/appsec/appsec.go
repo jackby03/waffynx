@@ -1,4 +1,10 @@
-// Package appsec provides ML-based anomaly detection for HTTP requests.
+// Package appsec scores HTTP requests for anomaly signals.
+//
+// The built-in scorer is deterministic: signature patterns plus Shannon entropy
+// with hand-tuned weights. Nothing is trained or loaded from disk, so a verdict
+// can be explained from the request alone and costs no extra latency. An external
+// engine can be plugged in over a Unix socket when a learned model is worth the
+// network hop.
 //
 // It defines an interface that can be backed by either:
 //   - A pure Go anomaly scorer, in process (the default)
