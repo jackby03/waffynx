@@ -1,4 +1,4 @@
-.PHONY: all build build-engine build-agent build-api build-cli clean test lint proto install dev bridge-build bridge-clean
+.PHONY: all build build-engine build-agent build-api build-cli build-bridge build-bootstrap clean test lint proto install dev bridge-build bridge-clean
 
 APP_NAME := waffynx
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -27,7 +27,7 @@ all: build
 # ============================================================
 # Build targets
 # ============================================================
-build: build-cli build-agent build-api build-bridge
+build: build-cli build-agent build-api build-bridge build-bootstrap
 
 build-cli:
 	@echo "Building waffynx CLI..."
@@ -44,6 +44,10 @@ build-api:
 build-bridge:
 	@echo "Building appsec-bridge..."
 	@$(GO) build $(GOFLAGS) -o $(BIN_DIR)/appsec-bridge ./cmd/appsec-bridge
+
+build-bootstrap:
+	@echo "Building waffynx-bootstrap..."
+	@$(GO) build $(GOFLAGS) -o $(BIN_DIR)/waffynx-bootstrap ./cmd/waffynx-bootstrap
 
 # ============================================================
 # Third-party: nginx fork

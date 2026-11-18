@@ -286,6 +286,96 @@ func TestApplyIsSerialised(t *testing.T) {
 	}
 }
 
+func TestSyncFragmentsCreatesDirectoryAndIsIdempotent(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "nginx", "conf", "sites")
+	desired := map[string]string{
+		"b.example.com.conf": "b\n",
+		"a.example.com.conf": "a\n",
+	}
+
+	written, removed, err := SyncFragments(dir, desired)
+	if err != nil {
+		t.Fatalf("SyncFragments: %v", err)
+	}
+	if got, want := strings.Join(written, ","), "a.example.com.conf,b.example.com.conf"; got != want {
+		t.Errorf("Written = %q, want %q", got, want)
+	}
+	if len(removed) != 0 {
+		t.Errorf("expected nothing removed, got %v", removed)
+	}
+	for name, want := range desired {
+		got, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatalf("reading %s: %v", name, err)
+		}
+		if string(got) != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+
+	written, removed, err = SyncFragments(dir, desired)
+	if err != nil {
+		t.Fatalf("second SyncFragments: %v", err)
+	}
+	if len(written) != 0 || len(removed) != 0 {
+		t.Errorf("expected a no-op sync, got written=%v removed=%v", written, removed)
+	}
+}
+
+func TestSyncFragmentsRemovesStaleFiles(t *testing.T) {
+	dir := t.TempDir()
+	if _, _, err := SyncFragments(dir, map[string]string{
+		"a.example.com.conf": "a\n",
+		"b.example.com.conf": "b\n",
+	}); err != nil {
+		t.Fatalf("seed SyncFragments: %v", err)
+	}
+
+	written, removed, err := SyncFragments(dir, map[string]string{"a.example.com.conf": "a\n"})
+	if err != nil {
+		t.Fatalf("SyncFragments: %v", err)
+	}
+	if len(written) != 0 {
+		t.Errorf("expected nothing written, got %v", written)
+	}
+	if got, want := strings.Join(removed, ","), "b.example.com.conf"; got != want {
+		t.Errorf("Removed = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "b.example.com.conf")); !os.IsNotExist(err) {
+		t.Error("the stale fragment should have been deleted")
+	}
+}
+
+func TestSyncFragmentsRejectsMissingDirectory(t *testing.T) {
+	if _, _, err := SyncFragments("", map[string]string{"a.example.com.conf": "a\n"}); err == nil {
+		t.Fatal("expected an empty directory to be rejected")
+	}
+}
+
+func TestSyncFragmentsReportsDirectoryFailure(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "nginx")
+	if err := os.WriteFile(parent, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("writing parent fixture: %v", err)
+	}
+	if _, _, err := SyncFragments(filepath.Join(parent, "sites"), map[string]string{"a.example.com.conf": "a\n"}); err == nil {
+		t.Fatal("expected a file parent to be rejected")
+	}
+}
+
+func TestSyncFragmentsRejectsEscapingNames(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sites")
+	for _, name := range []string{"../evil.conf", `sub\dir.conf`, "sub/dir.conf", "", "..", ".", "noext"} {
+		if _, _, err := SyncFragments(dir, map[string]string{name: "x"}); err == nil {
+			t.Errorf("fragment name %q must be rejected", name)
+		}
+	}
+	// The guard runs before MkdirAll, so a rejected name must not leave a directory
+	// behind either.
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("a rejected name created the target directory: %v", err)
+	}
+}
+
 // TestApplyCreatesMissingDirectory covers the API path, where nothing else creates
 // the include directory before the first site is added.
 func TestApplyCreatesMissingDirectory(t *testing.T) {
