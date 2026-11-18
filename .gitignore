@@ -68,3 +68,6 @@ tmp/
 .pr*.md
 .tmp_*.md
 .patch_*.js
+
+# Gate reports and raw gate output (go-test.json, bench.txt).
+.artifacts/

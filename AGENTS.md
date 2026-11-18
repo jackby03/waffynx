@@ -81,6 +81,7 @@ When implementing capabilities from [`docs/ROADMAP.md`](docs/ROADMAP.md), agents
 * **Run single test package:** `go test -v -race ./internal/<package>`
 * **Run specific test:** `go test -v ./internal/policy -run TestPolicyEvaluate`
 * **Run fuzz tests:** `go test -fuzz=FuzzPolicyEvaluate -fuzztime=10s ./internal/policy` (see also `FuzzParseRequest` in `internal/parsers`)
+* **Minimum inventories:** `make gatecheck` (rules in `.ci/gates.json`). Enforces a test floor, required tests, declared skips only, benchmark ceilings in allocs/op, and the seed count per fuzz target. "Nothing is satisfied by absence": an empty suite, a deleted benchmark or a seedless corpus fails instead of passing quietly.
 * **Functional self-test:** `waffynx verify -c configs/waffynx.yaml` (drives benign and malicious requests through the real inspection pipeline; exits non-zero on any mismatch, `--json` for CI)
 * **Lint / Static analysis:** `GOOS=linux golangci-lint run ./...` (also runs the `gofmt -s` formatter)
 * **Format check:** `gofmt -s -l .` (`.gitattributes` pins `eol=lf`, so the working tree stays LF regardless of a contributor's `core.autocrlf`)

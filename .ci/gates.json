@@ -1,0 +1,79 @@
+{
+  "comment": "Inventory the CI gates must observe. Numbers are measured with the toolchain CI pins, then declared; tighten, never loosen. See tools/gatecheck.",
+  "gates": [
+    "tests",
+    "bench",
+    "fuzz"
+  ],
+  "tests": {
+    "min_passing": 395,
+    "required": [
+      {
+        "test": "TestSidecarSocketGroupWidensTo0660",
+        "goos": "linux"
+      },
+      {
+        "test": "TestSidecarSocketGroupUnknownFailsClosed",
+        "goos": "linux"
+      },
+      {
+        "test": "TestAPI_CORS_PreflightOnAuthenticatedRoutes"
+      },
+      {
+        "test": "TestEngineApplySitesWritesAndReloads",
+        "goos": "linux"
+      },
+      {
+        "test": "TestEngineApplySitesRollsBackOnRejectedConfig",
+        "goos": "linux"
+      },
+      {
+        "test": "TestAPISiteCreateFailsClosedWhenNginxRejects"
+      },
+      {
+        "test": "TestParseQueryParams"
+      }
+    ],
+    "allowed_skips": [
+      {
+        "package": "github.com/jackby03/waffynx/cmd/appsec-bridge",
+        "test": "TestSocketPermissions",
+        "goos": "windows",
+        "reason": "POSIX socket permissions are only enforced on Linux; Windows has no 0600 mode. Runs for real in CI (linux)."
+      },
+      {
+        "package": "github.com/jackby03/waffynx/internal/engine",
+        "test": "TestSidecarSocketPermissions",
+        "goos": "windows",
+        "reason": "Same as above: the sidecar socket mode is a POSIX property. Runs for real in CI (linux)."
+      }
+    ]
+  },
+  "bench": {
+    "required": [
+      "BenchmarkParseQueryParams",
+      "BenchmarkBasicScorer_Evaluate_Clean",
+      "BenchmarkBasicScorer_CheckPatterns",
+      "BenchmarkNormalizePath",
+      "BenchmarkEvaluate_QueryParam_Single",
+      "BenchmarkEvaluate_QueryParam_Multi",
+      "BenchmarkEvaluate_QueryParam_NoMatch"
+    ],
+    "max_allocs_per_op": {
+      "BenchmarkParseQueryParams": 8,
+      "BenchmarkBasicScorer_Evaluate_Clean": 31,
+      "BenchmarkBasicScorer_CheckPatterns": 12,
+      "BenchmarkNormalizePath": 1,
+      "BenchmarkEvaluate_QueryParam_Single": 1,
+      "BenchmarkEvaluate_QueryParam_Multi": 1,
+      "BenchmarkEvaluate_QueryParam_NoMatch": 1
+    }
+  },
+  "fuzz": {
+    "min_seeds": {
+      "FuzzPolicyEvaluate": 3,
+      "FuzzInspectGraphQL": 4,
+      "FuzzInspectFileUpload": 3
+    }
+  }
+}
