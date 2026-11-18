@@ -61,6 +61,10 @@ var floors = map[string]float64{
 	// Raise it as handlers gain tests.
 	"internal/api": 50,
 
+	// The inventory gates themselves. If gatecheck is wrong, every other gate is
+	// wrong in a way nobody notices, so it is held to the same standard it enforces.
+	"tools/gatecheck": 82,
+
 	"minTotal": 41,
 }
 

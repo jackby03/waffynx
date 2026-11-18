@@ -1,4 +1,4 @@
-.PHONY: all build build-engine build-agent build-api build-cli build-bridge build-bootstrap clean test lint proto install dev
+.PHONY: all build build-engine build-agent build-api build-cli build-bridge build-bootstrap clean test lint proto install dev gatecheck
 
 APP_NAME := waffynx
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -144,6 +144,18 @@ test:
 cover:
 	@$(GO) test -race -coverpkg=./... -coverprofile=coverage.out ./...
 	@$(GO) run ./tools/covergate -profile coverage.out
+
+# Minimum inventories: what the gates must *observe*, not just exit 0 on.
+# A green test run with an empty suite, a deleted benchmark and a corpus with no
+# seeds all used to pass. Rules live in .ci/gates.json.
+gatecheck:
+	@mkdir -p .artifacts
+	@$(GO) test -json ./... > .artifacts/go-test.json
+	@$(GO) run ./tools/gatecheck tests -json .artifacts/go-test.json
+	@$(GO) test -run '^$$' -bench . -benchmem -benchtime=200x ./cmd/... ./internal/... \
+		> .artifacts/bench.txt
+	@$(GO) run ./tools/gatecheck bench -out .artifacts/bench.txt
+	@$(GO) run ./tools/gatecheck fuzz -root .
 
 test-all:
 	@echo "Running all tests..."

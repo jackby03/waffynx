@@ -72,7 +72,7 @@ linters:
 
 issues:
   # No baseline: the tree is clean, so every finding is a regression. Keep it
-  # that way rather than reintroducing a merge-base filter (AGENTS.md §7.2).
+  # that way rather than reintroducing a merge-base filter (AGENTS.md §3.3).
   max-issues-per-linter: 0
   max-same-issues: 0
 

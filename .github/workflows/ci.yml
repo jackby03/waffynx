@@ -134,11 +134,58 @@ jobs:
       # -coverpkg covers the whole module so statements exercised across package
       # boundaries are counted. Without it, the inspection pipeline driven from
       # cmd/waffynx reports as untested.
+      # -json goes to a file so the inventory gate below can read what actually
+      # ran. A green exit code alone cannot tell an empty suite from a full one.
       - name: Test
+        id: tests
         run: |
+          mkdir -p .artifacts
           pkgs=$(go list ./... | grep -v '/third_party/')
           coverpkgs=$(echo "$pkgs" | paste -sd, -)
-          go test -race -coverpkg="$coverpkgs" -coverprofile=coverage.out $pkgs
+          go test -race -json -coverpkg="$coverpkgs" -coverprofile=coverage.out $pkgs \
+            > .artifacts/go-test.json
+
+      # Minimum inventory: floor, required tests, declared skips only. A green
+      # exit code cannot tell an empty suite from a full one.
+      - name: Test inventory
+        if: always()
+        run: go run ./tools/gatecheck tests -json .artifacts/go-test.json
+
+      # Measured with -benchmem and parsed, never written by hand: the numbers are
+      # per-toolchain (same code: 26 allocs on go1.26, 31 on go1.22) and allocs/op
+      # is the invariant Constitution §1.2 actually cares about.
+      - name: Benchmark inventory
+        id: bench
+        run: |
+          mkdir -p .artifacts
+          go test -run '^$' -bench . -benchmem -benchtime=200x ./cmd/... ./internal/... \
+            > .artifacts/bench.txt
+          go run ./tools/gatecheck bench -out .artifacts/bench.txt
+
+      # A corpus with no seeds proves nothing, and seeds live in the AST (f.Add)
+      # as often as in testdata/fuzz, so both are counted.
+      - name: Fuzz seed inventory
+        id: fuzz
+        run: go run ./tools/gatecheck fuzz -root .
+
+      # Nothing is satisfied by absence, including the gates themselves: a step
+      # that never reported success makes the report say fail, and verify refuses
+      # a report that is missing a gate or describes a different tree.
+      - name: Gate report
+        if: always()
+        env:
+          TESTS: ${{ steps.tests.outcome }}
+          BENCH: ${{ steps.bench.outcome }}
+          FUZZ: ${{ steps.fuzz.outcome }}
+        run: |
+          mkdir -p .artifacts
+          status() { case "$1" in success) echo pass ;; *) echo fail ;; esac; }
+          go run ./tools/gatecheck report -out .artifacts/gate-report.json \
+            -gate tests="$(status "$TESTS")" \
+            -gate bench="$(status "$BENCH")" \
+            -gate fuzz="$(status "$FUZZ")"
+          go run ./tools/gatecheck verify -report .artifacts/gate-report.json \
+            -expect tests,bench,fuzz
 
       # Per-package minimums, not a single global percentage: a global total is
       # dominated by whichever package has the most statements and hides
@@ -203,6 +250,7 @@ jobs:
             waffynx:e2e
 
       - name: Assert it protects the site
+        id: protect
         run: |
           set -euo pipefail
 
@@ -234,6 +282,21 @@ jobs:
           check 404 "$(code -H 'Host: otro.example.test' http://localhost:18080/)" "unknown host refused" || rc=1
 
           exit $rc
+
+      # The e2e result is bound to the tree it ran against: a report that only
+      # names a commit can attach "verified" to code that was never verified. And
+      # if this step never runs, verify fails rather than passing by absence.
+      - name: E2E gate report
+        if: always()
+        env:
+          PROTECT: ${{ steps.protect.outcome }}
+        run: |
+          mkdir -p .artifacts
+          status() { case "$1" in success) echo pass ;; *) echo fail ;; esac; }
+          go run ./tools/gatecheck report -out .artifacts/gate-report.json \
+            -gate e2e="$(status "$PROTECT")"
+          go run ./tools/gatecheck verify -report .artifacts/gate-report.json \
+            -expect e2e
 
       - name: Container logs
         if: failure()
