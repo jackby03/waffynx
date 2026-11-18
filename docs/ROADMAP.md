@@ -144,12 +144,46 @@ Sequenced by "what makes it a product" — not by "what is interesting to build"
 
 Ordered by severity. All verified in the code, not assumed.
 
-1. **IP blocking now works at the WAF layer (fixed).** The handler used to call `_ = s.firewall.BlockIP(req.IP)`: the error was discarded and `s.firewall` is the host `nftables`/`ufw` manager, so in a container the API answered `201 Created` while nothing was enforced. Bans are now injected as a custom rule in the sidecar (the only enforcement point that needs no privileges) and the kernel drop is an optional enhancement. If neither layer can enforce, the API returns `503` instead of claiming success.
-2. **No site/Proxy Host management.** Topology lives only in YAML (`routes:`).
-3. **No environment-variable bootstrap.** The only env var read is `WAFFYNX_UI_DIR`; everything else is a 136-line YAML copied into the image.
-4. **The image is never published.** No workflow builds or pushes it, so `docker pull` is impossible and the Helm chart references a registry path that does not exist.
-5. **No `LICENSE` file.** The product is described as the open-source alternative to Cloudflare WAF, but the repository grants no license. This also blocks adoption and any managed-ruleset contribution. Needs a deliberate choice (e.g. Apache-2.0 for adoption vs AGPL-3.0 to deter closed SaaS resale).
-6. **`firewall.enabled: true` in the container's default config** while `entrypoint.sh` never starts `waf-agent`, so the setting is misleading in P0 mode.
+1. **IP blocking at the WAF layer — fixed.** The handler used to discard the error
+   from the host `nftables`/`ufw` manager, so in a container the API answered
+   `201 Created` while nothing was enforced. Bans are now injected as a custom rule
+   in the sidecar and the kernel drop is an optional enhancement; if neither layer
+   can enforce, the API returns `503`.
+2. **Site/Proxy Host management — done.** `internal/sites` renders fragments from
+   the topology, `Applier` applies them with `nginx -t` + rollback, and
+   `/api/v1/sites` exposes create/update/delete. Each change is validated and
+   applied before it is persisted.
+3. **Environment-variable bootstrap — done.** `WAFFYNX_SITE_HOST`/`_UPSTREAM`/
+   `_TLS_*`, `WAFFYNX_JWT_SECRET`, `WAFFYNX_DATA_DIR` and `WAFFYNX_LISTEN` are
+   applied before validation, and `entrypoint.sh` refuses to start if the bootstrap
+   fails.
+4. **The image is never published.** Still open. `docker build` works (and CI now
+   proves it on every push), but no workflow pushes to a registry, so `docker pull`
+   is impossible and the Helm chart references a registry path that does not exist.
+5. **No `LICENSE` file.** Still open, deliberately: the licence choice waits on a
+   market study. Until it lands, the repository grants no rights, which also blocks
+   adoption and any managed-ruleset contribution.
+6. **`firewall.enabled` defaults to `false` — fixed.** The container never started
+   `waf-agent`, so the setting claimed host enforcement that was not running. It is
+   now off by default and documented as system-mode only.
+
+### 7.1 Defects found by running the container, not by reading the code
+
+These were invisible to unit tests because nothing in CI built the image:
+
+- **The Dockerfile could not build at all.** `COPY modules/ modules/` copies the
+  *contents* of `modules/` into `/build/modules/modules/`, so
+  `--add-module=/build/modules/ngx_waffynx` never found its `config` script.
+- **The image inherited CRLF from a Windows checkout.** `core.autocrlf=true`
+  rewrites the `third_party/nginx` submodule to CRLF (the parent `.gitattributes`
+  does not reach inside a submodule) and `/bin/sh` failed on `auto/configure`. The
+  build now normalises the tree inside the image so it does not depend on the
+  builder's git configuration.
+- **Every request returned 403.** The sidecar socket was `0600` owned by root while
+  nginx drops its workers to `nobody`, so the workers got `EACCES` and, with
+  `fail_open off`, denied everything including benign traffic. The socket is now
+  `0660` with a configurable group (`sidecar.socket_group`) and nginx pins
+  `user nobody nogroup`.
 
 ---
 

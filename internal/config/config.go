@@ -30,7 +30,11 @@ type Config struct {
 }
 
 type SidecarConfig struct {
-	SocketPath     string `yaml:"socket_path"`
+	SocketPath string `yaml:"socket_path"`
+	// SocketGroup widens the sidecar socket to 0660 and hands it to this group,
+	// which is what a proxy whose worker processes drop privileges needs. Empty
+	// keeps the strict 0600 default (Constitution §2.2 allows either).
+	SocketGroup    string `yaml:"socket_group"`
 	FailOpen       bool   `yaml:"fail_open"`
 	TimeoutMs      int    `yaml:"timeout_ms"`
 	EventAPIURL    string `yaml:"event_api_url"`

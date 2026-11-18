@@ -7,8 +7,15 @@ services:
       - "8080:8080"
       - "8443:8443"
       - "9090:9090"
+    environment:
+      # The whole topology: one command, no config file. Point these at your
+      # own upstream to protect it.
+      WAFFYNX_SITE_HOST: app.example.test
+      WAFFYNX_SITE_UPSTREAM: backend:80
     volumes:
       - waffynx-logs:/opt/waffynx/logs
+      # Holds the generated JWT secret; losing it invalidates issued tokens.
+      - waffynx-data:/opt/waffynx/data
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
       interval: 10s
@@ -28,3 +35,4 @@ services:
 
 volumes:
   waffynx-logs:
+  waffynx-data:

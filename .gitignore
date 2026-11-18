@@ -59,3 +59,12 @@ cmd/waf-api/ui/.env.local
 tmp/
 *.log
 .tmp/
+
+# Local scratch files for commit and PR messages. `git add -A` used to pick these
+# up before they were written, which is how a commit message ended up tracked.
+.msg.txt
+.pr.md
+.pr_body.md
+.pr*.md
+.tmp_*.md
+.patch_*.js
