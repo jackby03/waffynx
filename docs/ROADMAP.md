@@ -113,7 +113,7 @@ Sequenced by "what makes it a product" — not by "what is interesting to build"
 
 ### Phase 3 — AI *(deliberately last; it is the differentiator, not the foundation)*
 
-- Provider abstraction + adapters: Anthropic, OpenAI, Gemini, Vertex, local (Ollama/llama.cpp), plus the existing Open-AppSec bridge as the bundled local engine.
+- Provider abstraction + adapters: Anthropic, OpenAI, Gemini, Vertex, local (Ollama/llama.cpp), plus the existing scorer socket for an engine run out of tree. Nothing is vendored: the bundled C++ stub was removed because it never ran (`WAFFYNX_REAL_ENGINE` was defined nowhere) — see `third_party/README.md`.
 - Per-provider data-privacy policy: what leaves the box, redaction of PII/headers/body, retention, opt-in per site.
 - "Explain this verdict" in the forensics drawer, grounded in the rule/score that fired.
 - ML attack-score classification across SQLi/XSS/RCE.

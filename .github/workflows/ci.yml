@@ -51,13 +51,9 @@ jobs:
           # Constitution §2.1: Linux is the sole production runtime. GOOS=linux is
           # what makes engine_unix.go (not engine_windows.go) the linted file.
           GOOS: linux
-          # CGO_ENABLED=0 keeps this job self-contained: no C++ toolchain and no
-          # submodules are needed, because internal/appsec/bridge_cpp_stub.go is
-          # analysed instead of the `linux && cgo` shim. It also stops
-          # third_party/open-appsec/external/graphqlparser/go (`import "C"`) from
-          # turning into a package that cannot typecheck against libgraphqlparser.
-          # The real cgo path is compiled in the test job, which does build the
-          # bridge.
+          # CGO_ENABLED=0 keeps this job self-contained: no C toolchain and no
+          # submodules are needed to lint. There is no cgo shim left to skip, since
+          # the open-appsec C++ bridge was removed (see third_party/README.md).
           CGO_ENABLED: "0"
         run: golangci-lint run ./...
 
@@ -117,25 +113,11 @@ jobs:
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
-      - name: Install C++ dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq \
-            build-essential cmake bison flex \
-            g++ \
-            libboost-all-dev \
-            libpcre2-dev \
-            libssl-dev \
-            zlib1g-dev \
-            libmaxminddb-dev \
-            libcurl4-openssl-dev \
-            libgtest-dev libgmock-dev \
-            libbrotli-dev libxml2-dev
-
-      # Required before any CGO_ENABLED=1 build: internal/appsec/bridge_cpp_linux.go
-      # is gated on `linux && cgo` and links -lwaffynx_bridge.
-      - name: Build C++ bridge
-        run: make bridge-build
+      # -race needs a C toolchain; nothing else in this job compiles C. The old
+      # open-appsec build pulled a dozen -dev libraries plus cmake, bison and flex
+      # on every run to produce a shim that was never enabled.
+      - name: Install C toolchain for -race
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq build-essential
 
       # ui/embed.go embeds all:dist, and TestAPI_RootServesDashboardForHTMLClients
       # asserts the Vite shell is served. Without this step the suite fails.
@@ -145,10 +127,9 @@ jobs:
       # -race requires CGO, so the environment default (CGO_ENABLED=1) is used here.
       # ./... (not ./internal/...) so cmd/ is covered too.
       #
-      # third_party is excluded explicitly: with CGO enabled its
-      # external/graphqlparser/go files (`import "C"`) become buildable packages
-      # that need modules absent from go.mod. It is vendored upstream code, not
-      # part of this module; scripts/build-bridge.sh compiles it with g++.
+      # third_party is excluded explicitly: it holds the nginx C sources (a
+      # submodule, not Go code). A vendored tree that ever ships `import "C"`
+      # files must not become a package needing modules absent from go.mod.
       #
       # -coverpkg covers the whole module so statements exercised across package
       # boundaries are counted. Without it, the inspection pipeline driven from

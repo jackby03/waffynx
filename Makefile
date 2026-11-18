@@ -1,4 +1,4 @@
-.PHONY: all build build-engine build-agent build-api build-cli build-bridge build-bootstrap clean test lint proto install dev bridge-build bridge-clean
+.PHONY: all build build-engine build-agent build-api build-cli build-bridge build-bootstrap clean test lint proto install dev
 
 APP_NAME := waffynx
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -111,14 +111,11 @@ nginx-build:
 nginx-install:
 	@$(MAKE) -C $(NGINX_DIR) install
 
-# ============================================================
-# Third-party: open-appsec bridge
-# ============================================================
-bridge-build:
-	@bash scripts/build-bridge.sh
-
-bridge-clean:
-	@rm -rf /tmp/waffynx-bridge-build
+# The C++ open-appsec bridge used to be built here from a stripped submodule.
+# It never ran: WAFFYNX_REAL_ENGINE was defined nowhere, so the compiled shim was
+# a stub, and the image built appsec-bridge with CGO_ENABLED=0 while selecting the
+# in-process scorer anyway. The socket interface it exposed is still supported:
+# point appsec.engine: open-appsec at an engine you run yourself.
 
 # ============================================================
 # Development

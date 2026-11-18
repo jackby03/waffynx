@@ -27,7 +27,7 @@ an ML scorer, in that order.
   * `bot-protection`: Advanced bot mitigation.
   * `rate-limit`: Distributed token bucket (Redis-backed).
   * `geo-block`: MaxMind IP intelligence.
-* **C++ Machine Learning Bridge**: Swappable ML engine (integrates with open-appsec) for behavioral entropy analysis and pattern detection.
+* **Pluggable scoring**: in-process Go scorer, or any engine speaking the scorer protocol over a Unix socket (`appsec.engine: open-appsec`). Nothing is vendored, so the choice stays yours.
 * **Management Plane**: REST API with JWT/OIDC authentication and RBAC, a single-page control-room UI, and Prometheus metrics out of the box.
 * **Privilege-free IP blocking**: bans are enforced at the WAF layer, so they work in a container with no `NET_ADMIN`. Kernel-level `nftables`/`ufw` drops are an *optional* system-mode enhancement (`waf-agent`).
 * **`waffynx verify`**: a functional self-test that drives benign and malicious requests through the real inspection pipeline and reports what was blocked and why.
@@ -148,7 +148,7 @@ work is explicitly out of scope and parked in [docs/FUTURE.md](docs/FUTURE.md).
 * **L7 policy engine**: SQLi, XSS, path traversal, command injection, scanner signatures.
 * **WAF-layer IP blocking** with no privileges, plus optional kernel drop in system mode.
 * **Rate limiting**, in-memory and Redis-backed.
-* **ML anomaly scoring**, bundled (pure Go) or through the open-appsec bridge.
+* **ML anomaly scoring**, built in (pure Go) or delegated to a scorer you run and point at.
 * **Management API** (JWT/OIDC, RBAC) and the React control room.
 * **`waffynx verify`** functional self-test.
 * **Zero-file bootstrap**: `docker run` with `WAFFYNX_SITE_HOST`/`_UPSTREAM` protects a site, no config file needed.
