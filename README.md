@@ -60,24 +60,45 @@ flowchart LR
 
 ### Container (recommended, no host privileges)
 
+One command, no config file. `WAFFYNX_SITE_HOST` and `WAFFYNX_SITE_UPSTREAM` create
+the first site at boot; the JWT secret is generated once and persisted `0600` in the
+data directory.
+
 ```bash
 git clone --recurse-submodules https://github.com/jackby03/waffynx.git
 cd waffynx
-
 docker build -f deploy/docker/Dockerfile -t waffynx .
 
-# The management API refuses to start with the placeholder JWT secret, so
-# generate a real one in a config you mount:
-cp configs/waffynx.yaml waffynx.local.yaml
-sed -i "s/change-me-in-production/$(openssl rand -hex 32)/" waffynx.local.yaml
+# An upstream to protect (replace with your own service)
+docker network create waffynx
+docker run -d --name app --network waffynx nginx:alpine
 
-docker run --rm -p 8080:8080 -p 8443:8443 -p 9090:9090 \
-  -v "$PWD/waffynx.local.yaml:/opt/waffynx/config/waffynx.yaml:ro" \
+docker run -d --name waffynx --network waffynx -p 8080:8080 \
+  -v waffynx-data:/opt/waffynx/data \
+  -e WAFFYNX_SITE_HOST=app.example.com \
+  -e WAFFYNX_SITE_UPSTREAM=app:80 \
   waffynx
+
+curl -H 'Host: app.example.com' http://localhost:8080/                        # 200, proxied
+curl -H 'Host: app.example.com' 'http://localhost:8080/?q=UNION+SELECT+1,2,3'  # 403, blocked
 ```
 
-A published multi-arch image and a one-command bootstrap (no file editing at all)
-are Phase 0 work in progress — see [docs/ROADMAP.md](docs/ROADMAP.md).
+| Variable | Effect |
+|---|---|
+| `WAFFYNX_SITE_HOST` + `WAFFYNX_SITE_UPSTREAM` | create the first site; both are required together |
+| `WAFFYNX_SITE_TLS_CERT` + `WAFFYNX_SITE_TLS_KEY` | optional TLS pair for that site |
+| `WAFFYNX_JWT_SECRET` | API signing key; if unset a 32-byte key is generated once and persisted |
+| `WAFFYNX_DATA_DIR` | where the generated secret lives (default `/opt/waffynx/data`) |
+| `WAFFYNX_LISTEN` | top-level `listen` value |
+
+**Keep the data volume.** It holds the generated signing key; losing it invalidates
+every issued token.
+
+Adding more sites needs no restart: `POST /api/v1/sites` reconfigures the proxy,
+validates the result with `nginx -t` and only then persists it.
+
+Still pending: a **published** multi-arch image (today you build it) — see
+[docs/ROADMAP.md](docs/ROADMAP.md).
 
 ### Verify that it actually protects
 
@@ -130,12 +151,14 @@ work is explicitly out of scope and parked in [docs/FUTURE.md](docs/FUTURE.md).
 * **ML anomaly scoring**, bundled (pure Go) or through the open-appsec bridge.
 * **Management API** (JWT/OIDC, RBAC) and the React control room.
 * **`waffynx verify`** functional self-test.
+* **Zero-file bootstrap**: `docker run` with `WAFFYNX_SITE_HOST`/`_UPSTREAM` protects a site, no config file needed.
+* **Site management over the API**: create, update and delete reverse-proxy sites; each change is validated with `nginx -t` before it is persisted.
 
-### 🚧 Phase 0 — in progress
+### 🚧 Phase 0 — remaining
 
-* Site management (domain → upstream → TLS) from the API and CLI.
-* Bootstrap from environment variables, so `docker run` needs no file editing.
-* Published multi-arch image.
+* Published multi-arch image (today you `docker build` it).
+* A `LICENSE` file: no rights are granted until one exists.
+* GUI for site management; the API and CLI come first by design.
 
 ### 📅 Next
 

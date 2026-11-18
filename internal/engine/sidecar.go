@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/user"
+	"strconv"
 	"strings"
 	"time"
 
@@ -44,16 +46,21 @@ import (
 //	             X-WN-Rule: sql-001
 type Sidecar struct {
 	socketPath string
-	listener   net.Listener
-	server     *http.Server
-	chain      *plugin.Chain
-	engine     policy.Evaluator
-	scorer     appsec.Scorer
-	learning   *learning.Engine
-	audit      *audit.Store
-	rules      *wrules.Engine
-	broker     *events.Broker
-	publisher  *events.Publisher
+	// socketGroup, when set, widens the socket to 0660 and hands it to that
+	// group. A proxy whose worker processes drop privileges cannot connect to a
+	// 0600 root-owned socket: it gets EACCES and, with fail_open off, every
+	// request becomes a 403.
+	socketGroup string
+	listener    net.Listener
+	server      *http.Server
+	chain       *plugin.Chain
+	engine      policy.Evaluator
+	scorer      appsec.Scorer
+	learning    *learning.Engine
+	audit       *audit.Store
+	rules       *wrules.Engine
+	broker      *events.Broker
+	publisher   *events.Publisher
 }
 
 func (s *Sidecar) SetEventPublisher(publisher *events.Publisher) {
@@ -86,6 +93,11 @@ func (s *Sidecar) Start() error {
 
 	if err := os.Chmod(s.socketPath, 0600); err != nil {
 		return fmt.Errorf("chmod socket: %w", err)
+	}
+	if s.socketGroup != "" {
+		if err := s.widenSocketToGroup(); err != nil {
+			return err
+		}
 	}
 
 	mux := http.NewServeMux()
@@ -529,4 +541,38 @@ func (s *Sidecar) recordLearning(req *policy.Request, verdict, ruleID, reason st
 			}
 		}
 	}
+}
+
+// SetSocketGroup makes the sidecar widen its socket to 0660 for the given group.
+// Call before Start. Must be set before Start to take effect.
+func (s *Sidecar) SetSocketGroup(group string) {
+	s.socketGroup = group
+}
+
+// widenSocketToGroup hands the socket to the configured group and opens it to
+// 0660, so a proxy whose workers drop privileges can connect.
+//
+// Constitution §2.2 permits 0600 or 0660; 0666 remains forbidden. A group that
+// cannot be resolved is an error rather than a silent fallback: the operator asked
+// for it explicitly, and quietly keeping 0600 would produce the very EACCES this
+// exists to fix.
+func (s *Sidecar) widenSocketToGroup() error {
+	g, err := user.LookupGroup(s.socketGroup)
+	if err != nil {
+		return fmt.Errorf("resolving socket group %q: %w", s.socketGroup, err)
+	}
+	gid, err := strconv.Atoi(g.Gid)
+	if err != nil {
+		return fmt.Errorf("socket group %q has a non-numeric gid %q", s.socketGroup, g.Gid)
+	}
+	if err := os.Chown(s.socketPath, -1, gid); err != nil {
+		return fmt.Errorf("chgrp socket to %q: %w", s.socketGroup, err)
+	}
+	//nolint:gosec // G302: Constitution §2.2 permits 0600 or 0660 for the sidecar
+	// socket. 0660 is the widest allowed, and it is required here because nginx
+	// drops its workers to an unprivileged group.
+	if err := os.Chmod(s.socketPath, 0o660); err != nil {
+		return fmt.Errorf("chmod socket to 0660: %w", err)
+	}
+	return nil
 }

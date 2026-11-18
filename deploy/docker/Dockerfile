@@ -21,7 +21,21 @@ WORKDIR /build/nginx
 COPY third_party/nginx/ .
 
 WORKDIR /build/modules
-COPY modules/ modules/
+# `COPY modules/ modules/` copies the *contents* of modules/ into
+# /build/modules/modules/, which is why --add-module=/build/modules/ngx_waffynx
+# could never find its config script. Copy the contents instead.
+COPY modules/ .
+
+# The nginx build is driven by shell scripts. `core.autocrlf=true` (common on
+# Windows) rewrites the third_party/nginx submodule checkout to CRLF, and the
+# parent repo's .gitattributes does not reach inside a submodule, so /bin/sh
+# fails with "$'\r': command not found". Normalise inside the image: the build
+# must not depend on the builder's git configuration.
+RUN find /build -type f \
+        \( -name '*.c' -o -name '*.h' -o -name '*.sh' -o -name '*.pl' \
+           -o -name 'configure' -o -name 'config' -o -path '*/auto/*' \
+           -o -name '*.conf' -o -name 'Makefile*' \) \
+        -exec sed -i 's/\r$//' {} +
 
 WORKDIR /build/nginx
 RUN bash auto/configure \

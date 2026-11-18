@@ -30,6 +30,12 @@ func (e *Engine) Start(ctx context.Context) error {
 
 	// -- 1. Start the Go sidecar (Unix socket HTTP server) --
 	e.sidecar = NewSidecar(e.cfg.Sidecar.SocketPath, e.policy, e.chain, e.scorer, e.learning, e.audit, e.rules, e.broker)
+	// nginx drops its worker processes to an unprivileged user, so a 0600
+	// root-owned socket gives them EACCES and every request becomes a 403 with
+	// fail_open off. The group has to exist; see Sidecar.widenSocketToGroup.
+	if e.cfg.Sidecar.SocketGroup != "" {
+		e.sidecar.SetSocketGroup(e.cfg.Sidecar.SocketGroup)
+	}
 	if e.cfg.Sidecar.EventAPIURL != "" && e.cfg.Sidecar.EventAuthToken != "" {
 		e.sidecar.SetEventPublisher(events.NewPublisher(
 			e.cfg.Sidecar.EventAPIURL,

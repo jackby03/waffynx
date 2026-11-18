@@ -11,6 +11,10 @@ listen: ":8443"
 # -- Sidecar (Go <-> nginx bridge) --
 sidecar:
   socket_path: "/opt/waffynx/waffynx.sock"
+  # nginx drops its worker processes to an unprivileged user, so the sidecar
+  # socket must be group-accessible or the workers get EACCES and, with
+  # fail_open off, every request turns into a 403. Debian ships nobody:nogroup.
+  socket_group: "nogroup"
   fail_open: false      # fail-closed: block requests if sidecar is unreachable
   timeout_ms: 100       # max ms to wait for sidecar response
   # Optional authenticated bridge for dashboard security events.

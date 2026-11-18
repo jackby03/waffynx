@@ -190,3 +190,78 @@ jobs:
         with:
           name: bridge-libs
           path: bin/*.so
+
+  # The only job that proves the product rather than the code: build the image,
+  # run it with nothing but environment variables, and check that a real nginx
+  # accepts the rendered config, proxies benign traffic and blocks an attack.
+  #
+  # Until this job existed nothing in CI built nginx or the image at all, which is
+  # how a Dockerfile that could never build survived in the tree.
+  container-e2e:
+    name: Container e2e (one-command bootstrap)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build the image
+        run: docker build -f deploy/docker/Dockerfile -t waffynx:e2e .
+
+      - name: Start an upstream
+        run: |
+          docker network create wx-e2e
+          docker run -d --name wx-backend --network wx-e2e nginx:alpine
+
+      - name: Start Waffynx with no config file at all
+        run: |
+          docker run -d --name wx-waf --network wx-e2e -p 18080:8080 \
+            -e WAFFYNX_SITE_HOST=app.example.test \
+            -e WAFFYNX_SITE_UPSTREAM=wx-backend:80 \
+            waffynx:e2e
+
+      - name: Assert it protects the site
+        run: |
+          set -euo pipefail
+
+          for _ in $(seq 1 40); do
+            if curl -sf -o /dev/null --max-time 2 http://localhost:18080/health; then break; fi
+            sleep 1
+          done
+
+          code() { curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$@"; }
+          check() {
+            local want="$1" got="$2" what="$3"
+            if [ "$got" != "$want" ]; then
+              echo "::error::$what: expected $want, got $got"
+              return 1
+            fi
+            echo "ok   $what -> $got"
+          }
+
+          rc=0
+          # The orchestrator probe must not depend on the topology.
+          check 200 "$(code http://localhost:18080/health)" "health" || rc=1
+          # A site created from environment variables alone must be served.
+          check 200 "$(code -H 'Host: app.example.test' http://localhost:18080/)" "benign request proxied" || rc=1
+          check 200 "$(code -H 'Host: app.example.test' 'http://localhost:18080/?page=2&limit=10')" "benign query allowed" || rc=1
+          # ...and must be inspected.
+          check 403 "$(code -H 'Host: app.example.test' 'http://localhost:18080/?q=UNION+SELECT+1,2,3')" "SQLi blocked" || rc=1
+          check 403 "$(code -H 'Host: app.example.test' 'http://localhost:18080/?q=%3Cscript%3Ealert(1)%3C/script%3E')" "XSS blocked" || rc=1
+          # An unconfigured host must not be forwarded anywhere.
+          check 404 "$(code -H 'Host: otro.example.test' http://localhost:18080/)" "unknown host refused" || rc=1
+
+          exit $rc
+
+      - name: Container logs
+        if: failure()
+        run: |
+          docker logs wx-waf || true
+          docker exec wx-waf cat /opt/waffynx/logs/nginx-error.log || true
+
+      - name: Clean up
+        if: always()
+        run: |
+          docker rm -f wx-waf wx-backend || true
+          docker network rm wx-e2e || true
