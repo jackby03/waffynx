@@ -1,10 +1,15 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/jackby03/waffynx/internal/sites"
 )
 
 // BootstrapResult reports the effective configuration after the environment
@@ -49,26 +54,79 @@ func Bootstrap(path string, getenv func(string) string) (*BootstrapResult, error
 	changed := siteOverlay || listenOverlay || loaded.API.Auth.JWTSecret != secret.Value
 
 	result := &BootstrapResult{Config: effective, Secret: secret}
-	if !changed {
-		// Restart with no new environment input and an already persisted secret:
-		// leave the operator's file alone, comments included.
-		return result, nil
+	if changed {
+		merged, mergeErr := mergeBootstrapConfig(raw, effective, siteOverlay, listenOverlay)
+		if mergeErr != nil {
+			return nil, mergeErr
+		}
+		parsed, parseErr := Parse(merged)
+		if parseErr != nil {
+			return nil, fmt.Errorf("validating bootstrapped configuration: %w", parseErr)
+		}
+		if writeErr := writeFileAtomic(path, merged); writeErr != nil {
+			return nil, fmt.Errorf("writing bootstrapped configuration: %w", writeErr)
+		}
+		result.Config = parsed
 	}
 
-	merged, err := mergeBootstrapConfig(raw, effective, siteOverlay, listenOverlay)
-	if err != nil {
+	// Materialise the fragments every boot, including the no-op path: nginx reads
+	// them directly and there is no Applier in the entrypoint. No `nginx -t` here;
+	// nginx is not up yet and the engine fails closed if its start fails.
+	if err := writeSiteFragments(result.Config); err != nil {
 		return nil, err
 	}
-	parsed, err := Parse(merged)
+
+	return result, nil
+}
+
+// writeSiteFragments renders the effective topology into nginx's include
+// directory. It deliberately does not validate with nginx: the bootstrap runs
+// before nginx starts (and the binary may not exist outside the image), so a
+// rejected configuration surfaces as a failed nginx start, not a half-applied
+// one.
+func writeSiteFragments(cfg *Config) error {
+	fragments, err := sites.Render(cfg.Sites, renderOptions(cfg))
 	if err != nil {
-		return nil, fmt.Errorf("validating bootstrapped configuration: %w", err)
+		return fmt.Errorf("rendering site fragments: %w", err)
 	}
-	if err := writeFileAtomic(path, merged); err != nil {
-		return nil, fmt.Errorf("writing bootstrapped configuration: %w", err)
+	if cfg.Nginx.ConfigPath == "" {
+		if len(fragments) == 0 {
+			return nil
+		}
+		return errors.New("nginx.config_path is required to write site fragments")
 	}
 
-	result.Config = parsed
-	return result, nil
+	dir := filepath.Join(cfg.Nginx.ConfigPath, "sites")
+	if _, _, err := sites.SyncFragments(dir, fragments); err != nil {
+		return fmt.Errorf("writing site fragments: %w", err)
+	}
+	return nil
+}
+
+// renderOptions mirrors the API's renderer settings so a site persisted by the
+// bootstrap renders exactly like one applied through /api/v1/sites.
+func renderOptions(cfg *Config) sites.RenderOptions {
+	opts := sites.RenderOptions{
+		SocketPath:  cfg.Sidecar.SocketPath,
+		HTTPListen:  cfg.Nginx.HTTPListen,
+		TLSListen:   cfg.Nginx.TLSListen,
+		MaxBodySize: "64k",
+		TimeoutMs:   cfg.Sidecar.TimeoutMs,
+	}
+	if opts.HTTPListen == "" {
+		opts.HTTPListen = ":8080"
+	}
+	if opts.TLSListen == "" {
+		opts.TLSListen = ":8443"
+	}
+	// The config may carry a bare port; the renderer writes a listen address.
+	if !strings.Contains(opts.HTTPListen, ":") {
+		opts.HTTPListen = ":" + opts.HTTPListen
+	}
+	if !strings.Contains(opts.TLSListen, ":") {
+		opts.TLSListen = ":" + opts.TLSListen
+	}
+	return opts
 }
 
 // mergeBootstrapConfig rewrites only the keys the overlay owns, leaving every

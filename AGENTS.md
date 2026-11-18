@@ -75,7 +75,7 @@ When implementing capabilities from [`docs/ROADMAP.md`](docs/ROADMAP.md), agents
 
 > **Platform note:** the local dev box is `windows/386`, but Linux is the sole production runtime (Constitution §2.1). Lint and build with `GOOS=linux` so the data-plane files behind build tags (`internal/engine/engine_unix.go`, `internal/appsec/bridge_cpp_linux.go`) are actually analysed instead of their stubs. `-race` requires `GOARCH=amd64` plus a C toolchain and is not available on the 386 Windows dev box; it runs in CI and in the Vagrant VM.
 
-* **Build Go binaries:** `make build` (outputs `waffynx`, `waf-agent`, `waf-api`, `appsec-bridge` to `bin/`)
+* **Build Go binaries:** `make build` (outputs `waffynx`, `waffynx-bootstrap`, `waf-agent`, `waf-api`, `appsec-bridge` to `bin/`)
 * **Run all unit tests:** `go test -race ./...` (use `make test`, which covers `./...` including `cmd/`)
 * **Coverage with per-package floors:** `make cover` (equivalently `go test -race -coverpkg=./... -coverprofile=coverage.out ./...` then `go run ./tools/covergate -profile coverage.out`). Floors live in `tools/covergate/main.go` and only ratchet up.
 * **Run single test package:** `go test -v -race ./internal/<package>`

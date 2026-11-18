@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -8,14 +9,23 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/jackby03/waffynx/internal/sites"
 )
 
-const bootstrapFixture = `# keep this comment
+// bootstrapFixtureWithNginx writes a config whose nginx include directory is a
+// temp path, so the fragment materialisation never touches /opt during tests.
+func bootstrapFixtureWithNginx(t *testing.T) (configPath, nginxConf string) {
+	t.Helper()
+	nginxConf = filepath.Join(t.TempDir(), "nginx", "conf")
+	content := fmt.Sprintf(`# keep this comment
 name: bootstrap-test
 listen: ":8443"
 logging:
   level: debug
 custom_key: keep-me
+nginx:
+  config_path: %q
 sites:
   - host: old.example
     upstream: 10.0.0.5:8080
@@ -23,7 +33,20 @@ api:
   auth:
     jwt_secret: change-me-in-production
     token_ttl: 123
-`
+`, nginxConf)
+	return writeBootstrapConfig(t, content), nginxConf
+}
+
+func bootstrapFixtureWithoutSites(t *testing.T, nginxConf string) string {
+	t.Helper()
+	return fmt.Sprintf(`name: bootstrap-test
+nginx:
+  config_path: %q
+api:
+  auth:
+    jwt_secret: %s
+`, nginxConf, testJWTSecret)
+}
 
 func writeBootstrapConfig(t *testing.T, content string) string {
 	t.Helper()
@@ -35,7 +58,7 @@ func writeBootstrapConfig(t *testing.T, content string) string {
 }
 
 func TestBootstrapAppliesEnvSiteAndSecret(t *testing.T) {
-	path := writeBootstrapConfig(t, bootstrapFixture)
+	path, _ := bootstrapFixtureWithNginx(t)
 	dataDir := filepath.Join(t.TempDir(), "data")
 
 	result, err := Bootstrap(path, fakeEnv(map[string]string{
@@ -119,13 +142,16 @@ func TestBootstrapAppliesEnvSiteAndSecret(t *testing.T) {
 }
 
 func TestBootstrapNoOpLeavesConfigByteIdentical(t *testing.T) {
-	path := writeBootstrapConfig(t, `
+	nginxConf := filepath.Join(t.TempDir(), "nginx", "conf")
+	path := writeBootstrapConfig(t, fmt.Sprintf(`
 # this comment must survive a restart
 name: bootstrap-test
+nginx:
+  config_path: %q
 api:
   auth:
-    jwt_secret: `+testJWTSecret+`
-`)
+    jwt_secret: %s
+`, nginxConf, testJWTSecret))
 	dataDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dataDir, JWTSecretFile), []byte(testJWTSecret), 0o600); err != nil {
 		t.Fatalf("writing persisted secret: %v", err)
@@ -153,7 +179,7 @@ api:
 }
 
 func TestBootstrapEnvSecretWritesNoSecretFile(t *testing.T) {
-	path := writeBootstrapConfig(t, bootstrapFixture)
+	path, _ := bootstrapFixtureWithNginx(t)
 	dataDir := filepath.Join(t.TempDir(), "data")
 
 	result, err := Bootstrap(path, fakeEnv(map[string]string{
@@ -184,7 +210,7 @@ func TestBootstrapEnvSecretWritesNoSecretFile(t *testing.T) {
 }
 
 func TestBootstrapInvalidEnvLeavesConfigUntouched(t *testing.T) {
-	path := writeBootstrapConfig(t, bootstrapFixture)
+	path, _ := bootstrapFixtureWithNginx(t)
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("reading config fixture: %v", err)
@@ -208,7 +234,7 @@ func TestBootstrapInvalidEnvLeavesConfigUntouched(t *testing.T) {
 }
 
 func TestBootstrapSecretErrorLeavesConfigUntouched(t *testing.T) {
-	path := writeBootstrapConfig(t, bootstrapFixture)
+	path, _ := bootstrapFixtureWithNginx(t)
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("reading config fixture: %v", err)
@@ -240,6 +266,168 @@ func TestBootstrapConfigErrors(t *testing.T) {
 	invalid := writeBootstrapConfig(t, "name: [invalid yaml")
 	if _, err := Bootstrap(invalid, fakeEnv(nil)); err == nil {
 		t.Error("expected an invalid config file to fail")
+	}
+}
+
+func TestBootstrapWritesRenderedSiteFragment(t *testing.T) {
+	path, nginxConf := bootstrapFixtureWithNginx(t)
+
+	if _, err := Bootstrap(path, fakeEnv(map[string]string{
+		EnvSiteHost:     "new.example",
+		EnvSiteUpstream: "10.0.0.9:8443",
+		EnvDataDir:      t.TempDir(),
+	})); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+
+	fragmentPath := filepath.Join(nginxConf, "sites", "new.example.conf")
+	fragment, err := os.ReadFile(fragmentPath)
+	if err != nil {
+		t.Fatalf("reading rendered fragment: %v", err)
+	}
+	body := string(fragment)
+	if !strings.Contains(body, "waffynx on;") {
+		t.Errorf("fragment must enable the WAF, got:\n%s", body)
+	}
+	if !strings.Contains(body, "10.0.0.9:8443") {
+		t.Errorf("fragment must point at the env upstream, got:\n%s", body)
+	}
+	if strings.Contains(body, "backend:80") {
+		t.Errorf("fragment still points at the old hardcoded backend:\n%s", body)
+	}
+}
+
+// TestBootstrapRemovesStaleFragments covers the transition from a site created
+// by the environment to a config that no longer has it: the rendered fragment
+// must not survive the next boot.
+func TestBootstrapRemovesStaleFragments(t *testing.T) {
+	path, nginxConf := bootstrapFixtureWithNginx(t)
+	dataDir := t.TempDir()
+
+	if _, err := Bootstrap(path, fakeEnv(map[string]string{
+		EnvSiteHost:     "new.example",
+		EnvSiteUpstream: "10.0.0.9:8443",
+		EnvDataDir:      dataDir,
+	})); err != nil {
+		t.Fatalf("first bootstrap: %v", err)
+	}
+	stale := filepath.Join(nginxConf, "sites", "new.example.conf")
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatalf("expected the first bootstrap to write %s: %v", stale, err)
+	}
+
+	// Simulate the operator removing the site from the persisted config; the
+	// environment variables are gone too, which is what a stale-fragment boot
+	// looks like.
+	if err := os.WriteFile(path, []byte(bootstrapFixtureWithoutSites(t, nginxConf)), 0o600); err != nil {
+		t.Fatalf("rewriting config without sites: %v", err)
+	}
+	if _, err := Bootstrap(path, fakeEnv(map[string]string{EnvDataDir: dataDir})); err != nil {
+		t.Fatalf("second bootstrap: %v", err)
+	}
+
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("the stale fragment %s must be removed, got: %v", stale, err)
+	}
+}
+
+func TestWriteSiteFragmentsWithoutConfigPath(t *testing.T) {
+	// No sites and no include directory: nothing to materialise, no error.
+	if err := writeSiteFragments(&Config{}); err != nil {
+		t.Fatalf("empty topology must be a no-op: %v", err)
+	}
+
+	// Sites but no configured path would silently write nowhere; fail closed.
+	cfg := &Config{Sites: []sites.Site{{Host: "example.com", Upstream: "10.0.0.5:8080"}}}
+	err := writeSiteFragments(cfg)
+	if err == nil {
+		t.Fatal("expected missing nginx.config_path to be an error")
+	}
+	if !strings.Contains(err.Error(), "nginx.config_path") {
+		t.Errorf("expected the error to name nginx.config_path, got: %v", err)
+	}
+}
+
+func TestRenderOptionsDefaultsAndBarePorts(t *testing.T) {
+	opts := renderOptions(&Config{})
+	if opts.HTTPListen != ":8080" || opts.TLSListen != ":8443" {
+		t.Errorf("expected default listeners, got HTTP=%q TLS=%q", opts.HTTPListen, opts.TLSListen)
+	}
+
+	opts = renderOptions(&Config{Nginx: NginxConfig{HTTPListen: "8080", TLSListen: "8443"}})
+	if opts.HTTPListen != ":8080" || opts.TLSListen != ":8443" {
+		t.Errorf("expected bare ports to gain a colon, got HTTP=%q TLS=%q", opts.HTTPListen, opts.TLSListen)
+	}
+}
+
+func TestWriteSiteFragmentsReportsErrors(t *testing.T) {
+	t.Run("render failure", func(t *testing.T) {
+		cfg := &Config{
+			Nginx: NginxConfig{ConfigPath: t.TempDir()},
+			Sites: []sites.Site{{Host: "bad;host", Upstream: "10.0.0.5:8080"}},
+		}
+		err := writeSiteFragments(cfg)
+		if err == nil || !strings.Contains(err.Error(), "rendering site fragments") {
+			t.Fatalf("expected a render error, got: %v", err)
+		}
+	})
+
+	t.Run("directory creation failure", func(t *testing.T) {
+		base := filepath.Join(t.TempDir(), "nginx")
+		if err := os.WriteFile(base, []byte("not a directory"), 0o600); err != nil {
+			t.Fatalf("writing parent fixture: %v", err)
+		}
+		cfg := &Config{
+			Nginx: NginxConfig{ConfigPath: base},
+			Sites: []sites.Site{{Host: "example.com", Upstream: "10.0.0.5:8080"}},
+		}
+		err := writeSiteFragments(cfg)
+		if err == nil || !strings.Contains(err.Error(), "writing site fragments") {
+			t.Fatalf("expected a fragment-write error, got: %v", err)
+		}
+	})
+}
+
+func TestBootstrapFailsWhenFragmentsCannotBeWritten(t *testing.T) {
+	notDir := filepath.Join(t.TempDir(), "nginx")
+	if err := os.WriteFile(notDir, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("writing nginx path fixture: %v", err)
+	}
+	path := writeBootstrapConfig(t, fmt.Sprintf(`name: bootstrap-test
+nginx:
+  config_path: %q
+sites:
+  - host: example.com
+    upstream: 10.0.0.5:8080
+api:
+  auth:
+    jwt_secret: change-me-in-production
+`, notDir))
+
+	_, err := Bootstrap(path, fakeEnv(map[string]string{EnvDataDir: t.TempDir()}))
+	if err == nil {
+		t.Fatal("expected a fragment-write failure to fail the bootstrap")
+	}
+	if !strings.Contains(err.Error(), "writing site fragments") {
+		t.Errorf("expected the fragment error, got: %v", err)
+	}
+}
+
+// TestDockerNginxConfigTemplate is the file-content check for the container
+// template. A real `nginx -t` needs the compiled module and belongs to the 7.1
+// container job.
+func TestDockerNginxConfigTemplate(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "deploy", "docker", "nginx.conf"))
+	if err != nil {
+		t.Fatalf("reading docker nginx.conf: %v", err)
+	}
+	body := string(data)
+
+	if !strings.Contains(body, "include /opt/waffynx/nginx/conf/sites/*.conf;") {
+		t.Error("docker nginx.conf must include the generated site fragments")
+	}
+	if strings.Contains(body, "proxy_pass") {
+		t.Error("docker nginx.conf must not hardcode proxy_pass; the fragments own the topology")
 	}
 }
 

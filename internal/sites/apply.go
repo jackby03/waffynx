@@ -61,10 +61,8 @@ func (a *Applier) Apply(ctx context.Context, fragments map[string]string) (Apply
 	if a.Reloader == nil {
 		return ApplyResult{}, errors.New("sites: applier has no reloader")
 	}
-	for name := range fragments {
-		if err := checkFragmentName(name); err != nil {
-			return ApplyResult{}, err
-		}
+	if err := checkFragmentNames(fragments); err != nil {
+		return ApplyResult{}, err
 	}
 
 	a.mu.Lock()
@@ -81,7 +79,7 @@ func (a *Applier) Apply(ctx context.Context, fragments map[string]string) (Apply
 		return ApplyResult{}, err
 	}
 
-	written, removed, err := a.write(a.Dir, previous, fragments)
+	written, removed, err := SyncFragments(a.Dir, fragments)
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -109,9 +107,32 @@ func (a *Applier) Apply(ctx context.Context, fragments map[string]string) (Apply
 	return result, nil
 }
 
-// write applies the desired set to dir, returning what changed. Content that is
-// already identical is left untouched so the reload has nothing to do.
-func (a *Applier) write(dir string, previous, desired map[string]string) (written, removed []string, err error) {
+// SyncFragments makes dir contain exactly desired, creating the directory when
+// it is missing. It returns the files written and removed, sorted by name.
+//
+// Content that is already identical is left untouched so a reload has nothing to
+// do. Fragment names are re-checked here because this is exported: the Applier
+// and the environment bootstrap both call it, and neither may write outside dir.
+func SyncFragments(dir string, desired map[string]string) (written, removed []string, err error) {
+	if dir == "" {
+		return nil, nil, errors.New("sites: no target directory")
+	}
+	if err := checkFragmentNames(desired); err != nil {
+		return nil, nil, err
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, nil, fmt.Errorf("sites: creating %s: %w", dir, err)
+	}
+
+	previous, err := readFragments(dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	return syncFragments(dir, previous, desired)
+}
+
+// syncFragments applies the desired set against a snapshot of the previous one.
+func syncFragments(dir string, previous, desired map[string]string) (written, removed []string, err error) {
 	for _, name := range sortedKeys(desired) {
 		if prev, ok := previous[name]; ok && prev == desired[name] {
 			continue
@@ -212,6 +233,15 @@ func readFragments(dir string) (map[string]string, error) {
 		out[e.Name()] = string(data)
 	}
 	return out, nil
+}
+
+func checkFragmentNames(fragments map[string]string) error {
+	for _, name := range sortedKeys(fragments) {
+		if err := checkFragmentName(name); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // checkFragmentName rejects anything that could escape the fragment directory.
