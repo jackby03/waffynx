@@ -431,6 +431,53 @@ func TestDockerNginxConfigTemplate(t *testing.T) {
 	}
 }
 
+func TestDockerNginxHealthServer(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "deploy", "docker", "nginx.conf"))
+	if err != nil {
+		t.Fatalf("reading docker nginx.conf: %v", err)
+	}
+	body := string(data)
+
+	const includeLine = "include /opt/waffynx/nginx/conf/sites/*.conf;"
+	includeIdx := strings.Index(body, includeLine)
+	if includeIdx < 0 {
+		t.Fatal("docker nginx.conf must include the generated site fragments")
+	}
+	serverIdx := strings.Index(body, "server {")
+	if serverIdx < 0 || serverIdx > includeIdx {
+		t.Fatalf("the permanent health server must exist before the include (server=%d include=%d)", serverIdx, includeIdx)
+	}
+	health := body[serverIdx:includeIdx]
+
+	if strings.Count(health, "server {") != 1 {
+		t.Errorf("the health block must be a single server block, got:\n%s", health)
+	}
+	for _, want := range []string{
+		"listen 8080;",
+		"if ($uri != /health)",
+		"return 404;",
+		"location = /health",
+		"waffynx off;",
+		`return 200 '{"status":"ok"}';`,
+	} {
+		if !strings.Contains(health, want) {
+			t.Errorf("health server must contain %q, got:\n%s", want, health)
+		}
+	}
+	if strings.Contains(health, "location / {") {
+		t.Error("the health server must not have a catch-all location; the guard handles non-health URIs")
+	}
+	if strings.Contains(health, "proxy_pass") || strings.Contains(health, "upstream") {
+		t.Error("the health server must not forward traffic or define an upstream")
+	}
+	if strings.Contains(health, "waffynx on;") || strings.Contains(health, "waffynx_socket") {
+		t.Error("the health server must not enable WAF inspection or point at the sidecar")
+	}
+	if healthIdx := strings.Index(body, "location = /health"); healthIdx < 0 || healthIdx > includeIdx {
+		t.Error("the /health location must come before the include so the server is the default on 8080")
+	}
+}
+
 func TestMergeBootstrapConfigRejectsNonMappings(t *testing.T) {
 	cfg := &Config{}
 	cfg.API.Auth.JWTSecret = testJWTSecret
