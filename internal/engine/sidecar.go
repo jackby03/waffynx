@@ -57,10 +57,14 @@ type Sidecar struct {
 	engine      policy.Evaluator
 	scorer      appsec.Scorer
 	learning    *learning.Engine
-	audit       *audit.Store
-	rules       *wrules.Engine
-	broker      *events.Broker
-	publisher   *events.Publisher
+
+	// appsecFailOpen decides the request's fate when the scorer is unreachable.
+	// Zero value is fail-closed, which is what Constitution §1.1 asks for.
+	appsecFailOpen bool
+	audit          *audit.Store
+	rules          *wrules.Engine
+	broker         *events.Broker
+	publisher      *events.Publisher
 }
 
 func (s *Sidecar) SetEventPublisher(publisher *events.Publisher) {
@@ -230,7 +234,16 @@ func (s *Sidecar) Decide(w http.ResponseWriter, r *http.Request, req *policy.Req
 			QueryParams: parseQueryParams(req.Path),
 		})
 		if err != nil {
-			logging.Warn().Err(err).Msg("appsec scorer error, allowing request")
+			if s.appsecFailOpen {
+				logging.Warn().Err(err).Msg("appsec scorer unavailable, allowing request (appsec.fail_open is true)")
+			} else {
+				logging.Error().Err(err).Msg("appsec scorer unavailable, blocking request (appsec.fail_open is false)")
+				return Decision{
+					Stage:  "appsec-error",
+					RuleID: "appsec-unavailable",
+					Reason: "scoring engine unavailable and appsec.fail_open is false",
+				}
+			}
 		} else {
 			logging.Debug().
 				Str("model", appsecResult.ModelName).
@@ -541,6 +554,13 @@ func (s *Sidecar) recordLearning(req *policy.Request, verdict, ruleID, reason st
 			}
 		}
 	}
+}
+
+// SetAppSecFailOpen configures what happens when the ML scorer cannot be reached.
+// Call before Start. The default (false) blocks the request: an unreachable
+// scorer must not silently stop inspection.
+func (s *Sidecar) SetAppSecFailOpen(failOpen bool) {
+	s.appsecFailOpen = failOpen
 }
 
 // SetSocketGroup makes the sidecar widen its socket to 0660 for the given group.

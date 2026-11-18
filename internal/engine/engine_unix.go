@@ -36,6 +36,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	if e.cfg.Sidecar.SocketGroup != "" {
 		e.sidecar.SetSocketGroup(e.cfg.Sidecar.SocketGroup)
 	}
+	e.sidecar.SetAppSecFailOpen(e.appsecFailOpen)
 	if e.cfg.Sidecar.EventAPIURL != "" && e.cfg.Sidecar.EventAuthToken != "" {
 		e.sidecar.SetEventPublisher(events.NewPublisher(
 			e.cfg.Sidecar.EventAPIURL,

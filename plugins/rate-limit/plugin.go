@@ -36,6 +36,11 @@ type RateLimitPlugin struct {
 	requestsPerSecond int
 	burst             int
 
+	// failOpen decides what happens when the limiter backend errors. False (the
+	// default) refuses the request: a limiter that cannot decide is not a limiter,
+	// and "redis is down" must not silently mean "no rate limiting".
+	failOpen bool
+
 	limiter wratelimit.Limiter
 	redis   *wratelimit.RedisLimiter
 }
@@ -59,6 +64,9 @@ func (p *RateLimitPlugin) Init(config map[string]interface{}) error {
 	}
 	if p.burst == 0 {
 		p.burst = 200
+	}
+	if v, ok := config["fail_open"].(bool); ok {
+		p.failOpen = v
 	}
 
 	redisCfg := parseRedisConfig(config)
@@ -112,8 +120,16 @@ func (p *RateLimitPlugin) Execute(ctx *plugin.Context) (*plugin.Context, error) 
 
 	allowed, err := p.limiter.Allow(context.Background(), clientIP, p.requestsPerSecond, time.Second)
 	if err != nil {
-		logging.Warn().Err(err).Str("ip", clientIP).Msg("rate limit check failed, allowing")
-		return ctx, nil
+		if p.failOpen {
+			logging.Warn().Err(err).Str("ip", clientIP).Msg("rate limit backend failed, allowing (fail_open is true)")
+			return ctx, nil
+		}
+		logging.Error().Err(err).Str("ip", clientIP).Msg("rate limit backend failed, refusing (fail_open is false)")
+		ctx.StatusCode = http.StatusServiceUnavailable
+		ctx.ResponseWriter.Header().Set("Content-Type", "application/json")
+		ctx.ResponseWriter.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = ctx.ResponseWriter.Write([]byte(`{"error":"rate limiting unavailable"}`))
+		return ctx, fmt.Errorf("rate limit backend unavailable for %s: %w", clientIP, err)
 	}
 
 	if !allowed {

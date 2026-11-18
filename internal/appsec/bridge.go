@@ -81,16 +81,19 @@ func (b *BridgeScorer) Evaluate(ctx context.Context, features *Features) (*Resul
 
 	resp, err := b.client.Do(req)
 	if err != nil {
-		// Bridge unavailable -> fail open (don't block traffic)
-		return &Result{
-			Verdict:    VerdictAllow,
-			Score:      0.0,
-			Confidence: 0.0,
-			Reasons:    []string{fmt.Sprintf("bridge unavailable: %v", err)},
-			ModelName:  b.Name(),
-		}, nil
+		// Report the failure; do not invent a verdict. Whether an unreachable
+		// scorer allows or denies is policy, and policy lives in one place: the
+		// sidecar's appsec.fail_open. Silently returning "allow" here meant an
+		// engine outage stopped scoring without anyone noticing.
+		return nil, fmt.Errorf("scorer unreachable at %s: %w", b.socketPath, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	// A 500 from the engine is not a verdict. Parsing it would attach a zero score
+	// and an empty verdict to a request nobody scored.
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("scorer returned status %d", resp.StatusCode)
+	}
 
 	var result Result
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {

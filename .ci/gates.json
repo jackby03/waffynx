@@ -6,7 +6,7 @@
     "fuzz"
   ],
   "tests": {
-    "min_passing": 410,
+    "min_passing": 420,
     "required": [
       {
         "test": "TestSidecarSocketGroupWidensTo0660",
@@ -39,6 +39,12 @@
       {
         "test": "TestRenderAlignsBuffersWithInspectionAndAllowsUpgrades",
         "goos": "linux"
+      },
+      {
+        "test": "TestScorerFailureBlocksByDefault"
+      },
+      {
+        "test": "TestRateLimitBackendFailureIsRefusedByDefault"
       }
     ],
     "allowed_skips": [
