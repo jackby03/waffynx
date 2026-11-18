@@ -9,15 +9,11 @@
 When resolving design, scope, or implementation ambiguities, artifacts strictly adhere to the following order of precedence:
 
 1. **[`constitution.md`](constitution.md) — Absolute Authority:** Non-negotiable architectural laws, security invariants, hard technical constraints, and separation of planes.
-2. **`specs/<feature>/spec.md` — Feature Contract & Boundaries:** Approved functional requirements, user stories, and strict `Out-of-Scope` declarations.
-3. **`specs/<feature>/plan.md` — Technical Implementation Architecture:** Component mappings, data contracts, failure modes, and verification commands.
-4. **`specs/<feature>/tasks.md` — Atomic Execution Checklist:** Sequential tasks with explicit Definitions of Done (DoD).
+2. **`AGENTS.md` (this file) — Operational Directives:** Scope, verification commands, component boundaries and the definition of done.
 
-### Strategic Reference Documents (Non-Governing)
-* **[`docs/ROADMAP.md`](docs/ROADMAP.md):** active roadmap. Self-hosted WAF + reverse proxy, container-first, targeting near-total parity with Cloudflare WAF (WAF only).
-* **[`docs/FUTURE.md`](docs/FUTURE.md):** parked NGFW / SWG / ZTNA research. **Out of scope** — nothing here may be implemented under the current product direction (ADR-0003).
-* **[`docs/adr/`](docs/adr/):** Architectural Decision Records documenting historical context and technology choices.
-* **[`specs/HARNESS.md`](specs/HARNESS.md):** Detailed step-by-step operational loop for Spec-Driven Development.
+There are no feature specs and no separate design documents. A change is described by
+the PR that makes it: what it changes, why, and the output of the commands that prove it
+works. That record lives with the code and cannot drift from it.
 
 ---
 
@@ -46,20 +42,17 @@ Agents must never violate the following core principles established in `constitu
 
 ---
 
-## 3. Spec-Driven Execution Protocol (Constitution §4.2)
+## 3. Execution Protocol (Constitution §4.2)
 
-Every AI agent must execute tasks within the SDD framework:
-
-1. **Spec Before Code:** Never generate production code or schema migrations without an approved `spec.md`, `plan.md`, and `tasks.md` in `specs/`.
-2. **Strict Scope Boundaries:** Respect the `Out-of-Scope` section of each feature specification. Never synthesize unrequested utility libraries, premature abstractions, or unsolicited architectural refactors.
-3. **Atomic Task Execution:** Work on **one task** in `tasks.md` at a time. Mark it `in_progress`, implement within the declared scope, verify its DoD, and mark it complete before moving to the next.
-4. **Preservation of Context:** Never delete existing comments, docstrings, architectural rationales, or license headers.
+1. **Strict Scope Boundaries:** Implement what was asked. Never synthesize unrequested utility libraries, premature abstractions, or unsolicited architectural refactors.
+2. **One change at a time:** A PR does one thing, states what it changes, and includes the command output that proves it works. No change is described only in prose.
+3. **Preservation of Context:** Never delete existing comments, docstrings, architectural rationales, or license headers.
 
 ---
 
 ## 4. Scope Mapping to Constitutional Planes
 
-When implementing capabilities from [`docs/ROADMAP.md`](docs/ROADMAP.md), agents must align with the constitutional planes. The product is a **self-hosted WAF and reverse proxy, container-first**; anything in [`docs/FUTURE.md`](docs/FUTURE.md) is out of scope.
+Every change must align with the constitutional planes. The product is a **self-hosted WAF and reverse proxy, container-first**. NGFW, VPN, SD-WAN, DLP and forward-proxy work is out of scope.
 
 | Constitutional Plane | System Subsystem | Roadmap Capabilities | Implementation Boundary |
 | :--- | :--- | :--- | :--- |
@@ -97,8 +90,6 @@ When implementing capabilities from [`docs/ROADMAP.md`](docs/ROADMAP.md), agents
 | :--- | :--- | :--- |
 | `constitution.md` | Governance | Supreme architectural law and non-negotiable invariants. |
 | `AGENTS.md` | Governance | Operational context, agent directives, and constitutional alignment. |
-| `specs/` | Governance | Spec-Driven Development feature lifecycles (`spec.md`, `plan.md`, `tasks.md`). |
-| `docs/` | Architecture | Master roadmap (`ROADMAP.md`) and Architecture Decision Records (`adr/`). |
 | `.golangci.yml` | Governance | Linter configuration enforcing Constitution §3.3 (standard + security/performance linters, `gofmt -s` formatter). |
 | `.gitattributes` | Governance | Pins `eol=lf` so the working tree satisfies Constitution §2.1 independently of `core.autocrlf`. |
 | `cmd/waffynx/` | Data Plane | Main engine CLI entrypoint (sidecar socket listener & proxy bootstrap). |
@@ -144,4 +135,4 @@ Before declaring any task or feature complete, verify that:
 2. **Zero Linter Warnings:** `GOOS=linux golangci-lint run ./...` returns exit code `0` with no baseline or merge-base filter. The tree is clean, so every finding is a regression.
 3. **Constitutional Invariants Intact:** Invariants in [`constitution.md`](constitution.md) and the regression-test rule in its §3.2 are strictly upheld.
 4. **Scope Boundaries Respected:** No modifications were made outside the declared task scope in `tasks.md`.
-5. **Spec Compliance:** Acceptance criteria in `spec.md` and task criteria in `tasks.md` are 100% met.
+5. **Verification Evidence:** The PR body names the commands run and their output, including what was *not* covered and why.

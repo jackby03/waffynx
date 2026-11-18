@@ -629,8 +629,8 @@ func TestAPI_CORS_PreflightOnAuthenticatedRoutes(t *testing.T) {
 	})
 }
 
-// TestAPI_ErrorResponsesAreValidJSON guards the "Unescaped JSON Responses"
-// entry in docs/security/audit-log.md.
+// TestAPI_ErrorResponsesAreValidJSON is the regression guard for unescaped JSON
+// error bodies.
 //
 // Error bodies used to be built by interpolating the message into a JSON string
 // literal with fmt.Fprintf. Any quote, backslash or newline in a message that
