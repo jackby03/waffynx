@@ -214,3 +214,55 @@ func TestRenderDefaultsAreUsable(t *testing.T) {
 		}
 	}
 }
+
+// TestRenderAlignsBuffersWithInspectionAndAllowsUpgrades guards two directives that
+// were missing and that no unit test noticed, because their absence is invisible
+// until a real request is proxied.
+//
+//   - client_body_buffer_size must be at least waffynx_max_body_size. nginx writes
+//     anything larger than the buffer to a temp file, where the module cannot see
+//     it. Measured on a running image: 10 KB inspected, 12 KB not, with 64k
+//     advertised.
+//   - client_max_body_size is pinned to the inspection limit so a body that cannot
+//     be inspected is refused with 413 rather than forwarded.
+//   - proxy_http_version 1.1 plus Upgrade/Connection is what makes websockets work
+//     through a reverse proxy.
+func TestRenderAlignsBuffersWithInspectionAndAllowsUpgrades(t *testing.T) {
+	s := Site{
+		Host:     "app.example.com",
+		Upstream: "backend:80",
+	}
+	out, err := Render([]Site{s}, RenderOptions{SocketPath: "/run/waffynx.sock", MaxBodySize: "64k"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got := out[s.Host+".conf"]
+
+	for _, want := range []string{
+		"client_body_buffer_size 64k;",
+		"client_max_body_size 64k;",
+		"proxy_http_version 1.1;",
+		"proxy_set_header Upgrade $http_upgrade;",
+		"proxy_set_header Connection $http_connection;",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("rendered fragment is missing %q", want)
+		}
+	}
+}
+
+// The buffer must follow the configured inspection cap, not a hardcoded value.
+func TestRenderBufferFollowsMaxBodySize(t *testing.T) {
+	out, err := Render([]Site{{Host: "app.example.com", Upstream: "backend:80"}},
+		RenderOptions{SocketPath: "/run/waffynx.sock", MaxBodySize: "10m"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got := out["app.example.com.conf"]
+	if !strings.Contains(got, "client_body_buffer_size 10m;") {
+		t.Error("buffer size did not follow MaxBodySize")
+	}
+	if !strings.Contains(got, "client_max_body_size 10m;") {
+		t.Error("accept limit did not follow MaxBodySize")
+	}
+}

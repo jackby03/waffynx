@@ -128,27 +128,22 @@ func (p *RequestValidationPlugin) Execute(ctx *plugin.Context) (*plugin.Context,
 	urlPath = strings.ReplaceAll(urlPath, "+", " ")
 	for _, pattern := range p.blockPatterns {
 		if strings.Contains(strings.ToLower(urlPath), strings.ToLower(pattern)) {
-			ctx.StatusCode = 403
-			ctx.ResponseWriter.Header().Set("Content-Type", "application/json")
-			ctx.ResponseWriter.WriteHeader(http.StatusForbidden)
-			ctx.ResponseWriter.Write([]byte(`{"error":"malicious request detected"}`))
-			ctx.Tags["waf_blocked"] = "true"
-			ctx.Tags["waf_pattern"] = pattern
-			return ctx, fmt.Errorf("waf pattern matched in URL: %s", pattern)
+			return p.block(ctx, pattern, "URL")
 		}
 	}
 
 	if body, ok := ctx.Values["wn_body"].(string); ok && body != "" {
-		lowerBody := strings.ToLower(body)
-		for _, pattern := range p.blockPatterns {
-			if strings.Contains(lowerBody, strings.ToLower(pattern)) {
-				ctx.StatusCode = 403
-				ctx.ResponseWriter.Header().Set("Content-Type", "application/json")
-				ctx.ResponseWriter.WriteHeader(http.StatusForbidden)
-				ctx.ResponseWriter.Write([]byte(`{"error":"malicious request detected"}`))
-				ctx.Tags["waf_blocked"] = "true"
-				ctx.Tags["waf_pattern"] = pattern
-				return ctx, fmt.Errorf("waf pattern matched in body: %s", pattern)
+		// The body is encoded by whatever produced it, so matching the raw bytes
+		// misses every documented encoding. A form-encoded POST carries
+		// "union+select", and JSON carries "\u003cscript\u003e": both reach the
+		// application as the attack the patterns describe. Verified against a
+		// running container before this was fixed.
+		for _, variant := range bodyMatchVariants(contentType, body) {
+			lowerBody := strings.ToLower(variant)
+			for _, pattern := range p.blockPatterns {
+				if strings.Contains(lowerBody, strings.ToLower(pattern)) {
+					return p.block(ctx, pattern, "body")
+				}
 			}
 		}
 
@@ -187,4 +182,95 @@ func (p *RequestValidationPlugin) Execute(ctx *plugin.Context) (*plugin.Context,
 
 func (p *RequestValidationPlugin) Close() error {
 	return nil
+}
+
+// block writes the denial and returns the error that stops the plugin chain.
+// Extracted so the URL, body and encoded forms report identically.
+func (p *RequestValidationPlugin) block(ctx *plugin.Context, pattern, where string) (*plugin.Context, error) {
+	ctx.StatusCode = http.StatusForbidden
+	ctx.ResponseWriter.Header().Set("Content-Type", "application/json")
+	ctx.ResponseWriter.WriteHeader(http.StatusForbidden)
+	_, _ = ctx.ResponseWriter.Write([]byte(`{"error":"malicious request detected"}`))
+	ctx.Tags["waf_blocked"] = "true"
+	ctx.Tags["waf_pattern"] = pattern
+	return ctx, fmt.Errorf("waf pattern matched in %s: %s", where, pattern)
+}
+
+// bodyMatchVariants returns the forms of the body a pattern is checked against.
+// The raw bytes are always first.
+//
+// Decoding is content-type aware on purpose. A "+" means a space in
+// application/x-www-form-urlencoded and means a plus everywhere else; rewriting
+// it unconditionally would block arithmetic and phone numbers in JSON. Decoding
+// is skipped unless the body actually contains the marker, so the common path
+// stays a single pass.
+func bodyMatchVariants(contentType, body string) []string {
+	variants := []string{body}
+	ct := strings.ToLower(contentType)
+
+	switch {
+	case strings.Contains(ct, "application/x-www-form-urlencoded"):
+		if !strings.ContainsAny(body, "%+") {
+			return variants
+		}
+		// QueryUnescape turns "+" into a space and decodes %XX, which is exactly
+		// the transformation the application applies before it reads the value.
+		if decoded, err := url.QueryUnescape(body); err == nil && decoded != body {
+			variants = append(variants, decoded)
+		}
+
+	case strings.Contains(ct, "application/json"):
+		if !strings.Contains(body, `\u`) {
+			return variants
+		}
+		if decoded := decodeJSONUnicodeEscapes(body); decoded != body {
+			variants = append(variants, decoded)
+		}
+	}
+
+	return variants
+}
+
+// decodeJSONUnicodeEscapes rewrites \uXXXX sequences into the characters they
+// represent, so `{"q":"\u003cscript\u003e"}` matches the same pattern as
+// `<script>`. Surrogate pairs are decoded as two runes; that is enough for
+// pattern matching, which only ever looks for ASCII markers.
+func decodeJSONUnicodeEscapes(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+5 < len(s) && s[i+1] == 'u' {
+			if r, ok := hex4(s[i+2 : i+6]); ok {
+				b.WriteRune(r)
+				i += 5
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+// hex4 parses exactly four hexadecimal digits into a rune.
+func hex4(s string) (rune, bool) {
+	if len(s) != 4 {
+		return 0, false
+	}
+	var v rune
+	for i := 0; i < 4; i++ {
+		var d rune
+		switch c := s[i]; {
+		case c >= '0' && c <= '9':
+			d = rune(c - '0')
+		case c >= 'a' && c <= 'f':
+			d = rune(c-'a') + 10
+		case c >= 'A' && c <= 'F':
+			d = rune(c-'A') + 10
+		default:
+			return 0, false
+		}
+		v = v*16 + d
+	}
+	return v, true
 }

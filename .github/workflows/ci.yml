@@ -278,6 +278,15 @@ jobs:
           # ...and must be inspected.
           check 403 "$(code -H 'Host: app.example.test' 'http://localhost:18080/?q=UNION+SELECT+1,2,3')" "SQLi blocked" || rc=1
           check 403 "$(code -H 'Host: app.example.test' 'http://localhost:18080/?q=%3Cscript%3Ealert(1)%3C/script%3E')" "XSS blocked" || rc=1
+          # Encoding evasions: the body used to be matched raw, so a form POST and a
+          # JSON escape both reached the upstream while the same payload in the
+          # query string was blocked.
+          check 403 "$(code -H 'Host: app.example.test' --data 'q=UNION+SELECT+1,2,3' http://localhost:18080/)" "form-encoded SQLi blocked" || rc=1
+          check 403 "$(code -H 'Host: app.example.test' -H 'Content-Type: application/json' --data '{"q":"\u003cscript\u003ealert(1)\u003c/script\u003e"}' http://localhost:18080/)" "JSON unicode escape blocked" || rc=1
+          # A body above the inspection buffer used to be forwarded uninspected.
+          big="$(head -c 40000 /dev/zero | tr '\0' a)<script>alert(1)</script>"
+          check 403 "$(code -H 'Host: app.example.test' --data "$big" http://localhost:18080/)" "large body inspected" || rc=1
+
           # An unconfigured host must not be forwarded anywhere.
           check 404 "$(code -H 'Host: otro.example.test' http://localhost:18080/)" "unknown host refused" || rc=1
 

@@ -85,3 +85,68 @@ func TestRequestValidationAllowsBenignTraffic(t *testing.T) {
 		}
 	}
 }
+
+// TestRequestValidationDecodesBodyBeforeMatching is the regression guard for the
+// evasion found by running the container: the URL was decoded and had "+"
+// normalised to a space, but the body was only lowercased, so a form-encoded POST
+// carrying q=UNION+SELECT+1 walked straight through while the same payload in the
+// query string was blocked. Form encoding is what every browser sends.
+//
+// JSON has its own encoding: "\u003cscript\u003e" reaches the application as
+// "<script>", so the raw text must be decoded before matching too.
+func TestRequestValidationDecodesBodyBeforeMatching(t *testing.T) {
+	blocked := []struct {
+		name        string
+		contentType string
+		uri         string
+		body        string
+	}{
+		{name: "form plus separators", contentType: "application/x-www-form-urlencoded", body: "q=UNION+SELECT+1,2,3"},
+		{name: "form percent encoding", contentType: "application/x-www-form-urlencoded", body: "q=UNION%20SELECT%201%2C2%2C3"},
+		{name: "form encoded script tag", contentType: "application/x-www-form-urlencoded", body: "c=%3Cscript%3Ealert(1)%3C%2Fscript%3E"},
+		{name: "form encoded traversal", contentType: "application/x-www-form-urlencoded", body: "file=..%2F..%2Fetc%2Fpasswd"},
+		{name: "json unicode escape", contentType: "application/json", body: `{"q":"\u003cscript\u003ealert(1)\u003c/script\u003e"}`},
+		{name: "json unicode sql", contentType: "application/json", body: `{"q":"\u0075nion select 1"}`},
+	}
+
+	p := newTestPlugin(t)
+	for _, tc := range blocked {
+		t.Run(tc.name, func(t *testing.T) {
+			values := map[string]interface{}{"wn_ct": tc.contentType}
+			if tc.uri != "" {
+				values["wn_uri"] = tc.uri
+			}
+			if tc.body != "" {
+				values["wn_body"] = tc.body
+			}
+			if err := run(t, p, values); err == nil {
+				t.Fatalf("%s reached the application uninspected", tc.name)
+			}
+		})
+	}
+}
+
+// The normaliser must not fire on ordinary payloads. A "+" in JSON is a plus, not
+// a space: rewriting it would block arithmetic and phone numbers.
+func TestRequestValidationDoesNotOverBlockNormalBodies(t *testing.T) {
+	benign := []struct {
+		name        string
+		contentType string
+		body        string
+	}{
+		{name: "arithmetic in json", contentType: "application/json", body: `{"expr":"1+1=2","phone":"+34912345678"}`},
+		{name: "plain text", contentType: "text/plain", body: "hello world"},
+		{name: "form with benign values", contentType: "application/x-www-form-urlencoded", body: "name=Ada+Lovelace&city=London"},
+		{name: "json with percent", contentType: "application/json", body: `{"discount":"100%","note":"50% off"}`},
+		{name: "malformed json escape", contentType: "application/json", body: `{"q":"\u00"}`},
+	}
+
+	p := newTestPlugin(t)
+	for _, tc := range benign {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := run(t, p, map[string]interface{}{"wn_ct": tc.contentType, "wn_body": tc.body}); err != nil {
+				t.Fatalf("benign body was blocked: %v", err)
+			}
+		})
+	}
+}
