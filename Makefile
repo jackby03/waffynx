@@ -50,15 +50,19 @@ build-bootstrap:
 	@$(GO) build $(GOFLAGS) -o $(BIN_DIR)/waffynx-bootstrap ./cmd/waffynx-bootstrap
 
 # ============================================================
-# Third-party: nginx fork
+# Third-party: nginx (pinned by submodule to an upstream release tag)
 # ============================================================
+# No fork. What gets compiled is decided by the --without-* flags below, not by
+# deleting sources, so the tree stays identical to upstream and a CVE bump is
+# `git -C $(NGINX_DIR) checkout release-X.Y.Z` plus one submodule commit. The old
+# fork carried a 221-file strip and 15 hand edits, which had to be replayed on
+# every release — exactly where a security update gets postponed.
 .PHONY: nginx-checkout nginx-patch nginx-configure nginx-build nginx-install
 
 nginx-checkout:
-	@echo "Cloning nginx fork..."
+	@echo "Checking out nginx submodule..."
 	@if [ ! -d "$(NGINX_DIR)/src" ]; then \
-		git submodule add https://github.com/jackby03/ngx_waffynx.git $(NGINX_DIR); \
-		git submodule update --init --recursive; \
+		git submodule update --init --recursive $(NGINX_DIR); \
 	fi
 
 nginx-configure:
