@@ -97,8 +97,7 @@ every issued token.
 Adding more sites needs no restart: `POST /api/v1/sites` reconfigures the proxy,
 validates the result with `nginx -t` and only then persists it.
 
-Still pending: a **published** multi-arch image (today you build it) — see
-[docs/ROADMAP.md](docs/ROADMAP.md).
+Still pending: a **published** multi-arch image (today you build it).
 
 ### Verify that it actually protects
 
@@ -138,9 +137,8 @@ curl "http://localhost:8080/?q=UNION+SELECT+1,2,3"   # 403 Forbidden (blocked)
 
 ## 🗺️ Roadmap
 
-Product scope, phases and the Cloudflare-WAF parity matrix live in
-[**docs/ROADMAP.md**](docs/ROADMAP.md). NGFW, VPN, SD-WAN, DLP and forward-proxy
-work is explicitly out of scope and parked in [docs/FUTURE.md](docs/FUTURE.md).
+Phases below are the plan for this repository. NGFW, VPN, SD-WAN, DLP and
+forward-proxy work is explicitly out of scope: this is a WAF and reverse proxy.
 
 ### ✅ Working today
 
@@ -170,9 +168,9 @@ work is explicitly out of scope and parked in [docs/FUTURE.md](docs/FUTURE.md).
     events, and drafts rules from plain language. It never sits in the request path —
     no network hop inside a 2 ms budget.
   * **Optional learned scoring, out of tree.** Point `appsec.engine: open-appsec` at a
-    scoring engine you run (open-appsec is Apache-2.0). Contract and setup:
-    [docs/appsec-engine.md](docs/appsec-engine.md). Nothing is vendored, so their
-    releases never become our maintenance.
+    scoring engine you run (open-appsec is Apache-2.0) over a Unix socket: it
+    receives the decoded request as JSON and answers `{verdict, score, reasons}`.
+    Nothing is vendored, so their releases never become our maintenance.
   * **Frontier-model providers** — Anthropic, OpenAI, Gemini, Vertex, local
     (Ollama/llama.cpp) — with per-provider privacy controls: what leaves the box,
     redaction, retention, and opt-in per site.
@@ -183,7 +181,6 @@ work is explicitly out of scope and parked in [docs/FUTURE.md](docs/FUTURE.md).
 
 ## 📖 Documentation
 
-* **[docs/appsec-engine.md](docs/appsec-engine.md)**: the scoring-engine socket contract, and how to attach a learned model without vendoring it.
 * **[SECURITY.md](SECURITY.md)**: how to report a vulnerability, and the nginx patching policy.
 * **[AGENTS.md](AGENTS.md)**: Detailed architecture specs, development gotchas, and internal component mapping.
 * **Configuration**: Check out `configs/waffynx.yaml` for a full production configuration template.
@@ -195,4 +192,4 @@ granted beyond what GitHub's terms allow. The licence is deliberately pending a
 market study; a public commitment will land with the `LICENSE` file.
 
 This README previously declared MIT without shipping the file, which is a claim the
-repository could not back. Tracked in [docs/ROADMAP.md](docs/ROADMAP.md) §7 (gap 5).
+repository could not back.

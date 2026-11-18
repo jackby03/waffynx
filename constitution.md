@@ -70,19 +70,17 @@
 
 ---
 
-## 4. Spec-Driven Governance for AI Agents
+## 4. Governance for AI Agents
 
 ### 4.1 Hierarchy of Authority
 
 When resolving design, scope, or implementation ambiguities, artifacts strictly adhere to the following order of precedence:
 
 1. `constitution.md` (Absolute authority)
-2. `spec.md` (Feature contract and boundaries)
-3. `plan.md` (Technical implementation architecture)
-4. `tasks.md` (Execution checklist)
+2. `AGENTS.md` (Operational directives)
 
 ### 4.2 Execution Protocol
 
-- **Spec Before Code**: Never generate production code or migrations without an approved `spec.md`, `plan.md`, and `tasks.md` in `specs/`.
-- **Strict Scope Boundaries**: Respect the `Out-of-Scope` section of each feature specification. Never synthesize unrequested utility libraries, premature abstractions, or unsolicited architectural refactors.
+- **Strict Scope Boundaries**: Implement what was asked. Never synthesize unrequested utility libraries, premature abstractions, or unsolicited architectural refactors.
+- **Evidence, not prose**: A change is described by the PR that makes it and by the command output that proves it works. There are no separate design documents to drift from the code.
 - **Preservation of Context**: Existing documentation comments, licenses, and architecture decision headers must be preserved during automated modifications.
