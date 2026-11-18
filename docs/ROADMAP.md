@@ -113,10 +113,37 @@ Sequenced by "what makes it a product" — not by "what is interesting to build"
 
 ### Phase 3 — AI *(deliberately last; it is the differentiator, not the foundation)*
 
-- Provider abstraction + adapters: Anthropic, OpenAI, Gemini, Vertex, local (Ollama/llama.cpp), plus the existing scorer socket for an engine run out of tree. Nothing is vendored: the bundled C++ stub was removed because it never ran (`WAFFYNX_REAL_ENGINE` was defined nowhere) — see `third_party/README.md`.
-- Per-provider data-privacy policy: what leaves the box, redaction of PII/headers/body, retention, opt-in per site.
-- "Explain this verdict" in the forensics drawer, grounded in the rule/score that fired.
-- ML attack-score classification across SQLi/XSS/RCE.
+Ordered by what pays off first. Nothing here sits in the request path: §1.3 forbids a
+network hop inside the inspection budget, so assistance is out of band and learned
+scoring is optional and measured before it is trusted.
+
+**1. Assistance — first, and the actual differentiator**
+
+- **"Explain this verdict"**: read the matched stage, rule and input from the decision
+  record and answer *why*, grounded in what actually fired rather than guessed.
+- **Event triage**: cluster security events (SPEC-004) — "these 4 000 hits are one
+  scanner" — so an operator reads ten groups instead of ten thousand alerts.
+- **Rule drafting**: natural language → candidate rule, presented as a diff for
+  approval. Never auto-applied.
+
+**2. Frontier-model providers**
+
+Anthropic, OpenAI, Gemini, Vertex, local (Ollama/llama.cpp), chosen per deployment,
+with a per-provider privacy policy: what leaves the box, redaction of PII/headers/body,
+retention, opt-in per site. The seam already exists: `appsec.Scorer`.
+
+**3. Optional learned scoring — second, and never alone**
+
+- Consumed **out of tree** over the scorer socket the engine already supports. The
+  contract is [`docs/appsec-engine.md`](../docs/appsec-engine.md); open-appsec
+  (Apache-2.0) is the reference engine. Nothing is vendored — the in-tree C++ shim was
+  removed because `WAFFYNX_REAL_ENGINE` was defined nowhere and it never scored a
+  request (`third_party/README.md`).
+- **Shadow mode first.** It emits a score and an event; blocking is a later, measured
+  decision. A probabilistic block nobody can explain is a support ticket, not a
+  feature.
+- Attack-score classification across SQLi/XSS/RCE lands here, once the signal has been
+  compared against real traffic.
 
 ### Phase 4 — Operations
 
@@ -223,6 +250,23 @@ The fix is structural, not a one-off bump:
   build flags before assuming an advisory applies.
 
 ---
+
+### 7.3 The scorer client fails open — open
+
+`BridgeScorer.Evaluate` (`internal/appsec/bridge.go`) returns `VerdictAllow` when the
+socket is unreachable:
+
+```go
+// Bridge unavailable -> fail open (don't block traffic)
+return &Result{Verdict: VerdictAllow, ... Reasons: []string{"bridge unavailable: ..."}}
+```
+
+Defensible while the scorer is an enhancement, but it is a hole against Constitution
+§1.1 ("fail-safe according to the configured policy") once an operator relies on the
+ML verdict: an engine outage then silently stops scoring while the site reports healthy,
+and every request looks like a quiet allow. There is no knob to make it a hard
+dependency. Fix by adding `appsec.fail_closed` (default `false`, so nothing changes for
+existing deployments) and surfacing the state in `/metrics` rather than only in a log.
 
 ## 8. How this document is used
 

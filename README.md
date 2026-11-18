@@ -164,11 +164,25 @@ work is explicitly out of scope and parked in [docs/FUTURE.md](docs/FUTURE.md).
 
 * **Phase 1**: rule expression language, managed rule catalog, IP/geo/ASN lists, staged mode, security events.
 * **Phase 2**: bot defense, API schema validation, SIEM export.
-* **Phase 3**: pluggable external AI (Anthropic, OpenAI, Gemini, Vertex, local) with per-provider privacy controls — the differentiator, deliberately last.
+* **Phase 3 — AI, deliberately last** (it is the differentiator, not the foundation):
+  * **Assistance before decision.** An LLM explains *why* a request was blocked, triages
+    events, and drafts rules from plain language. It never sits in the request path —
+    no network hop inside a 2 ms budget.
+  * **Optional learned scoring, out of tree.** Point `appsec.engine: open-appsec` at a
+    scoring engine you run (open-appsec is Apache-2.0). Contract and setup:
+    [docs/appsec-engine.md](docs/appsec-engine.md). Nothing is vendored, so their
+    releases never become our maintenance.
+  * **Frontier-model providers** — Anthropic, OpenAI, Gemini, Vertex, local
+    (Ollama/llama.cpp) — with per-provider privacy controls: what leaves the box,
+    redaction, retention, and opt-in per site.
+
+  Today the built-in scorer is deterministic (signatures + Shannon entropy). This
+  phase is where an actual model enters, and only as a signal you can measure first.
 * **GUI work comes after the CLI and API settle.**
 
 ## 📖 Documentation
 
+* **[docs/appsec-engine.md](docs/appsec-engine.md)**: the scoring-engine socket contract, and how to attach a learned model without vendoring it.
 * **[SECURITY.md](SECURITY.md)**: how to report a vulnerability, and the nginx patching policy.
 * **[AGENTS.md](AGENTS.md)**: Detailed architecture specs, development gotchas, and internal component mapping.
 * **Configuration**: Check out `configs/waffynx.yaml` for a full production configuration template.
