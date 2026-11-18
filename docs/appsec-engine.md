@@ -154,19 +154,25 @@ and it lives outside this repository, so their releases never touch our tree.
 
 ## Failure semantics — read this before enabling it
 
-**The scorer client fails open.** If the socket is missing, the dial times out, or
-the engine is down, `BridgeScorer.Evaluate` returns `allow` with the reason
-`bridge unavailable: …` and traffic continues.
+**The scorer is fail-closed by default.** If the socket is missing, the dial times
+out, or the engine answers non-`200`, `BridgeScorer.Evaluate` returns an error and
+the sidecar denies the request with `Stage: "appsec-error"`. That is what
+Constitution §1.1 asks for: an unreachable scorer must not silently stop inspection.
 
-That is deliberate — a scoring engine is an enhancement, not the enforcement path —
-but it is also a gap against Constitution §1.1, which asks for fail-closed behaviour
-according to configured policy. Today there is no knob to make the scorer a hard
-dependency; it is tracked in [`ROADMAP.md`](ROADMAP.md) §7. Until that changes:
+If you would rather keep serving through an engine outage, say so:
 
-- If you need the ML verdict to be guaranteed, pair it with deterministic rules that
-  still block when the engine is away.
-- Watch `reasons` for `bridge unavailable` in the event stream; a silent allow on
-  every request looks exactly like a quiet, healthy site.
+```yaml
+appsec:
+  engine: open-appsec
+  fail_open: true    # deliberate: the ML verdict is advisory for this deployment
+```
+
+With `fail_open: true` the request is allowed and the failure is logged with the
+setting named, so the choice stays visible in production.
+
+The built-in scorer cannot fail this way: it runs in process and has no socket. The
+same reasoning applies to the rate limiter, which refuses with 503 when its backend
+errors unless its own `fail_open` is set.
 
 ## What not to do
 

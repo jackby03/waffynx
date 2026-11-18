@@ -251,22 +251,21 @@ The fix is structural, not a one-off bump:
 
 ---
 
-### 7.3 The scorer client fails open — open
+### 7.3 The scorer client failed open — fixed
 
-`BridgeScorer.Evaluate` (`internal/appsec/bridge.go`) returns `VerdictAllow` when the
-socket is unreachable:
+`BridgeScorer.Evaluate` used to return `VerdictAllow` when the socket was
+unreachable, with the reason `bridge unavailable: …`. The comment said "don't block
+traffic": an engine outage stopped scoring silently and every request looked like a
+quiet allow.
 
-```go
-// Bridge unavailable -> fail open (don't block traffic)
-return &Result{Verdict: VerdictAllow, ... Reasons: []string{"bridge unavailable: ..."}}
-```
+The client no longer invents a verdict: it returns the error. The decision moved to
+the sidecar, where `appsec.fail_open` (default `false`) governs it. An unreachable
+scorer produces `Stage: "appsec-error"` and a 403 unless the operator explicitly
+opted into fail-open. The rate limiter got the same treatment: a backend error now
+refuses with 503 instead of silently disabling limiting.
 
-Defensible while the scorer is an enhancement, but it is a hole against Constitution
-§1.1 ("fail-safe according to the configured policy") once an operator relies on the
-ML verdict: an engine outage then silently stops scoring while the site reports healthy,
-and every request looks like a quiet allow. There is no knob to make it a hard
-dependency. Fix by adding `appsec.fail_closed` (default `false`, so nothing changes for
-existing deployments) and surfacing the state in `/metrics` rather than only in a log.
+The remaining gap is visibility: both failures are logged but not counted, so a
+metric would still be worth adding.
 
 ## 8. How this document is used
 

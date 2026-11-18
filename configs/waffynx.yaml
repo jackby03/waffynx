@@ -43,6 +43,10 @@ appsec:
   rules_path: "/opt/waffynx/appsec/rules"
   ml_model_path: "/opt/waffynx/appsec/models"
   learning_mode: false          # Enable learning mode for ML-based detection
+  # What to do when the scorer cannot be reached. false (default) blocks the
+  # request: an unreachable scorer must not silently stop inspection (§1.1).
+  # true keeps serving — a deliberate choice, not a default.
+  fail_open: false
 
 # -- API Gateway settings --
 gateway:

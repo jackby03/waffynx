@@ -27,14 +27,17 @@ type Engine struct {
 	running bool
 	cmd     *exec.Cmd
 
-	sidecar  *Sidecar
-	chain    *plugin.Chain
-	policy   policy.Evaluator
-	scorer   appsec.Scorer
-	learning *learning.Engine
-	audit    *audit.Store
-	rules    *wrules.Engine
-	broker   *events.Broker
+	sidecar *Sidecar
+	chain   *plugin.Chain
+	policy  policy.Evaluator
+	scorer  appsec.Scorer
+	// appsecFailOpen is passed to the sidecar: false means an unreachable scorer
+	// blocks instead of silently allowing.
+	appsecFailOpen bool
+	learning       *learning.Engine
+	audit          *audit.Store
+	rules          *wrules.Engine
+	broker         *events.Broker
 
 	policies *PolicyStore
 
@@ -82,6 +85,12 @@ func (e *Engine) AddPlugin(p plugin.Plugin) {
 
 func (e *Engine) PolicyEngine() policy.Evaluator {
 	return e.policy
+}
+
+// SetAppSecFailOpen sets whether an unreachable scorer allows (true) or blocks
+// (false) a request. Call before Start().
+func (e *Engine) SetAppSecFailOpen(failOpen bool) {
+	e.appsecFailOpen = failOpen
 }
 
 // SetAppSecScorer sets the ML anomaly scorer. Call before Start().

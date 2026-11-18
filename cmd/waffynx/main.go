@@ -117,6 +117,7 @@ func runEngine(cfg *config.Config) error {
 				cfg.AppSec.BridgeSocket,
 				time.Duration(cfg.AppSec.TimeoutMs)*time.Millisecond,
 			)
+			eng.SetAppSecFailOpen(cfg.AppSec.FailOpen)
 			eng.SetAppSecScorer(bridge)
 			logging.Info().
 				Str("engine", "open-appsec").
@@ -126,6 +127,7 @@ func runEngine(cfg *config.Config) error {
 		default:
 			// Use built-in Go scorer (development/testing)
 			scorer := appsec.NewBasicScorer()
+			eng.SetAppSecFailOpen(cfg.AppSec.FailOpen)
 			eng.SetAppSecScorer(scorer)
 			logging.Info().
 				Str("engine", "basic-go").

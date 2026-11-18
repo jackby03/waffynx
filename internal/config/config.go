@@ -70,6 +70,11 @@ type AppSecConfig struct {
 	LearningMode bool   `yaml:"learning_mode"`
 	BridgeSocket string `yaml:"bridge_socket"` // Unix socket for open-appsec bridge
 	TimeoutMs    int    `yaml:"timeout_ms"`    // bridge timeout
+	// FailOpen decides what happens when the scorer cannot be reached. False
+	// (the default) blocks: Constitution §1.1 says never silently bypass
+	// uninspected traffic. True keeps serving, and is a deliberate choice an
+	// operator has to make out loud.
+	FailOpen bool `yaml:"fail_open"`
 }
 
 type GatewayConfig struct {
