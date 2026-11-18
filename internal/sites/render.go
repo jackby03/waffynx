@@ -158,7 +158,28 @@ func writeLocation(b *strings.Builder, locationPath, upstream string, s Site, op
 	fmt.Fprintf(b, "        waffynx_timeout %d;\n", opts.TimeoutMs)
 	b.WriteString("        waffynx_fail_open off;\n")
 	fmt.Fprintf(b, "        waffynx_max_body_size %s;\n", opts.MaxBodySize)
+
+	// nginx buffers a request body in memory up to client_body_buffer_size and
+	// writes anything larger to a temp file. The module only ever sees the
+	// in-memory bufs, so a buffer smaller than the inspection limit means bodies
+	// are silently not inspected: measured on a running image, 10 KB was inspected
+	// and 12 KB was not, while the fragment advertised 64k.
+	//
+	// client_max_body_size is pinned to the same value on purpose: a body we cannot
+	// inspect is refused with 413 instead of being forwarded uninspected. Raise
+	// both together if a site needs to accept larger uploads.
+	fmt.Fprintf(b, "        client_body_buffer_size %s;\n", opts.MaxBodySize)
+	fmt.Fprintf(b, "        client_max_body_size %s;\n", opts.MaxBodySize)
+
 	fmt.Fprintf(b, "        proxy_pass %s;\n", proxyTarget(upstream))
+
+	// WebSockets and other upgrade-based protocols need the upstream connection to
+	// speak HTTP/1.1 and to carry the client's Upgrade/Connection headers. Without
+	// these, any app using a websocket breaks the moment it is put behind Waffynx.
+	b.WriteString("        proxy_http_version 1.1;\n")
+	b.WriteString("        proxy_set_header Upgrade $http_upgrade;\n")
+	b.WriteString("        proxy_set_header Connection $http_connection;\n")
+
 	b.WriteString("        proxy_set_header Host $host;\n")
 	b.WriteString("        proxy_set_header X-Real-IP $remote_addr;\n")
 	b.WriteString("        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n")
