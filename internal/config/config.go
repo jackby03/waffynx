@@ -17,6 +17,7 @@ type Config struct {
 	Sidecar SidecarConfig   `yaml:"sidecar"`
 	Nginx   NginxConfig     `yaml:"nginx"`
 	AppSec  AppSecConfig    `yaml:"appsec"`
+	WAF     WAFConfig       `yaml:"waf"`
 	Gateway GatewayConfig   `yaml:"gateway"`
 	TLS     TLSGlobalConfig `yaml:"tls"`
 	// Sites is the reverse-proxy topology: host -> upstream, rendered into nginx
@@ -75,6 +76,13 @@ type AppSecConfig struct {
 	// uninspected traffic. True keeps serving, and is a deliberate choice an
 	// operator has to make out loud.
 	FailOpen bool `yaml:"fail_open"`
+}
+
+// WAFConfig configures the managed ruleset.
+type WAFConfig struct {
+	// CatalogPath overrides the catalog embedded in the binary. Empty means the
+	// shipped ruleset, which is what a plain `docker run` gets.
+	CatalogPath string `yaml:"catalog_path"`
 }
 
 type GatewayConfig struct {

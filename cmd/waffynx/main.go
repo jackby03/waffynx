@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/jackby03/waffynx/internal/appsec"
+	"github.com/jackby03/waffynx/internal/catalog"
 	"github.com/jackby03/waffynx/internal/config"
 	"github.com/jackby03/waffynx/internal/engine"
 	"github.com/jackby03/waffynx/internal/logging"
@@ -89,6 +90,29 @@ and a plugin marketplace into a unified management platform.`,
 
 func runEngine(cfg *config.Config) error {
 	eng := engine.New(cfg)
+
+	// The managed ruleset is loaded before anything serves traffic: an invalid
+	// catalog aborts startup instead of running with a partial ruleset.
+	if cfg.WAF.CatalogPath != "" {
+		managed, err := catalog.LoadFile(cfg.WAF.CatalogPath)
+		if err != nil {
+			return fmt.Errorf("loading ruleset %s: %w", cfg.WAF.CatalogPath, err)
+		}
+		eng.SetCatalog(managed)
+		logging.Info().Str("path", cfg.WAF.CatalogPath).Int("rules", managed.Count()).Msg("managed ruleset loaded")
+	} else {
+		managed, err := catalog.Embedded()
+		if err != nil {
+			return fmt.Errorf("loading embedded ruleset: %w", err)
+		}
+		eng.SetCatalog(managed)
+		bySeverity := managed.BySeverity()
+		logging.Info().
+			Int("rules", managed.Count()).
+			Int("critical", bySeverity[catalog.SeverityCritical]).
+			Int("high", bySeverity[catalog.SeverityHigh]).
+			Msg("managed ruleset loaded")
+	}
 
 	// Load built-in plugins from the registry
 	registry := engine.GetPluginRegistry()

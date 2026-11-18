@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/jackby03/waffynx/internal/appsec"
+	"github.com/jackby03/waffynx/internal/catalog"
 	"github.com/jackby03/waffynx/internal/config"
 	"github.com/jackby03/waffynx/internal/engine"
 	"github.com/jackby03/waffynx/internal/plugin"
@@ -40,6 +41,17 @@ type verifyCase struct {
 // verifyCorpus covers the attack classes the parsers and the request-validation
 // plugin claim to handle, plus benign traffic that must never be blocked.
 var verifyCorpus = []verifyCase{
+	// --- Managed ruleset: classes only the catalog covers ---
+	//
+	// These exist because the plugin chain never inspected headers, user agents or
+	// sensitive paths. If the catalog is not wired, they fail instead of passing
+	// quietly.
+	{Name: "catalog: scanner user-agent", Method: "GET", Path: "/", Header: map[string]string{"User-Agent": "Nikto/2.5.0"}, WantBlock: true},
+	{Name: "catalog: log4shell user-agent", Method: "GET", Path: "/", Header: map[string]string{"User-Agent": "${jndi:ldap://evil/a}"}, WantBlock: true},
+	{Name: "catalog: vcs config file", Method: "GET", Path: "/.git/config", WantBlock: true},
+	{Name: "catalog: ssrf metadata", Method: "GET", Path: "/fetch?url=http://169.254.169.254/latest/meta-data", WantBlock: true},
+	{Name: "catalog: sqlmap user-agent", Method: "GET", Path: "/", Header: map[string]string{"User-Agent": "sqlmap/1.7.2"}, WantBlock: true},
+
 	// --- Benign traffic: blocking any of this is a false positive ---
 	{Name: "benign: root", Method: "GET", Path: "/"},
 	{Name: "benign: pagination", Method: "GET", Path: "/api/users?page=2&limit=50"},
@@ -110,7 +122,7 @@ type verifyResult struct {
 
 // buildVerifySidecar wires the same components runEngine wires, so the check
 // exercises the configured plugin set and scorer rather than a hardcoded one.
-func buildVerifySidecar(cfg *config.Config) *engine.Sidecar {
+func buildVerifySidecar(cfg *config.Config) (*engine.Sidecar, error) {
 	chain := plugin.NewChain()
 	registry := engine.GetPluginRegistry()
 	for _, pc := range cfg.Plugins {
@@ -134,11 +146,23 @@ func buildVerifySidecar(cfg *config.Config) *engine.Sidecar {
 		}
 	}
 
-	return engine.NewSidecar("", policy.NewRuleEngine(), chain, scorer, nil, nil, wrules.NewEngine(), nil)
+	sc := engine.NewSidecar("", policy.NewRuleEngine(), chain, scorer, nil, nil, wrules.NewEngine(), nil)
+
+	// The self-test must exercise the same ruleset the binary ships, or it would
+	// keep passing while the catalog was broken or empty.
+	managed, err := catalog.Embedded()
+	if err != nil {
+		return nil, fmt.Errorf("loading the embedded ruleset: %w", err)
+	}
+	sc.SetCatalog(managed)
+	return sc, nil
 }
 
 func runVerify(cfg *config.Config, asJSON bool, out io.Writer) error {
-	s := buildVerifySidecar(cfg)
+	s, err := buildVerifySidecar(cfg)
+	if err != nil {
+		return err
+	}
 
 	pluginModes := make(map[string]string)
 	for _, pc := range cfg.Plugins {
@@ -178,15 +202,20 @@ func runVerify(cfg *config.Config, asJSON bool, out io.Writer) error {
 		probe.Header.Set("X-WN-U", tc.Path)
 		probe.Header.Set("X-WN-IP", req.RemoteIP)
 		for k, v := range tc.Header {
-			switch http.CanonicalHeaderKey(k) {
+			key := http.CanonicalHeaderKey(k)
+			// Mirror what handleEvaluate builds from the X-WN-* contract: the
+			// canonical header is in Headers AND the nginx-style header is on the
+			// probe. The self-test used to set only the probe header, so rules that
+			// read Headers (the catalog's user-agent signatures) never fired here
+			// even though they fire in production.
+			req.Headers[key] = []string{v}
+			switch key {
 			case "User-Agent":
 				probe.Header.Set("X-WN-UA", v)
 			case "Content-Type":
 				probe.Header.Set("X-WN-CT", v)
 			case "Referer":
 				probe.Header.Set("X-WN-Ref", v)
-			default:
-				req.Headers[k] = []string{v}
 			}
 		}
 		if len(body) > 0 {

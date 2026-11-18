@@ -111,6 +111,7 @@ When implementing capabilities from [`docs/ROADMAP.md`](docs/ROADMAP.md), agents
 | `internal/policy/` | Data Plane | Rule-based policy evaluation engine (conditions, operators, actions). |
 | `internal/plugin/` | Data Plane | Plugin interface, registry, and priority chain execution. |
 | `internal/appsec/` | Data Plane | Scoring client for the socket protocol (`BridgeScorer`) plus the in-process Go scorer. No vendored engine. |
+| `internal/catalog/` | Data Plane | Managed ruleset: declarative signatures compiled into one Aho–Corasick automaton and evaluated before the plugin chain. Every rule must have a test. |
 | `internal/firewall/` | Host Agent | Host firewall drivers (nftables and UFW rule managers). |
 | `internal/auth/` | Control Plane | JWT authentication manager and OIDC integrations. |
 | `internal/marketplace/` | Control Plane | Plugin package catalog and in-memory distribution store. |
