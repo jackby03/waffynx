@@ -2,6 +2,16 @@
 set -e
 
 WAFFYNX_HOME=/opt/waffynx
+CONFIG_FILE="$WAFFYNX_HOME/config/waffynx.yaml"
+
+# Resolve WAFFYNX_* before starting any daemon. Both waf-api and the engine must
+# read the same topology and JWT secret; a failure here is fatal, not something to
+# start with a half-applied configuration.
+echo "==> Applying environment bootstrap..."
+if ! "$WAFFYNX_HOME/bin/waffynx-bootstrap" --config "$CONFIG_FILE"; then
+    echo "ERROR: environment bootstrap failed; refusing to start Waffynx" >&2
+    exit 1
+fi
 
 # Generate self-signed cert if not present
 if [ ! -f "$WAFFYNX_HOME/certs/server.crt" ]; then
@@ -17,10 +27,10 @@ $WAFFYNX_HOME/bin/appsec-bridge -s $WAFFYNX_HOME/open-appsec.sock &
 sleep 1
 
 echo "==> Starting WAF API (dashboard on :9090)..."
-$WAFFYNX_HOME/bin/waf-api --config $WAFFYNX_HOME/config/waffynx.yaml &
+$WAFFYNX_HOME/bin/waf-api --config "$CONFIG_FILE" &
 
 echo "==> Starting WAF engine (sidecar + nginx)..."
-$WAFFYNX_HOME/bin/waffynx start --config $WAFFYNX_HOME/config/waffynx.yaml &
+$WAFFYNX_HOME/bin/waffynx start --config "$CONFIG_FILE" &
 
 echo ""
 echo "============================================"

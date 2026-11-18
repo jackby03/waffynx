@@ -60,6 +60,7 @@ RUN go mod download
 
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /waffynx ./cmd/waffynx && \
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /waffynx-bootstrap ./cmd/waffynx-bootstrap && \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /appsec-bridge ./cmd/appsec-bridge && \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /waf-api ./cmd/waf-api && \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /waf-agent ./cmd/waf-agent
@@ -74,12 +75,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/waffynx
-RUN mkdir -p bin config logs nginx/sbin nginx/conf nginx/logs certs
+RUN mkdir -p bin config logs data nginx/sbin nginx/conf nginx/logs certs
 
 COPY --from=nginx-builder /build/nginx/objs/nginx nginx/sbin/nginx
 COPY --from=nginx-builder /build/nginx/conf/mime.types nginx/conf/mime.types
 
 COPY --from=go-builder /waffynx bin/waffynx
+COPY --from=go-builder /waffynx-bootstrap bin/waffynx-bootstrap
 COPY --from=go-builder /appsec-bridge bin/appsec-bridge
 COPY --from=go-builder /waf-api bin/waf-api
 COPY --from=go-builder /waf-agent bin/waf-agent
