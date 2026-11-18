@@ -10,6 +10,12 @@
 # and JSON escapes, lowercasing, whitespace and /**/ squashing), so "union
 # select" also matches "union/**/select", "union%20select" and "union+select".
 #
+# What "headers" means here: the nginx module forwards only User-Agent,
+# Content-Type and Referer into the sidecar (X-WN-UA/-CT/-Ref). A rule that needs
+# an arbitrary header (X-Api-Version, Authorization) will not fire until the module
+# is taught to pass more, with bounds. Rules below therefore name those fields
+# explicitly whenever they can.
+#
 # Order matters: the first match wins. Rules are grouped from most specific to
 # least, and noisy signatures are ActionLog so they cannot break traffic.
 

