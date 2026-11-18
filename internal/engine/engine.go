@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackby03/waffynx/internal/appsec"
 	"github.com/jackby03/waffynx/internal/audit"
+	"github.com/jackby03/waffynx/internal/catalog"
 	"github.com/jackby03/waffynx/internal/config"
 	"github.com/jackby03/waffynx/internal/events"
 	"github.com/jackby03/waffynx/internal/learning"
@@ -31,6 +32,9 @@ type Engine struct {
 	chain   *plugin.Chain
 	policy  policy.Evaluator
 	scorer  appsec.Scorer
+	// catalog is the managed ruleset. Nil disables it, which is only correct in
+	// tests: the shipped binary always loads one.
+	catalog *catalog.Catalog
 	// appsecFailOpen is passed to the sidecar: false means an unreachable scorer
 	// blocks instead of silently allowing.
 	appsecFailOpen bool
@@ -85,6 +89,11 @@ func (e *Engine) AddPlugin(p plugin.Plugin) {
 
 func (e *Engine) PolicyEngine() policy.Evaluator {
 	return e.policy
+}
+
+// SetCatalog installs the managed ruleset. Call before Start().
+func (e *Engine) SetCatalog(c *catalog.Catalog) {
+	e.catalog = c
 }
 
 // SetAppSecFailOpen sets whether an unreachable scorer allows (true) or blocks

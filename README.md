@@ -148,6 +148,7 @@ work is explicitly out of scope and parked in [docs/FUTURE.md](docs/FUTURE.md).
 * **L7 policy engine**: SQLi, XSS, path traversal, command injection, scanner signatures.
 * **WAF-layer IP blocking** with no privileges, plus optional kernel drop in system mode.
 * **Rate limiting**, in-memory and Redis-backed.
+* **Managed ruleset**: 42 signatures across SQLi, XSS, RCE, LFI, RFI, SSRF, XXE, scanners and protocol anomalies, including headers and user-agent. Each rule ships with a positive and a negative test, and the suite fails if a rule is added untested.
 * **Anomaly scoring**, built in: signature patterns plus Shannon entropy with hand-tuned weights, so a verdict is explainable and adds no network call. Or delegate to any engine speaking the scorer socket.
 * **Management API** (JWT/OIDC, RBAC) and the React control room.
 * **`waffynx verify`** functional self-test.

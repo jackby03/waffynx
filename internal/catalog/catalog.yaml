@@ -1,0 +1,336 @@
+# Waffynx managed ruleset.
+#
+# Rules are data, not code: they are validated at load time (duplicate ids,
+# unknown keys, invalid severity or action all fail startup) and immutable at
+# runtime. Every rule must have at least one positive test in catalog_test.go,
+# which fails if a rule is added without one.
+#
+# Patterns are written in plain text. The compiler applies the same
+# normalisation to them that it applies to the request (percent-decoding, HTML
+# and JSON escapes, lowercasing, whitespace and /**/ squashing), so "union
+# select" also matches "union/**/select", "union%20select" and "union+select".
+#
+# Order matters: the first match wins. Rules are grouped from most specific to
+# least, and noisy signatures are ActionLog so they cannot break traffic.
+
+version: 1
+
+rules:
+  # ---------------------------------------------------------------- SQL injection
+  - id: WAF-SQLI-001
+    name: SQL UNION SELECT
+    severity: critical
+    action: block
+    tags: [sqli]
+    any_of: [union select, union all select]
+
+  - id: WAF-SQLI-002
+    name: SQL boolean tautology
+    severity: critical
+    action: block
+    tags: [sqli]
+    any_of: ["or 1=1", "or '1'='1", "or true", "and 1=1"]
+
+  - id: WAF-SQLI-003
+    name: SQL time-based blind
+    severity: high
+    action: block
+    tags: [sqli]
+    any_of: ['sleep(', 'pg_sleep(', 'waitfor delay', 'benchmark(']
+
+  - id: WAF-SQLI-004
+    name: SQL comment terminator
+    severity: high
+    action: block
+    tags: [sqli]
+    any_of: ["'--", '"--']
+
+  - id: WAF-SQLI-005
+    name: SQL stacked statement
+    severity: high
+    action: block
+    tags: [sqli]
+    any_of: [';select', ';insert', ';update', ';delete', ';drop']
+
+  - id: WAF-SQLI-006
+    name: SQL schema and file primitives
+    severity: critical
+    action: block
+    tags: [sqli]
+    any_of: [information_schema, 'load_file(', 'into outfile', 'into dumpfile']
+
+  - id: WAF-SQLI-007
+    name: SQL hex and char obfuscation
+    severity: medium
+    action: block
+    tags: [sqli]
+    any_of: ["char(0x", 'unhex(', 'char((select']
+
+  - id: WAF-SQLI-008
+    name: SQL injection scanner user-agent
+    severity: critical
+    action: block
+    tags: [sqli, scanner]
+    fields: [user_agent]
+    decoded: false
+    any_of: [sqlmap]
+
+  - id: WAF-SQLI-009
+    name: SQL ORDER BY probing
+    severity: low
+    action: log
+    tags: [sqli]
+    any_of: [order by 1, order by 2]
+
+  # ---------------------------------------------------------------------- XSS
+  - id: WAF-XSS-001
+    name: Script tag
+    severity: critical
+    action: block
+    tags: [xss]
+    any_of: ['<script', '</script']
+
+  - id: WAF-XSS-002
+    name: HTML event handler
+    severity: high
+    action: block
+    tags: [xss]
+    any_of: ['onerror=', 'onload=', 'onclick=', 'onmouseover=', 'onfocus=']
+
+  - id: WAF-XSS-003
+    name: javascript URI
+    severity: high
+    action: block
+    tags: [xss]
+    any_of: ['javascript:']
+
+  - id: WAF-XSS-004
+    name: data URI with HTML
+    severity: high
+    action: block
+    tags: [xss]
+    any_of: ['data:text/html']
+
+  - id: WAF-XSS-005
+    name: iframe srcdoc
+    severity: medium
+    action: block
+    tags: [xss]
+    any_of: ['srcdoc=']
+
+  - id: WAF-XSS-006
+    name: Cookie access from script
+    severity: medium
+    action: block
+    tags: [xss]
+    any_of: [document.cookie]
+
+  - id: WAF-XSS-007
+    name: Alert call
+    severity: low
+    action: log
+    tags: [xss]
+    any_of: ['alert(']
+
+  - id: WAF-XSS-008
+    name: Inline SVG
+    severity: low
+    action: log
+    tags: [xss]
+    any_of: ['<svg']
+
+  # ------------------------------------------------------------- Command injection
+  - id: WAF-RCE-001
+    name: Shell metacharacter with command
+    severity: critical
+    action: block
+    tags: [rce]
+    any_of: [';cat', '|cat', '&&cat', ';wget', '|wget', ';curl', '|curl']
+
+  - id: WAF-RCE-002
+    name: Pipe to shell
+    severity: critical
+    action: block
+    tags: [rce]
+    any_of: ['|sh', '|bash', '|zsh']
+
+  - id: WAF-RCE-003
+    name: Command substitution
+    severity: high
+    action: block
+    tags: [rce]
+    any_of: ['$(', '`id`', ';id', '|id', '&&id', ';whoami', '|whoami']
+
+  - id: WAF-RCE-004
+    name: Reverse shell
+    severity: critical
+    action: block
+    tags: [rce]
+    any_of: ['nc -e', '/bin/sh', 'bash -i', 'ncat -e']
+
+  - id: WAF-RCE-005
+    name: PowerShell
+    severity: high
+    action: block
+    tags: [rce]
+    any_of: ['invoke-expression', 'powershell -', 'iex(']
+
+  - id: WAF-RCE-006
+    name: Windows command shell
+    severity: high
+    action: block
+    tags: [rce]
+    any_of: ['cmd.exe /c', 'cmd /c']
+
+  - id: WAF-RCE-007
+    name: Log4Shell JNDI
+    severity: critical
+    action: block
+    tags: [rce]
+    # Any header can carry it: User-Agent, X-Api-Version, Referer.
+    fields: [headers]
+    any_of: ['${jndi:']
+
+  - id: WAF-RCE-008
+    name: Interpreter execution helper
+    severity: low
+    action: log
+    tags: [rce]
+    any_of: ['os.system(', 'subprocess.popen']
+
+  # ------------------------------------------------- Path traversal and file access
+  - id: WAF-LFI-001
+    name: Path traversal
+    severity: high
+    action: block
+    tags: [lfi]
+    any_of: ['../', '..\']
+
+  - id: WAF-LFI-002
+    name: Obfuscated path traversal
+    severity: high
+    action: block
+    tags: [lfi]
+    any_of: ['....//', '..;/']
+
+  - id: WAF-LFI-003
+    name: Sensitive Unix file
+    severity: critical
+    action: block
+    tags: [lfi]
+    any_of: [/etc/passwd, /etc/shadow, /proc/self/environ]
+
+  - id: WAF-LFI-004
+    name: PHP stream wrapper
+    severity: high
+    action: block
+    tags: [lfi]
+    any_of: ['php://', 'phar://', 'expect://', 'zip://']
+
+  - id: WAF-LFI-005
+    name: Sensitive Windows file
+    severity: high
+    action: block
+    tags: [lfi]
+    any_of: ['c:\windows', 'win.ini', 'boot.ini']
+
+  - id: WAF-SENS-001
+    name: Version control and secret files
+    severity: high
+    action: block
+    tags: [sensitive]
+    fields: [path]
+    any_of: [/.git/, /.svn/, /.env, /wp-config.php, /.aws/credentials, /id_rsa]
+
+  - id: WAF-SENS-002
+    name: Database or configuration backup
+    severity: medium
+    action: block
+    tags: [sensitive]
+    fields: [path]
+    any_of: [backup.sql, dump.sql, .env.bak, .env.backup]
+
+  - id: WAF-SENS-003
+    name: Diagnostic endpoint
+    severity: low
+    action: log
+    tags: [sensitive]
+    fields: [path]
+    any_of: [/phpinfo.php, /.htpasswd, /server-status]
+
+  # -------------------------------------------------------------------- SSRF and XXE
+  - id: WAF-SSRF-001
+    name: Cloud metadata endpoint
+    severity: critical
+    action: block
+    tags: [ssrf]
+    any_of: [169.254.169.254, metadata.google.internal]
+
+  - id: WAF-SSRF-002
+    name: File scheme in request
+    severity: high
+    action: block
+    tags: [ssrf]
+    fields: [query]
+    any_of: ['file://']
+
+  - id: WAF-SSRF-003
+    name: Loopback reference
+    severity: low
+    action: log
+    tags: [ssrf]
+    fields: [query]
+    any_of: [127.0.0.1, 'localhost:']
+
+  - id: WAF-XXE-001
+    name: XML external entity
+    severity: critical
+    action: block
+    tags: [xxe]
+    fields: [body]
+    any_of: ['<!entity', 'system "file://', "system 'file://"]
+
+  # --------------------------------------------------------------- Scanners, protocol
+  - id: WAF-SCAN-001
+    name: Vulnerability scanner user-agent
+    severity: high
+    action: block
+    tags: [scanner]
+    fields: [user_agent]
+    decoded: false
+    any_of: [nikto, nmap, masscan, nuclei, zgrab, dirbuster, gobuster, feroxbuster, wpscan, acunetix, nessus]
+
+  - id: WAF-PROTO-001
+    name: Null byte in request
+    severity: high
+    action: block
+    tags: [protocol]
+    fields: [path, query]
+    decoded: false
+    any_of: ['%00', '%2500']
+
+  - id: WAF-PROTO-002
+    name: CRLF injection
+    severity: high
+    action: block
+    tags: [protocol]
+    fields: [path, query]
+    decoded: false
+    any_of: ['%0d%0a', '%0a%0d']
+
+  - id: WAF-PROTO-003
+    name: Double-encoded payload
+    severity: medium
+    action: block
+    tags: [protocol]
+    fields: [path, query]
+    decoded: false
+    any_of: ['%252e', '%253c', '%252f']
+
+  - id: WAF-PROTO-004
+    name: GraphQL introspection
+    severity: low
+    action: log
+    tags: [graphql]
+    fields: [body]
+    any_of: ['__schema', '"__type"']

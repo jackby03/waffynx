@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackby03/waffynx/internal/appsec"
 	"github.com/jackby03/waffynx/internal/audit"
+	"github.com/jackby03/waffynx/internal/catalog"
 	"github.com/jackby03/waffynx/internal/events"
 	"github.com/jackby03/waffynx/internal/learning"
 	"github.com/jackby03/waffynx/internal/logging"
@@ -56,6 +57,7 @@ type Sidecar struct {
 	chain       *plugin.Chain
 	engine      policy.Evaluator
 	scorer      appsec.Scorer
+	catalog     *catalog.Catalog
 	learning    *learning.Engine
 
 	// appsecFailOpen decides the request's fate when the scorer is unreachable.
@@ -169,6 +171,11 @@ type Decision struct {
 
 // Decide runs the inspection pipeline (plugins -> custom rules -> policy -> ML)
 // and reports the verdict without writing a response.
+// SetCatalog installs the managed ruleset. Call before Start.
+func (s *Sidecar) SetCatalog(c *catalog.Catalog) {
+	s.catalog = c
+}
+
 func (s *Sidecar) Decide(w http.ResponseWriter, r *http.Request, req *policy.Request, body []byte) Decision {
 	// Plugins look at ctx.Request which is the SIDECAR request (/evaluate),
 	// not the ORIGINAL. We inject the original request data into ctx.Values
@@ -185,7 +192,34 @@ func (s *Sidecar) Decide(w http.ResponseWriter, r *http.Request, req *policy.Req
 		ctx.Values["wn_body"] = string(body)
 	}
 
-	// Stage 1a: plugin chain
+	// Stage 1: managed ruleset.
+	//
+	// First on purpose: it carries the rule id, severity and tags that make an
+	// event explainable, while the plugin chain reports a bare pattern match. It
+	// also inspects headers and user-agent, which the plugins do not.
+	if s.catalog != nil {
+		if hit := s.catalog.Evaluate(req); hit != nil {
+			if hit.Action == catalog.ActionBlock {
+				logging.Warn().
+					Str("rule_id", hit.RuleID).
+					Str("severity", string(hit.Severity)).
+					Str("field", string(hit.Field)).
+					Msg("catalog rule blocked request")
+				return Decision{
+					Stage:  "catalog",
+					RuleID: hit.RuleID,
+					Reason: hit.Name + " (matched in " + string(hit.Field) + ")",
+				}
+			}
+			logging.Info().
+				Str("rule_id", hit.RuleID).
+				Str("severity", string(hit.Severity)).
+				Str("field", string(hit.Field)).
+				Msg("catalog rule matched, logging only")
+		}
+	}
+
+	// Stage 2: plugin chain
 	ctx, err := s.chain.Execute(ctx, plugin.PhasePreRequest)
 	if err != nil {
 		logging.Warn().Err(err).Msg("plugin chain blocked request")

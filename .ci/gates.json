@@ -6,7 +6,7 @@
     "fuzz"
   ],
   "tests": {
-    "min_passing": 420,
+    "min_passing": 500,
     "required": [
       {
         "test": "TestSidecarSocketGroupWidensTo0660",
@@ -45,6 +45,15 @@
       },
       {
         "test": "TestRateLimitBackendFailureIsRefusedByDefault"
+      },
+      {
+        "test": "TestEveryRuleIsTested"
+      },
+      {
+        "test": "TestCatalogDecodesEncodings"
+      },
+      {
+        "test": "TestCatalogDoesNotBlockBenignTraffic"
       }
     ],
     "allowed_skips": [
@@ -70,7 +79,9 @@
       "BenchmarkNormalizePath",
       "BenchmarkEvaluate_QueryParam_Single",
       "BenchmarkEvaluate_QueryParam_Multi",
-      "BenchmarkEvaluate_QueryParam_NoMatch"
+      "BenchmarkEvaluate_QueryParam_NoMatch",
+      "BenchmarkEvaluate",
+      "BenchmarkEvaluateLargeBody"
     ],
     "max_allocs_per_op": {
       "BenchmarkParseQueryParams": 8,
@@ -79,7 +90,9 @@
       "BenchmarkNormalizePath": 1,
       "BenchmarkEvaluate_QueryParam_Single": 1,
       "BenchmarkEvaluate_QueryParam_Multi": 1,
-      "BenchmarkEvaluate_QueryParam_NoMatch": 1
+      "BenchmarkEvaluate_QueryParam_NoMatch": 1,
+      "BenchmarkEvaluate": 5,
+      "BenchmarkEvaluateLargeBody": 3
     }
   },
   "fuzz": {

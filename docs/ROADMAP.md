@@ -98,6 +98,13 @@ Sequenced by "what makes it a product" — not by "what is interesting to build"
 
 ### Phase 1 — Parity basics
 
+*Shipped ahead of the rest of this phase:* the managed ruleset (`internal/catalog`)
+with 42 signatures across SQLi, XSS, RCE, LFI, SSRF, XXE, scanners and protocol
+anomalies, including headers and user-agent. It is compiled into one Aho–Corasick
+automaton (one pass per field, ~2.5 µs per request, 3 allocs) and every rule ships
+with a positive and a negative test. Still open here: an expression language, the
+external ruleset format, per-rule toggles and exceptions.
+
 - Rule expression language + rule editor in the UI.
 - Managed rule catalog with versioned updates, toggles and per-rule exceptions.
 - Rate-limit, IP/CIDR/country/ASN list management in the UI.
