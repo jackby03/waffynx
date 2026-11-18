@@ -21,16 +21,18 @@ import (
 	"github.com/jackby03/waffynx/internal/logging"
 )
 
-// appsec-bridge is a standalone daemon that exposes the open-appsec
-// evaluation API over a Unix socket. It runs as a separate process
-// from the main waffynx sidecar.
+// appsec-bridge is an optional standalone scorer that speaks the open-appsec
+// evaluation protocol over a Unix socket, so the engine can reach a scoring
+// process that is not itself. It is NOT started by the container by default.
 //
 // Architecture:
 //
-//	Go Sidecar (BridgeScorer) --unix socket--> appsec-bridge
+//	Go Sidecar (BridgeScorer) --unix socket--> appsec-bridge (or any engine)
 //
-// In production, replace this binary with the real open-appsec C++
-// engine that implements the same HTTP/JSON protocol.
+// It is a reference implementation of that protocol: the bundled C++ engine it
+// used to wrap was removed (see third_party/README.md). Set
+// appsec.engine: open-appsec plus appsec.bridge_socket to point at whatever you
+// run — this binary, or the real open-appsec engine as its own process.
 //
 // Endpoints:
 //
@@ -42,9 +44,9 @@ func main() {
 
 	rootCmd := &cobra.Command{
 		Use:   "appsec-bridge",
-		Short: "open-appsec bridge daemon (Go implementation)",
-		Long: `Standalone ML evaluation daemon compatible with the 
-open-appsec protocol. Swap with the C++ engine for production.`,
+		Short: "optional scorer daemon speaking the open-appsec protocol",
+		Long: `Standalone scorer for the appsec.bridge_socket contract. Optional: the
+engine uses its in-process scorer unless appsec.engine is set to open-appsec.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(socketPath, logLevel)
 		},

@@ -22,9 +22,10 @@ if [ ! -f "$WAFFYNX_HOME/certs/server.crt" ]; then
         -days 365 -subj "/CN=localhost/O=Waffynx/C=US" 2>/dev/null
 fi
 
-echo "==> Starting appsec-bridge..."
-$WAFFYNX_HOME/bin/appsec-bridge -s $WAFFYNX_HOME/open-appsec.sock &
-sleep 1
+# open-appsec is not started. The engine scores in-process (appsec.engine defaults
+# to basic-go); appsec-bridge only matters when appsec.engine is set to
+# open-appsec, and then you point appsec.bridge_socket at an engine you run. The
+# bundled stub was removed because it was never enabled — see third_party/README.md.
 
 echo "==> Starting WAF API (dashboard on :9090)..."
 $WAFFYNX_HOME/bin/waf-api --config "$CONFIG_FILE" &

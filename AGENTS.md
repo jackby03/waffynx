@@ -73,7 +73,7 @@ When implementing capabilities from [`docs/ROADMAP.md`](docs/ROADMAP.md), agents
 
 *Run only these commands to validate your work:*
 
-> **Platform note:** the local dev box is `windows/386`, but Linux is the sole production runtime (Constitution §2.1). Lint and build with `GOOS=linux` so the data-plane files behind build tags (`internal/engine/engine_unix.go`, `internal/appsec/bridge_cpp_linux.go`) are actually analysed instead of their stubs. `-race` requires `GOARCH=amd64` plus a C toolchain and is not available on the 386 Windows dev box; it runs in CI and in the Vagrant VM.
+> **Platform note:** the local dev box is `windows/386`, but Linux is the sole production runtime (Constitution §2.1). Lint and build with `GOOS=linux` so the data-plane files behind build tags (`internal/engine/engine_unix.go`) are actually analysed instead of the Windows stubs. `-race` requires `GOARCH=amd64` plus a C toolchain and is not available on the 386 Windows dev box; it runs in CI and in the Vagrant VM.
 
 * **Build Go binaries:** `make build` (outputs `waffynx`, `waffynx-bootstrap`, `waf-agent`, `waf-api`, `appsec-bridge` to `bin/`)
 * **Run all unit tests:** `go test -race ./...` (use `make test`, which covers `./...` including `cmd/`)
@@ -84,7 +84,7 @@ When implementing capabilities from [`docs/ROADMAP.md`](docs/ROADMAP.md), agents
 * **Functional self-test:** `waffynx verify -c configs/waffynx.yaml` (drives benign and malicious requests through the real inspection pipeline; exits non-zero on any mismatch, `--json` for CI)
 * **Lint / Static analysis:** `GOOS=linux golangci-lint run ./...` (also runs the `gofmt -s` formatter)
 * **Format check:** `gofmt -s -l .` (`.gitattributes` pins `eol=lf`, so the working tree stays LF regardless of a contributor's `core.autocrlf`)
-* **Compile C++ bridge (Linux):** `make bridge-build` (outputs `bin/libwaffynx_bridge.so`)
+* **Optional scorer daemon:** `make build-bridge` (builds `bin/appsec-bridge`, the reference implementation of the scorer socket). The container does not start it; the engine scores in-process unless `appsec.engine: open-appsec`.
 * **Update nginx (CVE response):** `git -C third_party/nginx fetch upstream --tags && git -C third_party/nginx checkout release-X.Y.Z` then commit the submodule pointer. The submodule is **upstream `nginx/nginx` at a release tag**, never a fork: what compiles is decided by `--without-*` flags, so a bump is a checkout, not a re-strip. See [`SECURITY.md`](SECURITY.md).
 * **Vagrant VM test cycle (Windows dev):** `make vagrant-test` (executes end-to-end integration test inside the Linux VM)
 
@@ -103,13 +103,13 @@ When implementing capabilities from [`docs/ROADMAP.md`](docs/ROADMAP.md), agents
 | `cmd/waffynx/` | Data Plane | Main engine CLI entrypoint (sidecar socket listener & proxy bootstrap). |
 | `cmd/waf-agent/` | Host Agent | Host firewall daemon (nftables/UFW synchronization). |
 | `cmd/waf-api/` | Control Plane | Management REST API CLI bootstrap (<60 lines). |
-| `cmd/appsec-bridge/` | Data Plane | Open-AppSec scoring daemon exposing a `0600` Unix socket; CGo build links `libwaffynx_bridge.so`. |
+| `cmd/appsec-bridge/` | Data Plane | Optional standalone scorer speaking the open-appsec protocol over a `0600` Unix socket. Not started by default; the engine scores in-process. |
 | `ui/` | Control Plane | Waffynx Control Room single-page application (React 19 + TypeScript + Vite). |
 | `internal/api/` | Control Plane | Management REST API (:9090), SSE broker, middleware, and SPA file server. |
 | `internal/engine/` | Data Plane | Low-latency 3-stage inspection pipeline (orchestrator & Unix socket server). |
 | `internal/policy/` | Data Plane | Rule-based policy evaluation engine (conditions, operators, actions). |
 | `internal/plugin/` | Data Plane | Plugin interface, registry, and priority chain execution. |
-| `internal/appsec/` | Data Plane | Open-AppSec ML bridge and scoring client. |
+| `internal/appsec/` | Data Plane | Scoring client for the socket protocol (`BridgeScorer`) plus the in-process Go scorer. No vendored engine. |
 | `internal/firewall/` | Host Agent | Host firewall drivers (nftables and UFW rule managers). |
 | `internal/auth/` | Control Plane | JWT authentication manager and OIDC integrations. |
 | `internal/marketplace/` | Control Plane | Plugin package catalog and in-memory distribution store. |

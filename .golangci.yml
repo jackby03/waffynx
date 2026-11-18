@@ -7,8 +7,8 @@ version: "2"
 
 run:
   # Linux is the sole production runtime (Constitution §2.1). Linting for the
-  # host OS hides the real data-plane code behind build tags (engine_unix.go,
-  # engine_windows.go, bridge_cpp_linux.go, bridge_cpp_stub.go).
+  # host OS hides the real data-plane code behind build tags (engine_unix.go
+  # instead of engine_windows.go).
   go: "1.22"
   timeout: 5m
   tests: true
@@ -53,11 +53,9 @@ linters:
   exclusions:
     generated: lax
     paths:
-      # third_party/open-appsec is a git submodule of vendored C/C++ sources.
-      # Its external/graphqlparser/go files use `import "C"`, so on a host with a
-      # C compiler they become Go packages that depend on modules absent from
-      # go.mod. We never build them as part of this module; the bridge is
-      # compiled by g++ in scripts/build-bridge.sh.
+      # third_party holds C sources (nginx), not Go packages. The path stays
+      # excluded so a vendored tree that ever ships `import "C"` files cannot
+      # become a package that needs modules absent from go.mod.
       - third_party
     rules:
       # Test files: cleanup (`defer x.Close()`) and fixture errors are not

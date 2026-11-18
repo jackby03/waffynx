@@ -1,8 +1,10 @@
 // Package appsec provides ML-based anomaly detection for HTTP requests.
 //
 // It defines an interface that can be backed by either:
-//   - A pure Go anomaly scorer (for development/testing)
-//   - The open-appsec C++ engine via a Unix socket bridge (for production)
+//   - A pure Go anomaly scorer, in process (the default)
+//   - Any engine reachable over a Unix socket (BridgeScorer), including the real
+//     open-appsec engine run as its own process. Nothing is vendored: an engine
+//     that is not deployed is not a dependency.
 //
 // The scorer receives decoded request features and returns a score
 // between 0.0 (safe) and 1.0 (malicious), plus a verdict.
