@@ -169,6 +169,7 @@ work is explicitly out of scope and parked in [docs/FUTURE.md](docs/FUTURE.md).
 
 ## 📖 Documentation
 
+* **[SECURITY.md](SECURITY.md)**: how to report a vulnerability, and the nginx patching policy.
 * **[AGENTS.md](AGENTS.md)**: Detailed architecture specs, development gotchas, and internal component mapping.
 * **Configuration**: Check out `configs/waffynx.yaml` for a full production configuration template.
 

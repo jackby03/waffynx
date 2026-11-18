@@ -187,6 +187,43 @@ These were invisible to unit tests because nothing in CI built the image:
 
 ---
 
+### 7.2 nginx was pinned to a hand-stripped fork — fixed
+
+`third_party/nginx` pointed at `jackby03/ngx_waffynx`, a snapshot of nginx 1.31.4
+with **221 files deleted and 15 edited by hand**, plus three follow-up commits
+restoring files the first strip broke. It was not a branch of upstream, so
+`release-X.Y.Z` was not an ancestor and no merge was possible: every update meant
+replaying the strip, re-fixing the build, and hoping nothing was missed.
+
+That is the failure mode that turns a security update into a postponement. It was
+carried at **1.31.4 while 1.31.9 was released**, leaving at least six applicable
+advisories open, two of them major:
+
+| CVE | Severity | Applies here? | Why |
+|---|---|---|---|
+| CVE-2026-123007 (HTTP/2 flow control, memory corruption) | **major** | **yes** | `--with-http_v2_module` is built |
+| CVE-2026-118899 (infinite loop reading a request body over TLS 1.3) | **major** | **yes** | TLS + body inspection is the core path |
+| CVE-2026-97629 (session forgery via TLS session tickets) | medium | **yes** | TLS is terminated here |
+| CVE-2026-123633 (use-after-free in HTTP/2) | medium | **yes** | HTTP/2 is built |
+| CVE-2026-123634 (use-after-free in resolver) | medium | **yes** | upstreams are proxied by hostname |
+| CVE-2026-120993 (NULL dereference with PROXY protocol v2) | minor | not used | no `proxy_protocol` listener is generated |
+| CVE-2026-113425 / -120967 / -123640 (mail, stream) | major/medium/minor | **no** | those modules are not built |
+
+The fix is structural, not a one-off bump:
+
+- `third_party/nginx` is **upstream `nginx/nginx` at tag `release-1.31.9`**. What is
+  compiled is decided by `--without-*` flags, never by deleting sources, so the tree
+  is identical to upstream.
+- **Dependabot watches the submodule commit** (`.github/dependabot.yml`), so the next
+  release arrives as a PR instead of as a surprise.
+- The `container-e2e` job builds nginx, boots the image and asserts benign traffic is
+  proxied and SQLi/XSS are still blocked, so a bump cannot silently disable
+  enforcement.
+- [`SECURITY.md`](../SECURITY.md) records the policy and the triage rule: check the
+  build flags before assuming an advisory applies.
+
+---
+
 ## 8. How this document is used
 
 - Anything not in §4 or §5 is out of scope, including ideas that sound valuable.

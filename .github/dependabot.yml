@@ -1,0 +1,59 @@
+version: 2
+
+updates:
+  # nginx is the security boundary of the product: every CVE in it is a CVE in
+  # Waffynx. Dependabot watches the submodule commit, so a new release tag opens
+  # a PR that the container-e2e job builds and runs before anyone merges.
+  #
+  # The submodule must stay a plain upstream tag (see Makefile). A hand-stripped
+  # fork cannot be updated this way, and that is why it was dropped.
+  - package-ecosystem: gitsubmodule
+    directory: /
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(nginx)"
+    labels:
+      - dependencies
+      - security
+
+  - package-ecosystem: gitsubmodule
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "deps(appsec)"
+    labels:
+      - dependencies
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(go)"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "deps(ci)"
+
+  - package-ecosystem: npm
+    directory: /ui
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(ui)"
+
+  - package-ecosystem: docker
+    directory: /deploy/docker
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "deps(docker)"

@@ -85,6 +85,7 @@ When implementing capabilities from [`docs/ROADMAP.md`](docs/ROADMAP.md), agents
 * **Lint / Static analysis:** `GOOS=linux golangci-lint run ./...` (also runs the `gofmt -s` formatter)
 * **Format check:** `gofmt -s -l .` (`.gitattributes` pins `eol=lf`, so the working tree stays LF regardless of a contributor's `core.autocrlf`)
 * **Compile C++ bridge (Linux):** `make bridge-build` (outputs `bin/libwaffynx_bridge.so`)
+* **Update nginx (CVE response):** `git -C third_party/nginx fetch upstream --tags && git -C third_party/nginx checkout release-X.Y.Z` then commit the submodule pointer. The submodule is **upstream `nginx/nginx` at a release tag**, never a fork: what compiles is decided by `--without-*` flags, so a bump is a checkout, not a re-strip. See [`SECURITY.md`](SECURITY.md).
 * **Vagrant VM test cycle (Windows dev):** `make vagrant-test` (executes end-to-end integration test inside the Linux VM)
 
 ---
