@@ -153,6 +153,10 @@ func (s *Server) Run(ctx context.Context) error {
 		IdleTimeout:  30 * time.Second,
 	}
 
+	// The dashboard history comes from the sidecar stream: without this the API
+	// broker stays empty and /events/history always answers [].
+	go s.bridgeSidecarEvents(ctx)
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
