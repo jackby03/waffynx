@@ -17,11 +17,8 @@ import (
 	"github.com/jackby03/waffynx/internal/logging"
 	"github.com/jackby03/waffynx/internal/version"
 
-	// Register built-in plugins via their init() functions
-	_ "github.com/jackby03/waffynx/plugins/bot-protection"
-	_ "github.com/jackby03/waffynx/plugins/geo-block"
-	_ "github.com/jackby03/waffynx/plugins/rate-limit"
-	_ "github.com/jackby03/waffynx/plugins/request-validation"
+	// Register built-in plugins via their init() functions.
+	_ "github.com/jackby03/waffynx/plugins/all"
 )
 
 func main() {

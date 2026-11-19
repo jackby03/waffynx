@@ -11,6 +11,11 @@ import (
 
 	"github.com/jackby03/waffynx/internal/api"
 	"github.com/jackby03/waffynx/internal/config"
+
+	// The plugin registry is filled by init() functions. Without this import the
+	// control plane answers /api/v1/plugins with [], which reads as "no plugins
+	// installed" instead of "this binary never loaded them".
+	_ "github.com/jackby03/waffynx/plugins/all"
 )
 
 func main() {
