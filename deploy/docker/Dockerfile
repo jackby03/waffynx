@@ -62,7 +62,21 @@ RUN bash auto/configure \
 RUN make -j$(nproc) && strip objs/nginx
 
 # ============================================================
-# Stage 2: Build Go binaries
+# Stage 2: Build the dashboard
+# ============================================================
+# Without this stage the image ships ui/dist/placeholder.html and the root path
+# answers with an endpoint list instead of the SPA: the container runs, but there
+# is nothing to log in to.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS ui-builder
+
+WORKDIR /build/ui
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci
+COPY ui/ ./
+RUN npm run build
+
+# ============================================================
+# Stage 3: Build Go binaries
 # ============================================================
 FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS go-builder
 
@@ -73,6 +87,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
+# ui/embed.go embeds all:dist; overwrite the tracked placeholder with the real build.
+COPY --from=ui-builder /build/ui/dist ./ui/dist
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /waffynx ./cmd/waffynx && \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /waffynx-bootstrap ./cmd/waffynx-bootstrap && \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /appsec-bridge ./cmd/appsec-bridge && \
@@ -80,7 +96,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /waffynx ./cmd/waffynx 
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /waf-agent ./cmd/waf-agent
 
 # ============================================================
-# Stage 3: Runtime
+# Stage 4: Runtime
 # ============================================================
 FROM --platform=$TARGETPLATFORM debian:bookworm-slim
 
