@@ -17,6 +17,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	// answered by corsMiddleware, so no explicit OPTIONS mapping is needed — and
 	// mapping one here would route preflight at the login handler.
 	mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
+	mux.HandleFunc("GET /api/v1/auth/me", withAuth(s.handleMe))
 
 	// Status and Configuration
 	mux.HandleFunc("GET /api/v1/status", withAuth(s.handleStatus))
@@ -41,6 +42,19 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/audit", withAuth(s.handleAuditQuery))
 	mux.HandleFunc("POST /api/v1/events", withAuth(s.requireScope("events:write")(s.handleIngestEvent)))
 	mux.HandleFunc("GET /api/v1/events", withAuth(s.handleSSE))
+	// History is the polling counterpart to the stream: it lets a reconnecting
+	// dashboard backfill the gap instead of losing events.
+	mux.HandleFunc("GET /api/v1/events/history", withAuth(s.handleEventHistory))
+
+	// Custom rules live in the data plane (the sidecar evaluates them per
+	// request), so these handlers proxy the socket and never keep a copy.
+	mux.HandleFunc("GET /api/v1/custom-rules", withAuth(s.handleCustomRuleList))
+	mux.HandleFunc("POST /api/v1/custom-rules", withAuth(requireAdmin(s.handleCustomRuleCreate)))
+	mux.HandleFunc("DELETE /api/v1/custom-rules/{id}", withAuth(requireAdmin(s.handleCustomRuleDelete)))
+
+	// Behavioural learning, also owned by the sidecar.
+	mux.HandleFunc("GET /api/v1/learning/suggestions", withAuth(s.handleLearningSuggestions))
+	mux.HandleFunc("GET /api/v1/learning/stats", withAuth(s.handleLearningStats))
 
 	// Marketplace
 	mux.HandleFunc("GET /api/v1/marketplace", withAuth(s.handleMarketplaceList))

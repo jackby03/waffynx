@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/jackby03/waffynx/internal/audit"
@@ -64,6 +65,40 @@ func (s *Server) handleIngestEvent(w http.ResponseWriter, r *http.Request) {
 
 	s.broker.Publish(evt)
 	s.writeJSON(w, r, http.StatusAccepted, map[string]string{"status": "ingested"})
+}
+
+// eventHistoryDefaultLimit and eventHistoryMaxLimit are the bounds for
+// ?limit=. The default keeps a dashboard load small; the maximum matches the
+// broker ring, so a caller can page the whole window but never ask for more.
+const (
+	eventHistoryDefaultLimit = 200
+	eventHistoryMaxLimit     = 1000
+)
+
+// handleEventHistory returns the recent events the broker still holds, newest
+// first. It is the polling counterpart to the SSE stream: a dashboard that
+// reconnects needs the gap, and the stream alone cannot provide it.
+func (s *Server) handleEventHistory(w http.ResponseWriter, r *http.Request) {
+	limit := eventHistoryDefaultLimit
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		// Reject rather than clamp: a client asking for 0 or 5000 has a bug, and
+		// silently returning something else hides it.
+		if err != nil || parsed < 1 || parsed > eventHistoryMaxLimit {
+			s.writeError(w, r, http.StatusBadRequest, "limit must be an integer between 1 and 1000")
+			return
+		}
+		limit = parsed
+	}
+
+	if s.broker == nil {
+		// No broker is a valid configuration (events disabled); an empty window
+		// is the truth here, unlike a sidecar that could not be reached.
+		s.writeJSON(w, r, http.StatusOK, map[string]interface{}{"events": []events.WafEvent{}})
+		return
+	}
+
+	s.writeJSON(w, r, http.StatusOK, map[string]interface{}{"events": s.broker.History(limit)})
 }
 
 // sseHeartbeat is the interval between stats frames. A variable so a test can use a

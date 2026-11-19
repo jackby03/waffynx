@@ -5,11 +5,35 @@ import (
 	"net/http"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/jackby03/waffynx/internal/auth"
 )
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, r, http.StatusOK, map[string]string{
 		"status": "ok",
+	})
+}
+
+// handleMe echoes the identity the auth middleware already validated. It reads
+// only the request context: no database lookup and no config read, so the answer
+// cannot disagree with the token that authorised the call.
+func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value(claimsKey).(*auth.Claims)
+	if !ok || claims == nil {
+		s.writeError(w, r, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	scopes := claims.Scopes
+	if scopes == nil {
+		scopes = []string{}
+	}
+
+	s.writeJSON(w, r, http.StatusOK, map[string]interface{}{
+		"username": claims.Username,
+		"role":     claims.Role,
+		"scopes":   scopes,
 	})
 }
 

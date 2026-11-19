@@ -2,6 +2,7 @@ package events
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -240,6 +241,86 @@ func TestBroker_ConcurrentPublishSubscribe(t *testing.T) {
 			}
 		}()
 	}
+
+	wg.Wait()
+}
+
+// TestBroker_HistoryKeepsBoundedWindow guards GET /api/v1/events/history. The
+// control plane must be able to show recent events while the ring stays fixed:
+// history driven by traffic must not become a leak.
+func TestBroker_HistoryKeepsBoundedWindow(t *testing.T) {
+	b := NewBroker()
+
+	if got := b.History(10); len(got) != 0 {
+		t.Fatalf("empty broker history = %d events, want 0", len(got))
+	}
+
+	for i := 0; i < maxHistory+200; i++ {
+		b.Publish(WafEvent{
+			Type:   TypeBlocked,
+			Path:   fmt.Sprintf("/attack/%d", i),
+			RuleID: "rule-1",
+		})
+	}
+
+	recent := b.History(10)
+	if len(recent) != 10 {
+		t.Fatalf("History(10) = %d events, want 10", len(recent))
+	}
+	for i, evt := range recent {
+		want := fmt.Sprintf("/attack/%d", maxHistory+199-i)
+		if evt.Path != want {
+			t.Fatalf("History(10)[%d].Path = %q, want %q (newest first)", i, evt.Path, want)
+		}
+		if evt.Timestamp.IsZero() {
+			t.Fatalf("History(10)[%d] has no timestamp", i)
+		}
+	}
+
+	all := b.History(maxHistory + 1)
+	if len(all) != maxHistory {
+		t.Fatalf("History(maxHistory+1) = %d events, want clamp to %d", len(all), maxHistory)
+	}
+	if all[0].Path != fmt.Sprintf("/attack/%d", maxHistory+199) {
+		t.Fatalf("clamped history newest = %q, want the last published event", all[0].Path)
+	}
+
+	b.mu.RLock()
+	count, capacity := b.count, len(b.history)
+	b.mu.RUnlock()
+	if count != maxHistory || capacity != maxHistory {
+		t.Fatalf("history holds %d/%d events, want %d (bounded)", count, capacity, maxHistory)
+	}
+
+	if got := b.History(0); len(got) != 1 {
+		t.Fatalf("History(0) = %d events, want clamp to 1", len(got))
+	}
+}
+
+// History runs on the request path while the sidecar publishes blocks, so the
+// two must be safe concurrently (the race detector is the real assertion here).
+func TestBroker_HistoryConcurrentWithPublish(t *testing.T) {
+	b := NewBroker()
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			b.Publish(WafEvent{Type: TypeBlocked, Path: "/attack", RuleID: "rule-1"})
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			if got := b.History(50); len(got) > 50 {
+				t.Errorf("History(50) = %d events", len(got))
+				return
+			}
+		}
+	}()
 
 	wg.Wait()
 }
