@@ -71,6 +71,48 @@ func TestAdminExplicitPassword(t *testing.T) {
 	}
 }
 
+func TestAdminExplicitUserAndPassword(t *testing.T) {
+	cfg := &Config{}
+	cfg.API.Auth.Users = []UserConfig{{Username: "admin", PasswordHash: placeholderHash}}
+	env := func(k string) string {
+		switch k {
+		case EnvAdminUser:
+			return "soc_admin"
+		case EnvAdminPassword:
+			return "strong-operator-pass"
+		default:
+			return ""
+		}
+	}
+
+	admin, err := resolveAdmin(cfg, env)
+	if err != nil {
+		t.Fatalf("resolveAdmin: %v", err)
+	}
+	if admin.Username != "soc_admin" {
+		t.Fatalf("username = %q, want soc_admin", admin.Username)
+	}
+	if len(cfg.API.Auth.Users) != 1 || cfg.API.Auth.Users[0].Username != "soc_admin" {
+		t.Fatalf("expected placeholder user pruned and soc_admin installed, got %+v", cfg.API.Auth.Users)
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(cfg.API.Auth.Users[0].PasswordHash), []byte("strong-operator-pass")); err != nil {
+		t.Errorf("stored hash does not verify password: %v", err)
+	}
+}
+
+func TestAdminRejectsInvalidUsername(t *testing.T) {
+	cfg := &Config{}
+	env := func(k string) string {
+		if k == EnvAdminUser {
+			return "bad user;drop"
+		}
+		return ""
+	}
+	if _, err := resolveAdmin(cfg, env); err == nil {
+		t.Fatal("expected invalid WAFFYNX_ADMIN_USER to be rejected")
+	}
+}
+
 // A working hash set up earlier must survive a reboot untouched, and no password
 // is generated, so the operator's credential does not silently rotate.
 func TestAdminKeptWhenHashIsUsable(t *testing.T) {

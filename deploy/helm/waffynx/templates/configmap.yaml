@@ -1,92 +1,72 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ .Release.Name }}-config
+  name: {{ .Release.Name }}-envoy-bootstrap
   labels:
     app.kubernetes.io/name: waffynx
     app.kubernetes.io/instance: {{ .Release.Name }}
+    waffynx.io/plane: data-plane
 data:
-  waffynx.yaml: |
-    name: "waffynx"
-    version: "1"
-    logging:
-      level: "info"
-      format: "json"
-      output: "stdout"
-    sidecar:
-      socket_path: "/opt/waffynx/waffynx.sock"
-      fail_open: {{ .Values.waf.failOpen }}
-      timeout_ms: {{ .Values.waf.timeoutMs }}
-    nginx:
-      binary_path: "/opt/waffynx/nginx/sbin/nginx"
-      config_path: "/opt/waffynx/nginx/conf"
-      worker_processes: 1
-      worker_connections: 1024
-      enable_http2: false
-    appsec:
-      enabled: true
-      engine: "{{ .Values.waf.appsecEngine }}"
-    gateway:
-      max_connections: 10240
-      read_timeout: 30
-      write_timeout: 30
-      idle_timeout: 60
-    firewall:
-      enabled: false
-    api:
-      enabled: true
-      listen: ":9090"
-      auth:
-        jwt_secret: "change-me"
-        token_ttl: 3600
-    routes: []
-    plugins:
-      - name: "request-validation"
-        enabled: {{ .Values.plugins.requestValidation.enabled }}
-        config:
-          max_body_size: {{ .Values.plugins.requestValidation.maxBodySize }}
-      - name: "bot-protection"
-        enabled: {{ .Values.plugins.botProtection.enabled }}
-        config:
-          mode: "{{ .Values.plugins.botProtection.mode }}"
-      - name: "rate-limit"
-        enabled: {{ .Values.plugins.rateLimit.enabled }}
-        config:
-          requests_per_second: {{ .Values.plugins.rateLimit.requestsPerSecond }}
-          burst: {{ .Values.plugins.rateLimit.burst }}
-          {{- if .Values.redis.enabled }}
-          redis:
-            enabled: true
-            addr: "{{ .Values.redis.addr }}"
-            password: "{{ .Values.redis.password }}"
-            db: {{ .Values.redis.db }}
+  envoy.yaml: |
+    node:
+      id: waffynx-envoy
+      cluster: waffynx-data-plane
+    admin:
+      address:
+        socket_address:
+          address: 127.0.0.1
+          port_value: 9901
+    dynamic_resources:
+      ads_config:
+        api_type: GRPC
+        transport_api_version: V3
+        set_node_on_first_message_only: true
+        grpc_services:
+          - envoy_grpc:
+              cluster_name: xds_cluster
+      lds_config:
+        resource_api_version: V3
+        ads: {}
+      cds_config:
+        resource_api_version: V3
+        ads: {}
+    static_resources:
+      clusters:
+        - name: xds_cluster
+          type: STRICT_DNS
+          connect_timeout: 3s
+          lb_policy: ROUND_ROBIN
+          typed_extension_protocol_options:
+            envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+              "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+              explicit_http_config:
+                http2_protocol_options: {}
+          load_assignment:
+            cluster_name: xds_cluster
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: {{ .Release.Name }}-control-api
+                          port_value: {{ .Values.controlApi.xdsPort }}
+          {{- if .Values.mtls.enabled }}
+          transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+              sni: control-api
+              common_tls_context:
+                alpn_protocols: ["h2"]
+                tls_params:
+                  tls_minimum_protocol_version: TLSv1_3
+                  tls_maximum_protocol_version: TLSv1_3
+                tls_certificates:
+                  - certificate_chain:
+                      filename: /etc/waffynx/certs/envoy.crt
+                    private_key:
+                      filename: /etc/waffynx/certs/envoy.key
+                validation_context:
+                  trusted_ca:
+                    filename: /etc/waffynx/certs/ca.crt
           {{- end }}
-
-  nginx.conf: |
-    worker_processes 1;
-    error_log /dev/stderr warn;
-    pid /tmp/nginx.pid;
-    events { worker_connections 1024; }
-    http {
-      default_type application/octet-stream;
-      sendfile on;
-      keepalive_timeout 65;
-      access_log /dev/stdout;
-      server {
-        listen 8080;
-        location / {
-          waffynx on;
-          waffynx_socket /opt/waffynx/waffynx.sock;
-          waffynx_timeout {{ .Values.waf.timeoutMs }};
-          waffynx_fail_open {{ if .Values.waf.failOpen }}on{{ else }}off{{ end }};
-          waffynx_max_body_size {{ .Values.waf.maxBodySize }};
-          proxy_pass http://{{ .Values.backend.host }}:{{ .Values.backend.port }};
-          proxy_set_header Host $host;
-        }
-        location /health {
-          waffynx off;
-          return 200 '{"status":"ok"}';
-          add_header Content-Type application/json;
-        }
-      }
-    }

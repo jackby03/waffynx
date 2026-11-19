@@ -1,22 +1,100 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Release.Name }}
+  name: {{ .Release.Name }}-envoy
   labels:
     app.kubernetes.io/name: waffynx
     app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: envoy
 spec:
-  type: {{ .Values.service.type }}
+  type: {{ .Values.envoy.service.type }}
   ports:
     - name: http
-      port: {{ .Values.service.httpPort }}
+      port: {{ .Values.envoy.service.httpPort }}
       targetPort: http
     - name: https
-      port: {{ .Values.service.httpsPort }}
+      port: {{ .Values.envoy.service.httpsPort }}
       targetPort: https
-    - name: api
-      port: {{ .Values.service.apiPort }}
-      targetPort: api
   selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: envoy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-waf-engine
+  labels:
     app.kubernetes.io/name: waffynx
     app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: waf-engine
+spec:
+  type: ClusterIP
+  ports:
+    - name: grpc
+      port: {{ .Values.wafEngine.grpcPort }}
+      targetPort: grpc
+    - name: health
+      port: {{ .Values.wafEngine.healthPort }}
+      targetPort: health
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: waf-engine
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-control-api
+  labels:
+    app.kubernetes.io/name: waffynx
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: control-api
+spec:
+  type: ClusterIP
+  ports:
+    - name: api
+      port: {{ .Values.controlApi.apiPort }}
+      targetPort: api
+    - name: xds
+      port: {{ .Values.controlApi.xdsPort }}
+      targetPort: xds
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: control-api
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-ui
+  labels:
+    app.kubernetes.io/name: waffynx
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: ui
+spec:
+  type: {{ .Values.ui.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.ui.service.port }}
+      targetPort: http
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: ui
+{{- if .Values.logIngestor.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-log-ingestor
+  labels:
+    app.kubernetes.io/name: waffynx
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: log-ingestor
+spec:
+  type: ClusterIP
+  ports:
+    - name: health
+      port: {{ .Values.logIngestor.healthPort }}
+      targetPort: health
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: log-ingestor
+{{- end }}

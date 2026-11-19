@@ -3,7 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#10131a" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      try {
+        var scheme = localStorage.getItem("waffynx_color_scheme");
+        if (scheme === "light" || scheme === "dark") {
+          var meta = document.querySelector('meta[name="color-scheme"]');
+          if (meta) meta.content = scheme;
+        }
+      } catch (e) {}
+    </script>
+    <meta name="theme-color" content="#080b10" />
     <title>Waffynx Control Room</title>
   </head>
   <body>

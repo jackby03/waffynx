@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/jackby03/waffynx/internal/api"
-	"github.com/jackby03/waffynx/internal/config"
+	"github.com/jackby03/waffynx/internal/logging"
 
 	// The plugin registry is filled by init() functions. Without this import the
 	// control plane answers /api/v1/plugins with [], which reads as "no plugins
@@ -24,12 +24,13 @@ func main() {
 
 	rootCmd := &cobra.Command{
 		Use:   "waf-api",
-		Short: "Waffynx Management API Server",
+		Short: "Waffynx Control Plane API & Envoy xDS Server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load(cfgFile)
+			cfg, err := api.LoadWithEnv(cfgFile)
 			if err != nil {
 				return fmt.Errorf("loading config: %w", err)
 			}
+			logging.Setup(cfg.Logging, "")
 			if uiDir == "" {
 				uiDir = os.Getenv("WAFFYNX_UI_DIR")
 			}
@@ -41,6 +42,12 @@ func main() {
 
 			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
+
+			cleanup, err := server.WireDistributedBackends(ctx, cfg)
+			if err != nil {
+				return fmt.Errorf("initializing distributed backends: %w", err)
+			}
+			defer cleanup()
 
 			return server.Run(ctx)
 		},

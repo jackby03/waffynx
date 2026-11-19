@@ -1,0 +1,26 @@
+# Waffynx Observability Plane — Async Telemetry Ingestor (NATS JetStream -> ClickHouse)
+ARG BUILDPLATFORM
+ARG TARGETPLATFORM
+
+FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS builder
+RUN apk add --no-cache git ca-certificates
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /log-ingestor ./cmd/log-ingestor
+
+FROM --platform=$TARGETPLATFORM alpine:3.20
+RUN apk add --no-cache ca-certificates curl && \
+    addgroup -g 10001 -S waffynx && \
+    adduser -u 10001 -S waffynx -G waffynx && \
+    mkdir -p /opt/waffynx/bin /opt/waffynx/geoip && \
+    chown -R waffynx:waffynx /opt/waffynx
+
+COPY --from=builder /log-ingestor /opt/waffynx/bin/log-ingestor
+RUN chown -R waffynx:waffynx /opt/waffynx
+
+USER 10001:10001
+EXPOSE 8082
+
+ENTRYPOINT ["/opt/waffynx/bin/log-ingestor"]

@@ -1,0 +1,28 @@
+# Waffynx Data Plane — Stateless Zero-Trust WAF Engine (Envoy ext_proc + ext_authz)
+ARG BUILDPLATFORM
+ARG TARGETPLATFORM
+
+FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS builder
+RUN apk add --no-cache git ca-certificates
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /waf-engine ./cmd/waf-engine
+
+FROM --platform=$TARGETPLATFORM alpine:3.20
+RUN apk add --no-cache ca-certificates curl && \
+    addgroup -g 10001 -S waffynx && \
+    adduser -u 10001 -S waffynx -G waffynx && \
+    mkdir -p /opt/waffynx/config /etc/waffynx/certs && \
+    chown -R waffynx:waffynx /opt/waffynx /etc/waffynx
+
+COPY --from=builder /waf-engine /opt/waffynx/bin/waf-engine
+COPY configs/waffynx.yaml /opt/waffynx/config/waffynx.yaml
+RUN chown -R waffynx:waffynx /opt/waffynx
+
+USER 10001:10001
+EXPOSE 50051 8081
+
+ENTRYPOINT ["/opt/waffynx/bin/waf-engine"]
+CMD ["--config", "/opt/waffynx/config/waffynx.yaml"]

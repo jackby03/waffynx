@@ -11,9 +11,34 @@ import (
 	"github.com/jackby03/waffynx/internal/events"
 	"github.com/jackby03/waffynx/internal/logging"
 	"github.com/jackby03/waffynx/internal/rules"
+	"github.com/jackby03/waffynx/internal/storage"
 )
 
 func (s *Server) handleFirewallRules(w http.ResponseWriter, r *http.Request) {
+	if s.db != nil {
+		bans, err := s.db.ListActiveIPBans(r.Context())
+		if err != nil {
+			s.writeError(w, r, http.StatusInternalServerError, "could not list IP bans")
+			return
+		}
+		list := make([]BannedIP, 0, len(bans))
+		for _, b := range bans {
+			list = append(list, BannedIP{
+				IP:        b.IP,
+				Reason:    b.Reason,
+				CreatedAt: b.CreatedAt,
+				ExpiresAt: b.ExpiresAt,
+				TTL:       b.TTLSeconds,
+			})
+		}
+		s.writeJSON(w, r, http.StatusOK, map[string]interface{}{
+			"enabled": true,
+			"backend": "redis-ip-jail",
+			"rules":   list,
+		})
+		return
+	}
+
 	s.firewallMu.RLock()
 	defer s.firewallMu.RUnlock()
 
@@ -74,6 +99,39 @@ func (s *Server) handleFirewallBlock(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: now,
 		ExpiresAt: now.Add(time.Duration(req.TTL) * time.Second),
 		TTL:       req.TTL,
+	}
+
+	if s.db != nil {
+		if err := s.db.UpsertIPBan(r.Context(), storage.IPBan{
+			IP:         ban.IP,
+			Reason:     ban.Reason,
+			TTLSeconds: ban.TTL,
+			CreatedAt:  ban.CreatedAt,
+			ExpiresAt:  ban.ExpiresAt,
+		}); err != nil {
+			s.writeError(w, r, http.StatusInternalServerError, "could not persist IP ban")
+			return
+		}
+		if s.jailStore != nil {
+			if err := s.jailStore.JailIP(r.Context(), ban.IP, ban.Reason, time.Duration(ban.TTL)*time.Second); err != nil {
+				logging.Warn().Err(err).Str("ip", ban.IP).Msg("redis IP jail sync failed; relying on snapshot")
+			}
+		}
+		if err := s.syncControlPlane(r.Context(), "ip_bans", UserFromContext(r.Context())); err != nil {
+			logging.Warn().Err(err).Msg("hot-reload sync after IP ban")
+		}
+		if s.audit != nil {
+			s.audit.Record(audit.Event{
+				Actor:     UserFromContext(r.Context()),
+				Action:    "firewall_ban",
+				Resource:  req.IP,
+				Result:    "success",
+				Details:   req.Reason,
+				Timestamp: now,
+			})
+		}
+		s.writeJSON(w, r, http.StatusCreated, ban)
+		return
 	}
 
 	// Enforce at the WAF layer first: it is the only mechanism that works without
@@ -143,6 +201,34 @@ func (s *Server) handleFirewallUnblock(w http.ResponseWriter, r *http.Request) {
 	ip := r.PathValue("ip")
 	if ip == "" || net.ParseIP(ip) == nil {
 		s.writeError(w, r, http.StatusBadRequest, "valid ip path parameter required")
+		return
+	}
+
+	if s.db != nil {
+		if err := s.db.DeleteIPBan(r.Context(), ip); err != nil {
+			s.writeError(w, r, http.StatusInternalServerError, "could not delete IP ban")
+			return
+		}
+		if s.jailStore != nil {
+			_ = s.jailStore.UnjailIP(r.Context(), ip)
+		}
+		if err := s.syncControlPlane(r.Context(), "ip_bans", UserFromContext(r.Context())); err != nil {
+			logging.Warn().Err(err).Msg("hot-reload sync after IP unban")
+		}
+		if s.audit != nil {
+			s.audit.Record(audit.Event{
+				Actor:     UserFromContext(r.Context()),
+				Action:    "firewall_unban",
+				Resource:  ip,
+				Result:    "success",
+				Details:   "unbanned via control room",
+				Timestamp: time.Now(),
+			})
+		}
+		s.writeJSON(w, r, http.StatusOK, map[string]interface{}{
+			"success": true,
+			"ip":      ip,
+		})
 		return
 	}
 

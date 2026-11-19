@@ -1,38 +1,237 @@
+# Mirror of root docker-compose.yml for running directly from deploy/docker/.
+# See ../../docker-compose.yml for full documentation.
+
 services:
-  waffynx:
+  pki-init:
     build:
       context: ../..
-      dockerfile: deploy/docker/Dockerfile
-    ports:
-      - "8080:8080"
-      - "8443:8443"
-      - "9090:9090"
-    environment:
-      # The whole topology: one command, no config file. Point these at your
-      # own upstream to protect it.
-      WAFFYNX_SITE_HOST: app.example.test
-      WAFFYNX_SITE_UPSTREAM: backend:80
+      dockerfile: deploy/docker/Dockerfile.control-api
+    image: waffynx-control-api:local
+    user: "10001:10001"
+    entrypoint: ["/opt/waffynx/bin/waffynx-bootstrap"]
+    command: ["--pki-only", "--pki-dir", "/etc/waffynx/certs"]
     volumes:
-      - waffynx-logs:/opt/waffynx/logs
-      # Holds the generated JWT secret; losing it invalidates issued tokens.
-      - waffynx-data:/opt/waffynx/data
+      - waffynx-pki:/etc/waffynx/certs
+    restart: "no"
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${WAFFYNX_POSTGRES_DB:-waffynx}
+      POSTGRES_USER: ${WAFFYNX_POSTGRES_USER:-waffynx}
+      POSTGRES_PASSWORD: ${WAFFYNX_POSTGRES_PASSWORD:?Set WAFFYNX_POSTGRES_PASSWORD in .env}
+    volumes:
+      - waffynx-postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+      test: ["CMD-SHELL", "pg_isready -U ${WAFFYNX_POSTGRES_USER:-waffynx} -d ${WAFFYNX_POSTGRES_DB:-waffynx}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
+    networks: [control-net]
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "${WAFFYNX_REDIS_PASSWORD:?Set WAFFYNX_REDIS_PASSWORD in .env}", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"${WAFFYNX_REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks: [data-plane-net, control-net]
+
+  control-api:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.control-api
+    image: waffynx-control-api:local
+    environment:
+      WAFFYNX_SITE_HOST: ${WAFFYNX_SITE_HOST:-app.example.test}
+      WAFFYNX_SITE_UPSTREAM: ${WAFFYNX_SITE_UPSTREAM:-backend:80}
+      WAFFYNX_ADMIN_USER: ${WAFFYNX_ADMIN_USER:-admin}
+      WAFFYNX_ADMIN_PASSWORD: ${WAFFYNX_ADMIN_PASSWORD:?Set WAFFYNX_ADMIN_PASSWORD in .env}
+      WAFFYNX_JWT_SECRET: ${WAFFYNX_JWT_SECRET:?Set WAFFYNX_JWT_SECRET in .env}
+      WAFFYNX_DATA_DIR: /opt/waffynx/data
+      WAFFYNX_POSTGRES_DSN: "postgres://${WAFFYNX_POSTGRES_USER:-waffynx}:${WAFFYNX_POSTGRES_PASSWORD}@postgres:5432/${WAFFYNX_POSTGRES_DB:-waffynx}?sslmode=disable"
+      WAFFYNX_REDIS_ADDR: "redis:6379"
+      WAFFYNX_REDIS_PASSWORD: "${WAFFYNX_REDIS_PASSWORD}"
+      WAFFYNX_CLICKHOUSE_URL: "http://clickhouse:8123"
+      WAFFYNX_CLICKHOUSE_DB: "${WAFFYNX_CLICKHOUSE_DB:-waffynx}"
+      WAFFYNX_CLICKHOUSE_USER: "${WAFFYNX_CLICKHOUSE_USER:-waffynx}"
+      WAFFYNX_CLICKHOUSE_PASSWORD: "${WAFFYNX_CLICKHOUSE_PASSWORD:?Set WAFFYNX_CLICKHOUSE_PASSWORD in .env}"
+      WAFFYNX_NATS_URL: "nats://nats:4222"
+      WAFFYNX_XDS_LISTEN: ":18000"
+      WAFFYNX_WAF_ENGINE_HOST: "waf-engine"
+      WAFFYNX_WAF_ENGINE_PORT: "50051"
+      WAFFYNX_MTLS_ENABLED: "true"
+      WAFFYNX_EDGE_TLS: "true"
+      WAFFYNX_CERT_DIR: "/etc/waffynx/certs"
+    volumes:
+      - waffynx-control-data:/opt/waffynx/data
+      - waffynx-control-config:/opt/waffynx/config
+      - waffynx-pki:/etc/waffynx/certs:ro
+    depends_on:
+      pki-init: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:9090/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks: [control-net]
+
+  ui:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.ui
+    image: waffynx-ui:local
+    ports:
+      - "${WAFFYNX_API_BIND:-127.0.0.1}:${WAFFYNX_API_PORT:-9090}:8080"
+    depends_on:
+      control-api: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 6
+    restart: unless-stopped
+    networks: [control-net]
+
+  waf-engine:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.engine
+    image: waffynx-engine:local
+    environment:
+      WAFFYNX_ENGINE_GRPC_LISTEN: ":50051"
+      WAFFYNX_ENGINE_HEALTH_LISTEN: ":8081"
+      WAFFYNX_MAX_BODY_BYTES: "${WAFFYNX_MAX_BODY_BYTES:-1048576}"
+      WAFFYNX_SHADOW_MODE: "${WAFFYNX_SHADOW_MODE:-false}"
+      WAFFYNX_MTLS_ENABLED: "true"
+      WAFFYNX_CERT_DIR: "/etc/waffynx/certs"
+      WAFFYNX_JWT_SECRET: "${WAFFYNX_JWT_SECRET}"
+      WAFFYNX_REDIS_ADDR: "redis:6379"
+      WAFFYNX_REDIS_PASSWORD: "${WAFFYNX_REDIS_PASSWORD}"
+      WAFFYNX_REDIS_TIMEOUT_MS: "${WAFFYNX_REDIS_TIMEOUT_MS:-10}"
+      WAFFYNX_RATE_LIMIT_ENABLED: "${WAFFYNX_RATE_LIMIT_ENABLED:-true}"
+      WAFFYNX_RATE_LIMIT_RPS: "${WAFFYNX_RATE_LIMIT_RPS:-100}"
+      WAFFYNX_RATE_LIMIT_FAIL_OPEN: "${WAFFYNX_RATE_LIMIT_FAIL_OPEN:-true}"
+      WAFFYNX_NATS_URL: "nats://nats:4222"
+    volumes:
+      - waffynx-pki:/etc/waffynx/certs:ro
+    depends_on:
+      pki-init: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      nats: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8081/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks: [data-plane-net, observability-net]
+
+  envoy:
+    image: envoyproxy/envoy:v1.32-latest
+    user: "10001:10001"
+    command: ["-c", "/etc/envoy/envoy.yaml", "--service-node", "waffynx-envoy", "--service-cluster", "waffynx-data-plane"]
+    ports:
+      - "${WAFFYNX_HTTP_PORT:-8080}:8080"
+      - "${WAFFYNX_HTTPS_PORT:-8443}:8443"
+    volumes:
+      - ../envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - waffynx-pki:/etc/waffynx/certs:ro
+    depends_on:
+      pki-init: { condition: service_completed_successfully }
+      control-api: { condition: service_healthy }
+      waf-engine: { condition: service_healthy }
+      backend: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /healthz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q ok <&3"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+    networks: [dmz-net, data-plane-net, control-net, upstream-net]
 
   backend:
     image: nginx:alpine
     volumes:
       - ./backend-default.conf:/etc/nginx/conf.d/default.conf:ro
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:80/"]
-      interval: 10s
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/health"]
+      interval: 3s
       timeout: 3s
-      retries: 3
+      retries: 5
+    restart: unless-stopped
+    networks: [upstream-net]
+
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js", "-sd", "/data/jetstream", "-m", "8222"]
+    volumes:
+      - waffynx-nats:/data/jetstream
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks: [observability-net]
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    environment:
+      CLICKHOUSE_DB: ${WAFFYNX_CLICKHOUSE_DB:-waffynx}
+      CLICKHOUSE_USER: ${WAFFYNX_CLICKHOUSE_USER:-waffynx}
+      CLICKHOUSE_PASSWORD: ${WAFFYNX_CLICKHOUSE_PASSWORD:?Set WAFFYNX_CLICKHOUSE_PASSWORD in .env}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - waffynx-clickhouse:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping | grep -q Ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+    networks: [observability-net, control-net]
+
+  log-ingestor:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.ingestor
+    image: waffynx-ingestor:local
+    environment:
+      WAFFYNX_NATS_URL: "nats://nats:4222"
+      WAFFYNX_CLICKHOUSE_URL: "http://clickhouse:8123"
+      WAFFYNX_CLICKHOUSE_DB: "${WAFFYNX_CLICKHOUSE_DB:-waffynx}"
+      WAFFYNX_CLICKHOUSE_USER: "${WAFFYNX_CLICKHOUSE_USER:-waffynx}"
+      WAFFYNX_CLICKHOUSE_PASSWORD: "${WAFFYNX_CLICKHOUSE_PASSWORD}"
+    depends_on:
+      nats: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8082/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+    networks: [observability-net]
 
 volumes:
-  waffynx-logs:
-  waffynx-data:
+  waffynx-pki:
+  waffynx-postgres:
+  waffynx-control-data:
+  waffynx-control-config:
+  waffynx-nats:
+  waffynx-clickhouse:
+
+networks:
+  dmz-net: { driver: bridge }
+  data-plane-net: { driver: bridge, internal: true }
+  upstream-net: { driver: bridge, internal: true }
+  control-net: { driver: bridge }
+  observability-net: { driver: bridge, internal: true }

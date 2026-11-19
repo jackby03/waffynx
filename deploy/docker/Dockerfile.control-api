@@ -1,0 +1,39 @@
+# Waffynx Control Plane — Management REST API + Envoy xDS Control Plane
+ARG BUILDPLATFORM
+ARG TARGETPLATFORM
+
+FROM --platform=$BUILDPLATFORM node:22-alpine AS ui-builder
+WORKDIR /build/ui
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci
+COPY ui/ ./
+RUN npm run build
+
+FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS go-builder
+RUN apk add --no-cache git ca-certificates
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+COPY --from=ui-builder /build/ui/dist ./ui/dist
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /waf-api ./cmd/waf-api && \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /waffynx-bootstrap ./cmd/waffynx-bootstrap
+
+FROM --platform=$TARGETPLATFORM alpine:3.20
+RUN apk add --no-cache ca-certificates curl && \
+    addgroup -g 10001 -S waffynx && \
+    adduser -u 10001 -S waffynx -G waffynx && \
+    mkdir -p /opt/waffynx/bin /opt/waffynx/config /opt/waffynx/defaults /opt/waffynx/data /opt/waffynx/logs /opt/waffynx/nginx/conf/sites /etc/waffynx/certs && \
+    chown -R waffynx:waffynx /opt/waffynx /etc/waffynx
+
+COPY --from=go-builder /waf-api /opt/waffynx/bin/waf-api
+COPY --from=go-builder /waffynx-bootstrap /opt/waffynx/bin/waffynx-bootstrap
+COPY configs/waffynx.yaml /opt/waffynx/defaults/waffynx.yaml
+COPY deploy/docker/entrypoint-control-api.sh /entrypoint.sh
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh /opt/waffynx/bin/* && \
+    chown -R waffynx:waffynx /opt/waffynx
+
+USER 10001:10001
+EXPOSE 9090 18000
+
+ENTRYPOINT ["/entrypoint.sh"]

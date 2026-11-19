@@ -16,6 +16,7 @@ import (
 	"github.com/jackby03/waffynx/internal/config"
 	"github.com/jackby03/waffynx/internal/logging"
 	"github.com/jackby03/waffynx/internal/sites"
+	"github.com/jackby03/waffynx/internal/storage"
 )
 
 var (
@@ -213,10 +214,32 @@ func (s *Server) siteDelete(ctx context.Context, host string) error {
 // --- HTTP handlers ---
 
 func (s *Server) handleSiteList(w http.ResponseWriter, r *http.Request) {
+	if s.db != nil {
+		list, err := s.db.ListSites(r.Context())
+		if err != nil {
+			s.writeError(w, r, http.StatusInternalServerError, "could not list sites: "+err.Error())
+			return
+		}
+		s.writeJSON(w, r, http.StatusOK, map[string]interface{}{"sites": list})
+		return
+	}
 	s.writeJSON(w, r, http.StatusOK, map[string]interface{}{"sites": s.siteList()})
 }
 
 func (s *Server) handleSiteGet(w http.ResponseWriter, r *http.Request) {
+	if s.db != nil {
+		site, err := s.db.GetSite(r.Context(), r.PathValue("host"))
+		if errors.Is(err, storage.ErrNotFound) {
+			s.writeError(w, r, http.StatusNotFound, "site not found")
+			return
+		}
+		if err != nil {
+			s.writeError(w, r, http.StatusInternalServerError, "could not fetch site: "+err.Error())
+			return
+		}
+		s.writeJSON(w, r, http.StatusOK, site)
+		return
+	}
 	site, ok := s.siteGet(r.PathValue("host"))
 	if !ok {
 		s.writeError(w, r, http.StatusNotFound, "site not found")
@@ -232,6 +255,28 @@ func (s *Server) handleSiteCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.db != nil {
+		if err := site.Validate(); err != nil {
+			s.writeSiteError(w, r, err, "create")
+			return
+		}
+		if err := s.db.UpsertSite(r.Context(), site, false); err != nil {
+			if errors.Is(err, storage.ErrConflict) {
+				s.writeSiteError(w, r, errSiteExists, "create")
+				return
+			}
+			s.writeSiteError(w, r, err, "create")
+			return
+		}
+		if err := s.syncControlPlane(r.Context(), "sites", UserFromContext(r.Context())); err != nil {
+			logging.Warn().Err(err).Str("host", site.Host).Msg("control plane sync after site create")
+		}
+		s.recordSiteAudit(r, "site_create", site.Host)
+		created, _ := s.db.GetSite(r.Context(), site.Host)
+		s.writeJSON(w, r, http.StatusCreated, created)
+		return
+	}
+
 	if err := s.siteUpsert(r.Context(), site, false); err != nil {
 		s.writeSiteError(w, r, err, "create")
 		return
@@ -243,6 +288,46 @@ func (s *Server) handleSiteCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSiteUpdate(w http.ResponseWriter, r *http.Request) {
+	if s.db != nil {
+		existing, err := s.db.GetSite(r.Context(), r.PathValue("host"))
+		if errors.Is(err, storage.ErrNotFound) {
+			s.writeError(w, r, http.StatusNotFound, "site not found")
+			return
+		}
+		if err != nil {
+			s.writeError(w, r, http.StatusInternalServerError, "could not load site")
+			return
+		}
+		var site sites.Site
+		if err := json.NewDecoder(r.Body).Decode(&site); err != nil {
+			s.writeError(w, r, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if site.Host == "" {
+			site.Host = existing.Host
+		}
+		if sites.NormalizeHost(site.Host) != sites.NormalizeHost(existing.Host) {
+			s.writeError(w, r, http.StatusBadRequest,
+				"host cannot be changed; delete the site and create a new one")
+			return
+		}
+		if err := site.Validate(); err != nil {
+			s.writeSiteError(w, r, err, "update")
+			return
+		}
+		if err := s.db.UpsertSite(r.Context(), site, true); err != nil {
+			s.writeSiteError(w, r, err, "update")
+			return
+		}
+		if err := s.syncControlPlane(r.Context(), "sites", UserFromContext(r.Context())); err != nil {
+			logging.Warn().Err(err).Str("host", site.Host).Msg("control plane sync after site update")
+		}
+		s.recordSiteAudit(r, "site_update", site.Host)
+		updated, _ := s.db.GetSite(r.Context(), site.Host)
+		s.writeJSON(w, r, http.StatusOK, updated)
+		return
+	}
+
 	existing, ok := s.siteGet(r.PathValue("host"))
 	if !ok {
 		s.writeError(w, r, http.StatusNotFound, "site not found")
@@ -276,6 +361,23 @@ func (s *Server) handleSiteUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSiteDelete(w http.ResponseWriter, r *http.Request) {
 	host := r.PathValue("host")
+
+	if s.db != nil {
+		if err := s.db.DeleteSite(r.Context(), host); err != nil {
+			if errors.Is(err, storage.ErrNotFound) {
+				s.writeSiteError(w, r, errSiteNotFound, "delete")
+				return
+			}
+			s.writeSiteError(w, r, err, "delete")
+			return
+		}
+		if err := s.syncControlPlane(r.Context(), "sites", UserFromContext(r.Context())); err != nil {
+			logging.Warn().Err(err).Str("host", host).Msg("control plane sync after site delete")
+		}
+		s.recordSiteAudit(r, "site_delete", host)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 
 	if err := s.siteDelete(r.Context(), host); err != nil {
 		s.writeSiteError(w, r, err, "delete")

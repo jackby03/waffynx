@@ -27,6 +27,9 @@ export function asStatsFrame(raw: unknown): LiveStatsFrame | null {
     allowed: num(raw.allowed),
     rate_limited: num(raw.rate_limited),
     max: num(raw.max),
+    goroutines: num(raw.goroutines),
+    heap_mb: num(raw.heap_mb),
+    engine: str(raw.engine) || undefined,
   };
 }
 

@@ -1,0 +1,61 @@
+# Standalone single-container Nginx C-module deployment (legacy quickstart).
+# For the full multi-container Zero-Trust Envoy/PostgreSQL/Redis/NATS/ClickHouse
+# architecture, use the root `docker-compose.yml`.
+
+services:
+  waffynx:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    image: waffynx:local
+    ports:
+      - "${WAFFYNX_HTTP_PORT:-8080}:8080"
+      - "${WAFFYNX_HTTPS_PORT:-8443}:8443"
+      - "${WAFFYNX_API_PORT:-9090}:9090"
+    environment:
+      WAFFYNX_SITE_HOST: ${WAFFYNX_SITE_HOST:-app.example.test}
+      WAFFYNX_SITE_UPSTREAM: ${WAFFYNX_SITE_UPSTREAM:-backend:80}
+      WAFFYNX_ADMIN_USER: ${WAFFYNX_ADMIN_USER:-admin}
+      WAFFYNX_ADMIN_PASSWORD: ${WAFFYNX_ADMIN_PASSWORD:-}
+      WAFFYNX_JWT_SECRET: ${WAFFYNX_JWT_SECRET:-}
+      WAFFYNX_DATA_DIR: /opt/waffynx/data
+    volumes:
+      - waffynx-data:/opt/waffynx/data
+      - waffynx-config:/opt/waffynx/config
+      - waffynx-certs:/opt/waffynx/certs
+      - waffynx-logs:/opt/waffynx/logs
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health >/dev/null && curl -sf http://127.0.0.1:9090/health >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - waffynx-net
+
+  backend:
+    image: nginx:alpine
+    volumes:
+      - ./backend-default.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - waffynx-net
+
+volumes:
+  waffynx-data:
+  waffynx-config:
+  waffynx-certs:
+  waffynx-logs:
+
+networks:
+  waffynx-net:
+    driver: bridge

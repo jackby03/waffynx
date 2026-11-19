@@ -22,23 +22,25 @@ works. That record lives with the code and cannot drift from it.
 Agents must never violate the following core principles established in `constitution.md`:
 
 ### Architectural Principles (Constitution §1)
-* **Fail-Closed Security (Default-Deny) [§1.1]:** If an internal component, plugin, or ML scorer times out or crashes, the system must fail-safe **according to the configured policy** (default: block or drop; never silently bypass uninspected traffic). Insecure defaults are forbidden; startup must abort if credentials or keys are missing or placeholders.
-* **Zero-Allocation in the Hot Path [§1.2]:** The inspection pipeline runs on every request. Eliminate heap allocations via `sync.Pool`, prohibit reflection (`reflect`) or dynamic schema unmarshaling in the hot path, and maintain sub-2ms P99 latency overhead.
-* **Strict Separation of Planes [§1.3]:**
-  * **Data Plane (`modules/ngx_waffynx`, `internal/engine`):** Pure inspection and enforcement. Zero external network dependencies, zero blocking file I/O, zero external DB queries during inspection.
-  * **Control Plane (`cmd/waf-api`):** Management, telemetry, IaC, and SOC UI. Strictly forbidden from participating in per-request data plane inspection.
-  * **Host Enforcement Agent (`cmd/waf-agent`):** Kernel packet filtering (nftables/eBPF) driven asynchronously via control-plane events.
-* **Zero-Trust Boundary Validation [§1.4]:** Treat all inputs—including internal IPC payloads and headers—as untrusted. Enforce bounded buffer lengths and character set validation before parsing.
+* **Fail-Closed Security (Default-Deny) [§1.1]:** If an internal inspection component, plugin, ML scorer, or `ext_authz`/`ext_proc` hook times out or crashes, the system must fail-safe **according to the configured policy** (default: block or drop; never silently bypass uninspected traffic). Ephemeral state stores (e.g., Redis/Dragonfly) must enforce strict bounded timeouts (`<= 10ms`) and default fail-closed; controlled fail-open is allowed only when explicitly configured for rate-limit/state lookups without weakening in-memory L7 rules. Insecure defaults are forbidden; containers/daemons must abort startup if credentials or keys are missing or placeholders.
+* **Zero-Allocation & Lock-Free Hot Path [§1.2]:** The inspection pipeline runs on every request. Eliminate heap allocations via `sync.Pool`, prohibit reflection (`reflect`) or dynamic schema unmarshaling in the hot path, apply hot-reloads atomically via `atomic.Pointer`, and maintain P99 overhead `<= 2ms` (local UDS IPC) or `<= 5ms` (cross-container mTLS gRPC).
+* **Strict Separation of Planes (4 Isolated Orchestrated Planes) [§1.3]:**
+  * **Data Plane (DMZ / Hot Path — `modules/ngx_waffynx` or Envoy PEP, `internal/engine`):** Pure inspection, Zero-Trust enforcement, and proxying. Zero synchronous dependency on Control Plane, primary SQL DB, or Observability stores; zero blocking file I/O; must continue enforcing its last valid compiled snapshot autonomously during upstream Control/Observability outages.
+  * **Control Plane (Management Network — `cmd/waf-api`, `ui/`, persistent config store, xDS):** Management, RBAC, policy/route authoring, xDS/hot-reload distribution, and SOC UI. Strictly forbidden from participating inline in per-request inspection and never exposed on the public Data Plane listener.
+  * **Observability & Telemetry Plane (Internal Network — Async Only):** Buffered fire-and-forget security telemetry (e.g., NATS JetStream / ring buffers -> enrichment & PII redaction -> ClickHouse / Prometheus). Backpressure or outage must never block or fail HTTP request inspection.
+  * **Host Enforcement Agent (`cmd/waf-agent` — Optional System Mode):** Kernel packet filtering (`nftables`/`ufw`) driven asynchronously via control-plane events; never required in Docker Compose or Kubernetes deployments.
+* **Zero-Trust Boundary Validation & Microsegmentation [§1.4]:** Treat all inputs—public traffic, UDS, and cross-container gRPC/xDS/broker payloads—as untrusted; enforce bounded buffers and body size limits (anti-OOM). Enforce default-deny network microsegmentation (isolated Docker Compose networks / Kubernetes `NetworkPolicies`) and authenticated encrypted inter-service transport (**mTLS** across containers or `0600`/`0660` UDS within a pod/host).
 
 ### Hard Technical Constraints (Constitution §2)
-* **Target Runtime [§2.1]:** Linux is the sole production runtime. Standalone daemons (`waf-api`, `waf-agent`) must compile statically with `CGO_ENABLED=0 GOOS=linux`. All source files must use standard POSIX LF (`\n`) line endings.
-* **Cryptographic Rigor & Sockets [§2.2]:** Zero secrets in source. All token, key, and signature comparisons must use `crypto/subtle.ConstantTimeCompare`. Unix domain sockets under `/var/run/waffynx/` must enforce `0600` or `0660` permissions (world-accessible permissions are forbidden).
-* **Dependency Discipline [§2.3]:** Exhaust the Go standard library before proposing third-party packages. Adding dependencies to the data plane requires an approved ADR.
+* **Target Runtime & Container Orchestration [§2.1]:** Linux is the sole production runtime. Standalone Go daemons (`waf-api`, `waf-agent`, `waffynx`, `appsec-bridge`, async ingestors) must compile statically with `CGO_ENABLED=0 GOOS=linux`. Services must ship as minimal non-root containers with `/healthz`/`/readyz` probes and graceful `SIGTERM` draining; Data Plane containers must be stateless and horizontally scalable in Docker Compose and Kubernetes. All source files must use standard POSIX LF (`\n`) line endings.
+* **Cryptographic Rigor, Secrets & Sockets [§2.2]:** Zero secrets in source or container images (runtime injection / Kubernetes Secrets only). All token, key, and signature comparisons must use `crypto/subtle.ConstantTimeCompare`. Sensitive headers/credentials/PII must be redacted before persisting to audit or observability sinks. Unix domain sockets under `/var/run/waffynx/` must enforce `0600` or `0660` permissions (world-accessible permissions are forbidden).
+* **Dependency Discipline [§2.3]:** Exhaust the Go standard library before proposing third-party packages. Keep multi-container infra clients (PostgreSQL, Redis, gRPC/xDS, NATS, ClickHouse) behind clean adapter interfaces so core inspection packages stay pure and testable without external infra. Hot-path third-party dependencies require explicit justification and benchmark evidence.
 
 ### Quality & Regression Invariants (Constitution §3)
 * **Verification-First Delivery [§3.1]:** Automated tests are mandatory. Parsers, policy evaluators, and protocol decoders require both unit tests and fuzz tests (`go test -fuzz`).
 * **Regression Immutability [§3.2]:** Security fixes addressing a known vulnerability must include a permanent regression test.
 * **Static Analysis [§3.3]:** Code must pass `golangci-lint` **with strict security and performance linters enabled** (`errcheck`, `govet`, `ineffassign`, `staticcheck`, `unused`, plus `gosec`, `bodyclose`, `nilerr`, `errorlint`, `copyloopvar`, `unconvert`, `misspell`) and return exit code `0`. Configuration lives in [`.golangci.yml`](.golangci.yml).
+* **Multi-Container Resilience & Safe Rollout [§3.4]:** Data Plane must survive Control Plane, DB, or Observability outages on its last valid snapshot; major Data Plane changes must support shadow/observe mode and pass `make gatecheck`.
 
 ---
 
@@ -52,13 +54,14 @@ Agents must never violate the following core principles established in `constitu
 
 ## 4. Scope Mapping to Constitutional Planes
 
-Every change must align with the constitutional planes. The product is a **self-hosted WAF and reverse proxy, container-first**. NGFW, VPN, SD-WAN, DLP and forward-proxy work is out of scope.
+Every change must align with the constitutional planes. The product is a **self-hosted, container-first Zero-Trust WAF and reverse proxy** orchestrated via **Docker Compose** and **Kubernetes**. NGFW, VPN, SD-WAN, DLP and forward-proxy work is out of scope.
 
 | Constitutional Plane | System Subsystem | Roadmap Capabilities | Implementation Boundary |
 | :--- | :--- | :--- | :--- |
-| **Data Plane** | `modules/ngx_waffynx`<br>`internal/engine` | Reverse-proxy WAF inspection, rule engine, parsers, bot defense, API schema validation, pluggable AI scoring | Native Nginx C module + zero-copy Go sidecar via `0600` Unix socket. Sub-2ms hot path. |
-| **Host Enforcement Agent** | `cmd/waf-agent`<br>`internal/firewall` | Host `nftables`/`ufw` drop — **system mode only (P1)**. Never started in the container. | Asynchronous kernel driver. Must never be required for the core protection path. |
-| **Control Plane** | `cmd/waf-api`<br>`internal/api` | Sites/proxy-host management, policy and rule authoring, optional external-AI provider config, SOC Control Room UI, audit and security events | Out-of-band management. Strictly prohibited from inline request data path. |
+| **Data Plane** | `modules/ngx_waffynx` / Envoy PEP<br>`cmd/waffynx`, `internal/engine` | Reverse-proxy WAF inspection, Zero-Trust `ext_authz`/`ext_proc`, rule engine, parsers, bot defense, API schema validation, ephemeral Redis/Dragonfly rate limits, pluggable AI scoring | Stateless, horizontally scalable containers on DMZ network. `0600` UDS (`<= 2ms` P99) or mTLS gRPC (`<= 5ms` P99). Lock-free `atomic.Pointer` hot-reload; zero sync dependency on Control/DB/Observability. |
+| **Control Plane** | `cmd/waf-api`, `internal/api`<br>`ui/` | Sites/proxy-host management, RBAC, persistent config store (PostgreSQL), xDS dynamic proxy push, policy/rule authoring, hot-reload pub/sub, SOC Control Room UI | Out-of-band management on isolated private network (VPN/ZTNA). Strictly prohibited from inline request data path. |
+| **Observability & Telemetry Plane** | `internal/events`, `internal/metrics`<br>Async log ingestor / analytics store | Buffered fire-and-forget security telemetry (NATS JetStream), GeoIP enrichment, PII/credential redaction, ClickHouse log exploration, Prometheus metrics | Internal network only. Strictly async and non-blocking; backpressure or outage must never impact Data Plane latency or availability. |
+| **Host Enforcement Agent** | `cmd/waf-agent`<br>`internal/firewall` | Host `nftables`/`ufw` drop — **optional system mode only**. Never started in containers. | Asynchronous kernel driver for bare-metal hosts. Never required in Docker Compose or Kubernetes deployments. |
 
 ---
 
@@ -92,12 +95,23 @@ Every change must align with the constitutional planes. The product is a **self-
 | `AGENTS.md` | Governance | Operational context, agent directives, and constitutional alignment. |
 | `.golangci.yml` | Governance | Linter configuration enforcing Constitution §3.3 (standard + security/performance linters, `gofmt -s` formatter). |
 | `.gitattributes` | Governance | Pins `eol=lf` so the working tree satisfies Constitution §2.1 independently of `core.autocrlf`. |
-| `cmd/waffynx/` | Data Plane | Main engine CLI entrypoint (sidecar socket listener & proxy bootstrap). |
+| `cmd/waffynx/` | Data Plane | Main standalone engine CLI entrypoint (Nginx + sidecar socket listener). |
+| `cmd/waf-engine/` | Data Plane | Stateless horizontally scalable Envoy `ext_proc` + `ext_authz` mTLS gRPC WAF microservice. |
+| `cmd/log-ingestor/` | Observability | Async telemetry worker consuming NATS JetStream batches -> GeoIP + PII redaction -> ClickHouse. |
 | `cmd/waf-agent/` | Host Agent | Host firewall daemon (nftables/UFW synchronization). |
-| `cmd/waf-api/` | Control Plane | Management REST API CLI bootstrap (<60 lines). |
+| `cmd/waf-api/` | Control Plane | Management REST API + Envoy v3 xDS control plane bootstrap (<60 lines). |
 | `cmd/appsec-bridge/` | Data Plane | Optional standalone scorer speaking the open-appsec protocol over a `0600` Unix socket. Not started by default; the engine scores in-process. |
 | `ui/` | Control Plane | Waffynx Control Room single-page application (React 19 + TypeScript + Vite). |
-| `internal/api/` | Control Plane | Management REST API (:9090), SSE broker, middleware, and SPA file server. |
+| `internal/analytics/` | Observability | Pure stdlib HTTP ClickHouse client for bulk `JSONEachRow` inserts and parameterized analytics queries. |
+| `internal/api/` | Control Plane | Management REST API (:9090), SSE broker, middleware, distributed backend wiring, and SPA file server. |
+| `internal/authz/` | Data Plane | Zero-Trust continuous authorization (`envoy.service.auth.v3` `ext_authz`) evaluated lock-free via `atomic.Pointer`. |
+| `internal/envoy/` | Data Plane | Envoy `ext_proc` bidirectional gRPC L7 WAF inspection server (anti-OOM body guard, shadow mode, hot-reload). |
+| `internal/hotreload/` | Shared | Policy snapshot distribution bus (Redis Pub/Sub + latest snapshot key) decoupling Data Plane from PostgreSQL. |
+| `internal/ingestor/` | Observability | Batching NATS JetStream consumer with local GeoIP MMDB enrichment and ClickHouse writer. |
+| `internal/pki/` | Shared | Pure stdlib ECDSA P-256 internal CA, `0600` keypair bootstrap, and hot-reloading TLS 1.3 mTLS config. |
+| `internal/storage/` | Control Plane | Persistent configuration store interface (`PostgresStore` via `pgx/v5` + `MemoryStore`) with embedded SQL migrations. |
+| `internal/telemetry/` | Observability | Structured `SecurityEvent` schema, mandatory PII/credential redaction, and non-blocking NATS JetStream emitter. |
+| `internal/xds/` | Control Plane | Envoy v3 dynamic ADS/LDS/RDS/CDS/SDS control plane (`go-control-plane`) with live node tracking. |
 | `internal/engine/` | Data Plane | Low-latency 3-stage inspection pipeline (orchestrator & Unix socket server). |
 | `internal/policy/` | Data Plane | Rule-based policy evaluation engine (conditions, operators, actions). |
 | `internal/plugin/` | Data Plane | Plugin interface, registry, and priority chain execution. |

@@ -2,20 +2,29 @@ import { ApiError, apiFetch, isMissingEndpoint } from "./client";
 import { parseSSEFrame } from "./events";
 import { clearStoredSession, getStoredSession, storeSession } from "./session";
 import type {
+  AnalyticsSecurityEvent,
+  AnalyticsSummary,
   AuditEvent,
+  AuditQueryFilter,
   BannedIP,
+  ClusterTopology,
   CurrentUser,
   CustomRule,
+  Exclusion,
+  FirewallStatus,
   LearningStats,
   LearningSuggestion,
   LiveStatsFrame,
   ManagedRule,
+  MarketplacePackage,
   Metrics,
   PluginMetadata,
   Site,
   Status,
+  SystemConfig,
   UserSession,
   WafEvent,
+  ZeroTrustPolicy,
 } from "./types";
 
 /**
@@ -57,10 +66,16 @@ export const wafApi = {
     return getStoredSession();
   },
 
+  updateStoredRole(role: UserSession["role"]): UserSession | null {
+    const current = getStoredSession();
+    if (!current) return null;
+    const updated: UserSession = { ...current, role };
+    storeSession(updated);
+    return updated;
+  },
+
   /**
    * Logout is local: the API issues stateless JWTs and has no /auth/logout route.
-   * Calling one produced a 404 that had to be swallowed, which is worse than not
-   * making the request at all.
    */
   async logout(): Promise<void> {
     clearStoredSession();
@@ -72,7 +87,7 @@ export const wafApi = {
   },
 
   // -------------------------------------------------------------------------
-  // Status and metrics
+  // Status, metrics, config & audit
   // -------------------------------------------------------------------------
 
   async getStatus(): Promise<Status> {
@@ -83,9 +98,26 @@ export const wafApi = {
     return apiFetch<Metrics>("/api/v1/metrics");
   },
 
-  /** The API returns a bare array and fixes the window at 100 entries. */
-  async getAudit(): Promise<AuditEvent[]> {
-    return apiFetch<AuditEvent[]>("/api/v1/audit");
+  async getConfig(): Promise<SystemConfig> {
+    return apiFetch<SystemConfig>("/api/v1/config");
+  },
+
+  async updateConfig(patch: Record<string, unknown>): Promise<void> {
+    await apiFetch<{ status: string }>("/api/v1/config", {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    });
+  },
+
+  /** The API returns a bare array (up to 100 entries) with optional server filters. */
+  async getAudit(filter?: AuditQueryFilter): Promise<AuditEvent[]> {
+    const params = new URLSearchParams();
+    if (filter?.actor?.trim()) params.set("actor", filter.actor.trim());
+    if (filter?.action?.trim()) params.set("action", filter.action.trim());
+    if (filter?.result?.trim()) params.set("result", filter.result.trim());
+    const qs = params.toString();
+    const res = await apiFetch<AuditEvent[] | null>(`/api/v1/audit${qs ? `?${qs}` : ""}`);
+    return Array.isArray(res) ? res : [];
   },
 
   // -------------------------------------------------------------------------
@@ -118,12 +150,21 @@ export const wafApi = {
   },
 
   // -------------------------------------------------------------------------
-  // Host bans
+  // Firewall & IP bans
   // -------------------------------------------------------------------------
 
+  async getFirewallStatus(): Promise<FirewallStatus> {
+    const res = await apiFetch<FirewallStatus>("/api/v1/firewall/rules");
+    return {
+      enabled: Boolean(res?.enabled),
+      backend: res?.backend || "nftables",
+      rules: Array.isArray(res?.rules) ? res.rules : [],
+    };
+  },
+
   async getBannedIPs(): Promise<BannedIP[]> {
-    const res = await apiFetch<{ rules: BannedIP[] }>("/api/v1/firewall/rules");
-    return res.rules ?? [];
+    const status = await this.getFirewallStatus();
+    return status.rules;
   },
 
   async banIP(ip: string, reason: string, ttlSeconds: number): Promise<BannedIP> {
@@ -140,13 +181,46 @@ export const wafApi = {
   },
 
   // -------------------------------------------------------------------------
-  // Plugins
+  // Plugins & Marketplace
   // -------------------------------------------------------------------------
 
   /** Metadata only. There is no endpoint to enable or disable a plugin. */
   async getPlugins(): Promise<PluginMetadata[]> {
     const res = await apiFetch<PluginMetadata[] | { plugins: PluginMetadata[] }>("/api/v1/plugins");
     return Array.isArray(res) ? res : (res.plugins ?? []);
+  },
+
+  async getMarketplace(filter?: {
+    category?: string;
+    q?: string;
+    status?: string;
+  }): Promise<MarketplacePackage[]> {
+    const params = new URLSearchParams();
+    if (filter?.category && filter.category !== "all") params.set("category", filter.category);
+    if (filter?.q?.trim()) params.set("q", filter.q.trim());
+    if (filter?.status && filter.status !== "all") params.set("status", filter.status);
+    const qs = params.toString();
+    const res = await apiFetch<MarketplacePackage[] | null>(`/api/v1/marketplace${qs ? `?${qs}` : ""}`);
+    return Array.isArray(res) ? res : [];
+  },
+
+  async getMarketplaceCategories(): Promise<string[]> {
+    const res = await apiFetch<{ categories?: string[] }>("/api/v1/marketplace/categories");
+    return res.categories ?? [];
+  },
+
+  async installMarketplacePackage(name: string, version = "1.0.0"): Promise<void> {
+    await apiFetch<{ status: string }>(
+      `/api/v1/marketplace/install/${encodeURIComponent(name)}?version=${encodeURIComponent(version)}`,
+      { method: "POST" }
+    );
+  },
+
+  async uninstallMarketplacePackage(name: string): Promise<void> {
+    await apiFetch<{ status: string }>(
+      `/api/v1/marketplace/uninstall/${encodeURIComponent(name)}`,
+      { method: "DELETE" }
+    );
   },
 
   // -------------------------------------------------------------------------
@@ -174,7 +248,7 @@ export const wafApi = {
   },
 
   // -------------------------------------------------------------------------
-  // Learning (optional: needs the ML scorer socket)
+  // Learning (optional: needs the sidecar socket)
   // -------------------------------------------------------------------------
 
   async getLearningSuggestions(): Promise<LearningSuggestion[]> {
@@ -307,6 +381,97 @@ export const wafApi = {
       controller.abort();
       if (retryTimer) clearTimeout(retryTimer);
     };
+  },
+
+  // -------------------------------------------------------------------------
+  // Exclusions (False-Positive Tuning)
+  // -------------------------------------------------------------------------
+
+  async listExclusions(): Promise<Exclusion[]> {
+    const res = await apiFetch<{ exclusions: Exclusion[] }>("/api/v1/exclusions");
+    return res.exclusions ?? [];
+  },
+
+  async createExclusion(ex: Omit<Exclusion, "id" | "created_at">): Promise<Exclusion> {
+    return apiFetch<Exclusion>("/api/v1/exclusions", {
+      method: "POST",
+      body: JSON.stringify(ex),
+    });
+  },
+
+  async deleteExclusion(id: string): Promise<void> {
+    await apiFetch<void>(`/api/v1/exclusions/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+  },
+
+  // -------------------------------------------------------------------------
+  // Zero-Trust Policies (Envoy ext_authz)
+  // -------------------------------------------------------------------------
+
+  async listZeroTrustPolicies(): Promise<ZeroTrustPolicy[]> {
+    const res = await apiFetch<{ policies: ZeroTrustPolicy[] }>("/api/v1/zero-trust/policies");
+    return res.policies ?? [];
+  },
+
+  async createZeroTrustPolicy(policy: Omit<ZeroTrustPolicy, "id" | "created_at" | "updated_at">): Promise<ZeroTrustPolicy> {
+    return apiFetch<ZeroTrustPolicy>("/api/v1/zero-trust/policies", {
+      method: "POST",
+      body: JSON.stringify(policy),
+    });
+  },
+
+  async updateZeroTrustPolicy(id: string, policy: Partial<ZeroTrustPolicy>): Promise<ZeroTrustPolicy> {
+    return apiFetch<ZeroTrustPolicy>(`/api/v1/zero-trust/policies/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(policy),
+    });
+  },
+
+  async deleteZeroTrustPolicy(id: string): Promise<void> {
+    await apiFetch<void>(`/api/v1/zero-trust/policies/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+  },
+
+  // -------------------------------------------------------------------------
+  // ClickHouse Analytics & Cluster Topology
+  // -------------------------------------------------------------------------
+
+  async getAnalyticsEvents(params?: {
+    q?: string;
+    action?: string;
+    host?: string;
+    remote_ip?: string;
+    rule_id?: string;
+    country?: string;
+    since_hours?: number;
+    limit?: number;
+  }): Promise<{ source: "clickhouse" | "broker"; events: AnalyticsSecurityEvent[] }> {
+    const qs = new URLSearchParams();
+    if (params?.q) qs.set("q", params.q);
+    if (params?.action) qs.set("action", params.action);
+    if (params?.host) qs.set("host", params.host);
+    if (params?.remote_ip) qs.set("remote_ip", params.remote_ip);
+    if (params?.rule_id) qs.set("rule_id", params.rule_id);
+    if (params?.country) qs.set("country", params.country);
+    if (params?.since_hours) qs.set("since_hours", String(params.since_hours));
+    if (params?.limit) qs.set("limit", String(params.limit));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    const res = await apiFetch<{ source: "clickhouse" | "broker"; events: AnalyticsSecurityEvent[] }>(
+      `/api/v1/analytics/events${suffix}`
+    );
+    return { source: res.source ?? "broker", events: res.events ?? [] };
+  },
+
+  async getAnalyticsSummary(windowHours = 24): Promise<{ source: "clickhouse" | "broker"; summary: AnalyticsSummary }> {
+    return apiFetch<{ source: "clickhouse" | "broker"; summary: AnalyticsSummary }>(
+      `/api/v1/analytics/summary?window_hours=${windowHours}`
+    );
+  },
+
+  async getClusterTopology(): Promise<ClusterTopology> {
+    return apiFetch<ClusterTopology>("/api/v1/cluster/topology");
   },
 };
 

@@ -1,11 +1,16 @@
 import React from "react";
+import { Badge, type BadgeVariant } from "./Badge";
+
+export type KpiTone = "default" | "critical" | "high" | "info" | "ok" | "ml";
 
 interface KpiCardProps {
   title: string;
-  value: React.ReactNode;
+  value: string | number;
   subtext?: string;
   badge?: string;
-  variant?: "default" | "critical" | "warning" | "success" | "info";
+  badgeVariant?: BadgeVariant;
+  tone?: KpiTone;
+  sparkline?: React.ReactNode;
 }
 
 export const KpiCard: React.FC<KpiCardProps> = ({
@@ -13,17 +18,35 @@ export const KpiCard: React.FC<KpiCardProps> = ({
   value,
   subtext,
   badge,
-  variant = "default",
+  badgeVariant,
+  tone = "default",
+  sparkline,
 }) => {
+  const resolvedBadgeVariant: BadgeVariant =
+    badgeVariant ??
+    (tone === "critical"
+      ? "critical"
+      : tone === "high"
+        ? "high"
+        : tone === "ok"
+          ? "ok"
+          : tone === "ml"
+            ? "ml"
+            : tone === "info"
+              ? "info"
+              : "neutral");
+
   return (
-    <article className={`kpi-card ${variant}`}>
-      <div className="kpi-accent-glow" />
-      <div className="kpi-header">
-        <span>{title}</span>
-        {badge && <span className="kpi-badge">{badge}</span>}
+    <article className={`kpi-card ${tone !== "default" ? tone : ""}`}>
+      <div className="kpi-top">
+        <span className="kpi-label">{title}</span>
+        {badge && <Badge variant={resolvedBadgeVariant}>{badge}</Badge>}
       </div>
-      <div className="kpi-value">{value}</div>
-      {subtext && <div className="kpi-subtext">{subtext}</div>}
+      <div className="kpi-body">
+        <div className="kpi-value">{value}</div>
+        {sparkline}
+      </div>
+      {subtext && <div className="kpi-sub">{subtext}</div>}
     </article>
   );
 };

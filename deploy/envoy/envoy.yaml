@@ -1,0 +1,67 @@
+# Waffynx Data Plane Edge PEP — Envoy Proxy v1.32 Dynamic xDS Bootstrap
+# Listeners, routes, upstream clusters, TLS 1.3 certificates (SDS), and
+# Zero-Trust ext_authz + ext_proc filters are pushed live from control-api:18000.
+
+node:
+  id: waffynx-envoy
+  cluster: waffynx-data-plane
+
+admin:
+  address:
+    socket_address:
+      address: 127.0.0.1
+      port_value: 9901
+
+dynamic_resources:
+  ads_config:
+    api_type: GRPC
+    transport_api_version: V3
+    set_node_on_first_message_only: true
+    grpc_services:
+      - envoy_grpc:
+          cluster_name: xds_cluster
+  lds_config:
+    resource_api_version: V3
+    ads: {}
+  cds_config:
+    resource_api_version: V3
+    ads: {}
+
+static_resources:
+  clusters:
+    - name: xds_cluster
+      type: STRICT_DNS
+      connect_timeout: 3s
+      lb_policy: ROUND_ROBIN
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config:
+            http2_protocol_options: {}
+      load_assignment:
+        cluster_name: xds_cluster
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: control-api
+                      port_value: 18000
+      transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+          sni: control-api
+          common_tls_context:
+            alpn_protocols: ["h2"]
+            tls_params:
+              tls_minimum_protocol_version: TLSv1_3
+              tls_maximum_protocol_version: TLSv1_3
+            tls_certificates:
+              - certificate_chain:
+                  filename: /etc/waffynx/certs/envoy.crt
+                private_key:
+                  filename: /etc/waffynx/certs/envoy.key
+            validation_context:
+              trusted_ca:
+                filename: /etc/waffynx/certs/ca.crt

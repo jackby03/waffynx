@@ -1,4 +1,4 @@
-.PHONY: all build build-engine build-agent build-api build-cli build-bridge build-bootstrap clean test lint proto install dev gatecheck
+.PHONY: all build build-engine build-ingestor build-agent build-api build-cli build-bridge build-bootstrap clean test lint proto install dev gatecheck
 
 APP_NAME := waffynx
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -27,11 +27,19 @@ all: build
 # ============================================================
 # Build targets
 # ============================================================
-build: build-cli build-agent build-api build-bridge build-bootstrap
+build: build-cli build-engine build-ingestor build-agent build-api build-bridge build-bootstrap
 
 build-cli:
 	@echo "Building waffynx CLI..."
 	@$(GO) build $(GOFLAGS) -o $(BIN_DIR)/waffynx ./cmd/waffynx
+
+build-engine:
+	@echo "Building waf-engine (Envoy ext_proc + ext_authz Data Plane)..."
+	@$(GO) build $(GOFLAGS) -o $(BIN_DIR)/waf-engine ./cmd/waf-engine
+
+build-ingestor:
+	@echo "Building log-ingestor (NATS JetStream -> ClickHouse)..."
+	@$(GO) build $(GOFLAGS) -o $(BIN_DIR)/log-ingestor ./cmd/log-ingestor
 
 build-agent:
 	@echo "Building waf-agent..."
@@ -212,6 +220,26 @@ vagrant-full-test:
 	@cd vagrant && vagrant destroy -f 2>/dev/null || true
 	@cd vagrant && vagrant up
 	@cd vagrant && vagrant ssh -c "bash /waffynx/vagrant/test.sh"
+
+# ============================================================
+# Docker Compose
+# ============================================================
+.PHONY: compose-up compose-down compose-build compose-logs compose-dev
+
+compose-build:
+	@docker compose build
+
+compose-up:
+	@docker compose up -d --build
+
+compose-dev:
+	@docker compose --profile dev up --build
+
+compose-down:
+	@docker compose --profile dev down
+
+compose-logs:
+	@docker compose logs -f waffynx
 
 # ============================================================
 # Frontend UI

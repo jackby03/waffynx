@@ -34,9 +34,9 @@ spec:
             pathType: {{ .pathType }}
             backend:
               service:
-                name: {{ $.Release.Name }}
+                name: {{ $.Release.Name }}-envoy
                 port:
-                  number: {{ $.Values.service.httpPort }}
+                  number: {{ $.Values.envoy.service.httpPort }}
           {{- end }}
     {{- end }}
 {{- end }}

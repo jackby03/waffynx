@@ -12,18 +12,22 @@ disclosure with you before publishing.
 
 ## Scope
 
-Waffynx is a Web Application Firewall, so the following are all in scope:
+Waffynx is a Zero-Trust Web Application Firewall and reverse proxy, so the following are all in scope:
 
-- The Go data plane (`internal/engine`, `internal/policy`, `internal/rules`,
-  `plugins/`, `internal/parsers`) and the control plane (`internal/api`,
-  `cmd/waf-api`).
-- **Bypasses**: any input that reaches an upstream without being inspected while
-  inspection is enabled. A WAF that can be walked around is a vulnerability, not a
-  bug.
-- The native nginx module `modules/ngx_waffynx` and the Unix-socket protocol it uses
-  to reach the engine.
-- The Docker image: privilege level, file modes, exposed ports, and the socket
-  permissions defined in Constitution §2.2.
+- The Go Data Plane (`cmd/waf-engine`, `internal/envoy`, `internal/authz`, `internal/engine`,
+  `internal/catalog`, `internal/policy`, `internal/rules`, `internal/ratelimit`, `plugins/`,
+  `internal/parsers`) and the Control Plane (`cmd/waf-api`, `internal/api`, `internal/xds`,
+  `internal/storage`, `internal/hotreload`, `internal/pki`).
+- The Async Observability Plane (`cmd/log-ingestor`, `internal/telemetry`, `internal/analytics`,
+  `internal/ingestor`), specifically **PII/credential redaction** (`internal/telemetry/redact.go`)
+  and parameterized ClickHouse queries (`internal/analytics/clickhouse.go`).
+- **Bypasses**: any input that reaches an upstream without being inspected or authorized while
+  enforcement is enabled, including header spoofing (`x-waffynx-*`), body-limit evasions, and
+  network microsegmentation bypasses.
+- The Envoy v3 xDS / `ext_authz` / `ext_proc` TLS 1.3 mTLS transport and the native nginx
+  module `modules/ngx_waffynx` + Unix-socket protocol (`0600`/`0660`).
+- Container images and Kubernetes Helm manifests: non-root privileges, `0600` key/socket
+  permissions, default-deny `NetworkPolicies`, and exposed ports defined in Constitution §1.4 & §2.2.
 
 Out of scope: findings that require a compromised host or root inside the
 container, and missing hardening headers on the management UI.
@@ -71,8 +75,9 @@ before assuming the product is affected.
 HTTP/3 is **not** built, so `ngx_http_v3_module` advisories do not apply today.
 Enabling it later means re-triaging the HTTP/3 advisory history.
 
-## Secrets
+## Secrets & Inter-Service Transport
 
-No secret is ever committed. The JWT signing key is generated at first boot and
-persisted `0600` under `$WAFFYNX_DATA_DIR`; losing that volume invalidates issued
-tokens. The engine refuses to start if the configured secret is a known placeholder.
+- No secret, password, token, or private key is ever committed to source or baked into images (Constitution §2.2). Local `.env` files are gitignored; Kubernetes deployments inject secrets exclusively via `existingSecret` (`secretKeyRef`).
+- The JWT signing key is supplied via `WAFFYNX_JWT_SECRET` (`>= 32` characters) or generated once on first boot and persisted `0600` under `$WAFFYNX_DATA_DIR`. Daemons abort startup if credentials are missing or placeholders (Constitution §1.1).
+- Multi-container inter-service RPCs (`envoy ↔ control-api` xDS and `envoy ↔ waf-engine` `ext_authz`/`ext_proc`) enforce strict **TLS 1.3 mTLS** using `0600` private keys provisioned by `waffynx-bootstrap --pki-only` (Compose) or cert-manager / SPIRE (Kubernetes).
+- Sensitive request headers (`Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`, `X-Auth-Token`), bearer/JWT tokens, PANs, and secret query parameters (including HTTP/2 `:path` and `Referer`) are redacted before leaving the Data Plane or persisting to ClickHouse.

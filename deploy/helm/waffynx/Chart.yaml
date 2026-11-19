@@ -1,12 +1,13 @@
 apiVersion: v2
 name: waffynx
-description: Waffynx — Next-generation WAF with nginx native integration
+description: Waffynx — Zero-Trust Multi-Container WAF & Reverse Proxy (Envoy PEP + Go WAF Engine + Control Plane + Async Observability)
 type: application
-version: 0.1.0
-appVersion: "1.0.0"
+version: 0.2.0
+appVersion: "2.0.0"
 keywords:
   - waf
-  - nginx
+  - envoy
+  - zero-trust
   - security
-  - firewall
+  - xds
 home: https://github.com/jackby03/waffynx

@@ -1,0 +1,27 @@
+# Keep the Docker build context fast and free of local artifacts.
+# third_party/nginx/ MUST remain included because Stage 1 compiles nginx from it.
+.git
+.github
+.agents
+.claude
+.artifacts
+.idea
+.vscode
+bin
+dist
+tmp
+vagrant
+*.box
+*.exe
+*.log
+*.out
+coverage.html
+waffynx
+waf-api
+waf-agent
+.env
+.env.local
+ui/node_modules
+ui/dist
+ui/.vite
+ui/tsconfig.tsbuildinfo

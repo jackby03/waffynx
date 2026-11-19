@@ -1,151 +1,172 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useAuth } from "./context/AuthContext";
 import { useWaf } from "./context/WafContext";
-import { Sidebar, type ViewTab } from "./components/layout/Sidebar";
+import { navEntryFor, viewFromPathname, type ViewId } from "./router/routes";
+import { Sidebar } from "./components/layout/Sidebar";
 import { Topbar } from "./components/layout/Topbar";
-import { ThreatTicker } from "./components/layout/ThreatTicker";
+import { CommandPalette } from "./components/layout/CommandPalette";
+import { Dialog } from "./components/common/Dialog";
+import { ErrorBoundary } from "./components/common/ErrorBoundary";
+import { LoginView } from "./views/Login/LoginView";
 import { OverviewView } from "./views/Overview/OverviewView";
 import { EventsView } from "./views/Events/EventsView";
-import { SecurityPolicies } from "./views/SecurityPolicies/SecurityPolicies";
-import { IpBans } from "./views/HostFirewall/IpBans";
+import { EventDetailDialog } from "./views/Events/EventDetailDialog";
 import { SitesView } from "./views/Sites/SitesView";
-import { ErrorBoundary } from "./components/common/ErrorBoundary";
+import { ZeroTrustView } from "./views/ZeroTrust/ZeroTrustView";
+import { SecurityPolicies } from "./views/SecurityPolicies/SecurityPolicies";
+import { CustomRulesView } from "./views/CustomRules/CustomRulesView";
+import { IpBans } from "./views/HostFirewall/IpBans";
+import { LearningView } from "./views/Learning/LearningView";
+import { PipelineView } from "./views/Pipeline/PipelineView";
+import { MarketplaceView } from "./views/Marketplace/MarketplaceView";
+import { AuditView } from "./views/Audit/AuditView";
+import { SystemView } from "./views/System/SystemView";
+
+const RAIL_STORAGE_KEY = "waffynx_rail_collapsed";
 
 export const App: React.FC = () => {
-  const { isAuthenticated, login } = useAuth();
-  const { events, bannedIPs } = useWaf();
+  const { isAuthenticated } = useAuth();
+  const { inspectedEvent, setInspectedEvent } = useWaf();
 
-  const [currentTab, setCurrentTab] = useState<ViewTab>("overview");
-
-  // Login form state
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("");
-  const [loginError, setLoginError] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginError("");
-    setIsSubmitting(true);
+  const [currentView, setCurrentView] = useState<ViewId>(() =>
+    viewFromPathname(window.location.pathname)
+  );
+  const [presetQuery, setPresetQuery] = useState("");
+  const [railCollapsed, setRailCollapsed] = useState<boolean>(() => {
     try {
-      await login(username, password);
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setLoginError(err.message);
-      } else {
-        setLoginError("Login failed");
-      }
-    } finally {
-      setIsSubmitting(false);
+      return localStorage.getItem(RAIL_STORAGE_KEY) === "1";
+    } catch {
+      return false;
     }
+  });
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  const navigate = useCallback((view: ViewId, query = "") => {
+    const entry = navEntryFor(view);
+    setCurrentView(view);
+    setPresetQuery(query);
+    setMobileNavOpen(false);
+    if (window.location.pathname !== entry.path) {
+      window.history.pushState({ view }, "", entry.path);
+    }
+    requestAnimationFrame(() => {
+      document.getElementById("view-heading")?.focus();
+    });
+  }, []);
+
+  // Sync browser back/forward navigation
+  useEffect(() => {
+    const onPopState = () => {
+      setCurrentView(viewFromPathname(window.location.pathname));
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  // Keep unique SPA document title per screen (WCAG 2.4.2)
+  useEffect(() => {
+    if (!isAuthenticated) {
+      document.title = "Sign In | Waffynx Control Room";
+      return;
+    }
+    const entry = navEntryFor(currentView);
+    document.title = `${entry.label} | Waffynx Control Room`;
+  }, [isAuthenticated, currentView]);
+
+  // Global Cmd+K / Ctrl+K shortcut for Command Palette
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isAuthenticated]);
+
+  const toggleRail = () => {
+    setRailCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(RAIL_STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        // Ignore storage failure
+      }
+      return next;
+    });
   };
 
-  // If not authenticated, render modern dark login screen
   if (!isAuthenticated) {
-    return (
-      <div className="login-screen">
-        <div className="login-glow-blob-1" />
-        <div className="login-glow-blob-2" />
-
-        <div className="login-card">
-          <div className="login-header">
-            <div className="brand-logo">
-              <span className="brand-icon">W</span>
-              <div className="brand-text">
-                <span className="brand-title">WAFFYNX</span>
-                <span className="brand-sub">CONTROL ROOM</span>
-              </div>
-            </div>
-            <h2 className="login-title">Enterprise Authentication</h2>
-            <p className="login-subtitle">
-              Sign in to manage edge inspection policies and live SOC telemetry
-            </p>
-          </div>
-
-          <form className="login-form" onSubmit={handleLoginSubmit}>
-            {loginError && (
-              <div className="login-error" id="login-error" role="alert">
-                {loginError}
-              </div>
-            )}
-
-            <div className="form-field">
-              <label className="form-label" htmlFor="username">
-                Username
-              </label>
-              <input
-                id="username"
-                type="text"
-                className="form-input"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                autoComplete="username"
-                aria-invalid={loginError ? true : false}
-                aria-describedby={loginError ? "login-error" : undefined}
-                autoFocus
-                required
-              />
-            </div>
-
-            <div className="form-field">
-              <label className="form-label" htmlFor="password">
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                className="form-input"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-                aria-invalid={loginError ? true : false}
-                aria-describedby={loginError ? "login-error" : undefined}
-                required
-              />
-            </div>
-
-            <button type="submit" className="login-btn" disabled={isSubmitting} aria-busy={isSubmitting}>
-              {isSubmitting ? "Authenticating..." : "Access Control Room"}
-            </button>
-
-            <p className="login-footer-hint">
-              First run? The admin password is printed once in the container log:{" "}
-              <code>docker logs &lt;container&gt; | grep password=</code>
-            </p>
-          </form>
-        </div>
-      </div>
-    );
+    return <LoginView />;
   }
 
   return (
-    <div className="app-layout">
-      {/* Sidebar Navigation */}
+    <div className={`app-shell ${railCollapsed ? "rail-collapsed" : ""}`}>
+      <a href="#view-heading" className="skip-link visually-hidden">
+        Skip to main content
+      </a>
+
       <Sidebar
-        currentTab={currentTab}
-        onSelectTab={setCurrentTab}
-        threatCount={events.length}
-        bannedCount={bannedIPs.length}
+        currentView={currentView}
+        collapsed={railCollapsed}
+        onToggleCollapse={toggleRail}
+        onSelectView={(v) => navigate(v)}
       />
 
-      {/* Main Content Area */}
-      <main className="main-content">
-        <Topbar currentTab={currentTab} />
-        <ThreatTicker
-          events={events}
-          onSelectEvent={() => setCurrentTab("events")}
-          onViewAll={() => setCurrentTab("events")}
-        />
+      <Topbar
+        currentView={currentView}
+        onOpenPalette={() => setPaletteOpen(true)}
+        onOpenMobileNav={() => setMobileNavOpen(true)}
+      />
 
-        {/* Tab Views */}
+      <main className="app-main" id="main-content">
         <ErrorBoundary>
-        {currentTab === "overview" && <OverviewView />}
-        {currentTab === "events" && <EventsView />}
-        {currentTab === "sites" && <SitesView />}
-        {currentTab === "policies" && <SecurityPolicies />}
-        {currentTab === "firewall" && <IpBans />}
+          {currentView === "overview" && <OverviewView onNavigate={navigate} />}
+          {currentView === "events" && <EventsView initialQuery={presetQuery} />}
+          {currentView === "sites" && <SitesView initialQuery={presetQuery} />}
+          {currentView === "zero-trust" && <ZeroTrustView />}
+          {currentView === "managed-rules" && <SecurityPolicies initialQuery={presetQuery} />}
+          {currentView === "custom-rules" && <CustomRulesView />}
+          {currentView === "firewall" && <IpBans />}
+          {currentView === "learning" && <LearningView />}
+          {currentView === "pipeline" && <PipelineView />}
+          {currentView === "marketplace" && <MarketplaceView />}
+          {currentView === "audit" && <AuditView />}
+          {currentView === "system" && <SystemView />}
         </ErrorBoundary>
       </main>
+
+      {/* Mobile Navigation Drawer */}
+      <Dialog
+        open={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+        title="Navigation"
+        variant="nav-drawer"
+        hideHeader
+      >
+        <Sidebar
+          currentView={currentView}
+          collapsed={false}
+          onSelectView={(v) => navigate(v)}
+          mobile
+        />
+      </Dialog>
+
+      {/* Command Palette (Ctrl+K / Cmd+K) */}
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onNavigate={navigate}
+      />
+
+      {/* Unified Deep Packet Forensic Drawer */}
+      <EventDetailDialog
+        event={inspectedEvent}
+        onClose={() => setInspectedEvent(null)}
+      />
     </div>
   );
 };

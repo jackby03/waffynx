@@ -316,3 +316,99 @@ func BenchmarkEvaluate_QueryParam_NoMatch(b *testing.B) {
 		_ = e.Evaluate(req)
 	}
 }
+
+func TestExclusionsAndReplaceSnapshot(t *testing.T) {
+	e := NewEngine()
+	e.AddRule(CustomRule{
+		ID:        "r-block-admin",
+		Name:      "Block admin",
+		Enabled:   true,
+		Priority:  10,
+		Action:    ActionBlock,
+		PathExact: "/admin/report",
+	})
+	// Upsert same ID replaces in place.
+	e.AddRule(CustomRule{
+		ID:          "r-block-admin",
+		Name:        "Block admin updated",
+		Enabled:     true,
+		Priority:    10,
+		Action:      ActionBlock,
+		PathPattern: "/admin/*",
+	})
+	if len(e.List()) != 1 {
+		t.Fatalf("expected upsert to keep 1 rule, got %d", len(e.List()))
+	}
+
+	req := &policy.Request{Host: "app.example.test", Path: "/admin/report?q=1"}
+	if got := e.Evaluate(req); got.Action != ActionBlock {
+		t.Fatalf("expected block before exclusion, got %s", got.Action)
+	}
+
+	e.AddExclusion(Exclusion{
+		ID:         "ex-1",
+		Name:       "Allow admin report",
+		RuleID:     "r-block-admin",
+		Host:       "app.example.test",
+		PathPrefix: "/admin/report",
+		Param:      "q",
+		Enabled:    true,
+	})
+	// Upsert exclusion.
+	e.AddExclusion(Exclusion{
+		ID:         "ex-1",
+		Name:       "Allow admin report v2",
+		RuleID:     "r-block-admin",
+		Host:       "APP.EXAMPLE.TEST",
+		PathExact:  "/admin/report",
+		PathPrefix: "/admin/",
+		Param:      "q",
+		Enabled:    true,
+	})
+	if len(e.ListExclusions()) != 1 {
+		t.Fatalf("expected 1 exclusion after upsert, got %d", len(e.ListExclusions()))
+	}
+
+	if !e.IsExcluded(req, "r-block-admin") {
+		t.Fatal("expected request to match exclusion")
+	}
+	if e.IsExcluded(nil, "r-block-admin") {
+		t.Fatal("nil request must not be excluded")
+	}
+	if e.IsExcluded(req, "other-rule") {
+		t.Fatal("exclusion should not waive unrelated rule")
+	}
+	if got := e.Evaluate(req); got.Action != ActionAllow {
+		t.Fatalf("expected allow when excluded, got %s", got.Action)
+	}
+
+	// Remove exclusion and verify block returns.
+	e.RemoveExclusion("ex-1")
+	if len(e.ListExclusions()) != 0 {
+		t.Fatalf("expected 0 exclusions, got %d", len(e.ListExclusions()))
+	}
+	if got := e.Evaluate(req); got.Action != ActionBlock {
+		t.Fatalf("expected block after exclusion removal, got %s", got.Action)
+	}
+
+	// Atomic ReplaceSnapshot with priority ordering and wildcard exclusion.
+	e.ReplaceSnapshot(
+		[]CustomRule{
+			{ID: "low-prio", Enabled: true, Priority: 50, Action: ActionDeny, Methods: []string{"GET"}},
+			{ID: "high-prio", Enabled: true, Priority: 5, Action: ActionBlock, Methods: []string{"GET"}},
+		},
+		[]Exclusion{
+			{ID: "ex-disabled", RuleID: "*", Enabled: false},
+			{ID: "ex-wild", RuleID: "*", PathPrefix: "/health", Enabled: true},
+		},
+	)
+
+	res := e.Evaluate(&policy.Request{Method: "GET", Path: "/api/items"})
+	if res.RuleID != "high-prio" {
+		t.Fatalf("expected high-prio rule first, got %s", res.RuleID)
+	}
+	resHealth := e.Evaluate(&policy.Request{Method: "GET", Path: "/healthz"})
+	if resHealth.Action != ActionAllow {
+		t.Fatalf("expected wildcard exclusion on /healthz, got %s", resHealth.Action)
+	}
+}

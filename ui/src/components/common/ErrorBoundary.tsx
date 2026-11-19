@@ -28,17 +28,27 @@ export class ErrorBoundary extends React.Component<Props, State> {
   render(): React.ReactNode {
     if (this.state.error) {
       return (
-        <section className="view-stack" role="alert">
-          <h1 className="view-title">This view could not be rendered</h1>
-          <p className="view-subtitle">
-            The dashboard hit an error instead of showing a blank page. The message is below so it
-            can be reported; the rest of the console keeps working after a reload.
-          </p>
-          <pre className="alert alert-error error-details">{this.state.error.message}</pre>
-          <div>
-            <button type="button" className="btn-secondary" onClick={() => window.location.reload()}>
-              Reload the dashboard
-            </button>
+        <section className="canvas-inner" role="alert">
+          <div className="panel">
+            <div className="panel-header">
+              <div>
+                <h1 className="view-title">This view could not be rendered</h1>
+                <p className="view-subtitle">
+                  The dashboard caught a runtime error instead of showing a blank page. Reload to
+                  recover the console.
+                </p>
+              </div>
+            </div>
+            <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              <pre className="alert-banner error mono" style={{ whiteSpace: "pre-wrap" }}>
+                {this.state.error.message}
+              </pre>
+              <div>
+                <button type="button" className="btn btn-primary" onClick={() => window.location.reload()}>
+                  Reload Control Room
+                </button>
+              </div>
+            </div>
           </div>
         </section>
       );

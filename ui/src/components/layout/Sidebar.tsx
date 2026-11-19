@@ -1,103 +1,138 @@
 import React from "react";
 import {
-  IconGlobe,
-  IconSearch,
-  IconBot,
-  IconArrows,
-  IconShield,
-  IconFirewall,
-} from "../common/Icons";
+  Activity,
+  Ban,
+  Brain,
+  FileText,
+  Globe,
+  Layers,
+  Lock,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Radar,
+  Settings,
+  Shield,
+  ShieldCheck,
+  Sliders,
+  Store,
+} from "lucide-react";
+import { NAV_ITEMS, type ViewId } from "../../router/routes";
+import { useWaf } from "../../context/WafContext";
 
-export type ViewTab = "overview" | "events" | "sites" | "policies" | "firewall";
+const VIEW_ICONS: Record<ViewId, React.ReactNode> = {
+  overview: <Radar size={17} />,
+  events: <Activity size={17} />,
+  sites: <Globe size={17} />,
+  "zero-trust": <Lock size={17} />,
+  "managed-rules": <ShieldCheck size={17} />,
+  "custom-rules": <Sliders size={17} />,
+  firewall: <Ban size={17} />,
+  learning: <Brain size={17} />,
+  pipeline: <Layers size={17} />,
+  marketplace: <Store size={17} />,
+  audit: <FileText size={17} />,
+  system: <Settings size={17} />,
+};
 
 interface SidebarProps {
-  currentTab: ViewTab;
-  onSelectTab: (tab: ViewTab) => void;
-  threatCount: number;
-  bannedCount: number;
+  currentView: ViewId;
+  collapsed: boolean;
+  onToggleCollapse?: () => void;
+  onSelectView: (view: ViewId) => void;
+  mobile?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
-  currentTab,
-  onSelectTab,
-  threatCount,
-  bannedCount,
+  currentView,
+  collapsed,
+  onToggleCollapse,
+  onSelectView,
+  mobile = false,
 }) => {
-  const navItems: {
-    id: ViewTab;
-    label: string;
-    icon: React.ReactNode;
-    section: string;
-    badge?: number;
-    badgeVariant?: "red" | "cyan";
-  }[] = [
-    { id: "overview", label: "Overview", icon: <IconGlobe size={18} />, section: "SECURITY OPS" },
-    {
-      id: "events",
-      label: "Events",
-      icon: <IconSearch size={18} />,
-      section: "SECURITY OPS",
-      badge: threatCount,
-      badgeVariant: "red",
-    },
-    { id: "sites", label: "Sites", icon: <IconGlobe size={18} />, section: "TRAFFIC & PROXY" },
-    { id: "policies", label: "Security Policies", icon: <IconShield size={18} />, section: "ENFORCEMENT & L3-L7" },
-    {
-      id: "firewall",
-      label: "IP Bans",
-      icon: <IconFirewall size={18} />,
-      section: "ENFORCEMENT & L3-L7",
-      badge: bannedCount,
-      badgeVariant: "cyan",
-    },
-  ];
+  const { events, sites, bannedIPs, status, metrics, connected } = useWaf();
 
-  const sections = Array.from(new Set(navItems.map((n) => n.section)));
+  const sections = Array.from(new Set(NAV_ITEMS.map((item) => item.section)));
+  const heapMB = metrics ? Math.round(metrics.go.heap_alloc / 1024 / 1024) : null;
+  const engineName = status?.config?.engine ?? "basic-go";
+  const version = status?.version ?? "dev";
+
+  const counterFor = (id: ViewId): { count: number; tone?: "critical" | "info" } | null => {
+    if (id === "events" && events.length > 0) return { count: events.length, tone: "critical" };
+    if (id === "sites" && sites.length > 0) return { count: sites.length, tone: "info" };
+    if (id === "firewall" && bannedIPs.length > 0) return { count: bannedIPs.length, tone: "critical" };
+    return null;
+  };
 
   return (
-    <nav className="sidebar" aria-label="Waffynx Navigation">
-      <div className="sidebar-brand">
-        <div className="brand-logo">
-          <span className="brand-icon">W</span>
-          <div className="brand-text">
-            <span className="brand-title">WAFFYNX</span>
-            <span className="brand-sub">ENTERPRISE SOC</span>
+    <nav className={mobile ? "" : "app-rail"} aria-label="Primary" style={mobile ? { display: "flex", flexDirection: "column", height: "100%" } : undefined}>
+      <div className="rail-header">
+        <div className="brand-mark">
+          <span className="brand-emblem" aria-hidden="true">
+            <Shield size={17} strokeWidth={2.3} />
+          </span>
+          <div className="brand-copy">
+            <span className="brand-name">WAFFYNX</span>
+            <span className="brand-tag">Edge WAF Console</span>
           </div>
         </div>
+
+        {!mobile && onToggleCollapse && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon"
+            onClick={onToggleCollapse}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          </button>
+        )}
       </div>
 
-      <div className="sidebar-links">
-        {sections.map((sec) => (
-          <div key={sec} className="nav-group">
-            <span className="nav-group-label">{sec}</span>
-            {navItems
-              .filter((item) => item.section === sec)
-              .map((item) => (
+      <div className="rail-scroll">
+        {sections.map((section) => (
+          <div key={section} className="nav-section">
+            <span className="nav-section-title">{section}</span>
+            {NAV_ITEMS.filter((item) => item.section === section).map((item) => {
+              const badge = counterFor(item.id);
+              const active = currentView === item.id;
+              return (
                 <button
                   key={item.id}
                   type="button"
-                  className={`nav-btn ${currentTab === item.id ? "active" : ""}`}
-                  onClick={() => onSelectTab(item.id)}
+                  className={`nav-item ${active ? "active" : ""}`}
+                  aria-current={active ? "page" : undefined}
+                  onClick={() => onSelectView(item.id)}
+                  title={collapsed && !mobile ? item.label : undefined}
                 >
-                  <span className="nav-icon">{item.icon}</span>
-                  <span className="nav-label">{item.label}</span>
-                  {item.badge !== undefined && item.badge > 0 && (
-                    <span className={`nav-badge ${item.badgeVariant || "cyan"}`}>
-                      {item.badge > 99 ? "99+" : item.badge}
+                  <span aria-hidden="true">{VIEW_ICONS[item.id]}</span>
+                  <span className="nav-item-label">{item.label}</span>
+                  {badge && (
+                    <span className={`nav-counter ${badge.tone ?? ""}`}>
+                      {badge.count > 999 ? "999+" : badge.count}
                     </span>
                   )}
                 </button>
-              ))}
+              );
+            })}
           </div>
         ))}
       </div>
 
-      <div className="sidebar-footer">
-        <div className="core-status">
-          <span className="status-dot online" />
-          <span>Core: Online (L7 Pipeline)</span>
+      <div className="rail-footer">
+        <div className="rail-status-row">
+          <span
+            className="pulse-dot"
+            style={{ color: connected ? "var(--status-ok)" : "var(--status-high)" }}
+            aria-hidden="true"
+          />
+          <span className="rail-footer-details">
+            {connected ? "Control Plane Live" : "Reconnecting…"}
+          </span>
         </div>
-        <div className="version-info">v0.2.0 • Unix socket sidecar</div>
+        <div className="rail-meta rail-footer-details">
+          {engineName} · {heapMB !== null ? `${heapMB} MB` : "—"} · {version}
+        </div>
       </div>
     </nav>
   );

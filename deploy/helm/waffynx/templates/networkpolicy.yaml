@@ -1,0 +1,64 @@
+{{- if .Values.networkPolicies.enabled }}
+# Strict Zero-Trust Default-Deny Microsegmentation (Constitution §1.4)
+# Only Envoy receives public ingress; waf-engine only accepts mTLS gRPC from Envoy;
+# control-api only accepts management API from UI and xDS gRPC from Envoy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-waf-engine-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: waf-engine
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              app.kubernetes.io/component: envoy
+      ports:
+        - protocol: TCP
+          port: {{ .Values.wafEngine.grpcPort }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-control-api-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: control-api
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              app.kubernetes.io/component: ui
+      ports:
+        - protocol: TCP
+          port: {{ .Values.controlApi.apiPort }}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              app.kubernetes.io/component: envoy
+      ports:
+        - protocol: TCP
+          port: {{ .Values.controlApi.xdsPort }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-log-ingestor-default-deny-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: log-ingestor
+  policyTypes: ["Ingress"]
+  ingress: []
+{{- end }}

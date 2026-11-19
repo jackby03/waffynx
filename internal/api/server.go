@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,15 +13,20 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackby03/waffynx/internal/analytics"
 	"github.com/jackby03/waffynx/internal/audit"
 	"github.com/jackby03/waffynx/internal/auth"
 	"github.com/jackby03/waffynx/internal/catalog"
 	"github.com/jackby03/waffynx/internal/config"
 	"github.com/jackby03/waffynx/internal/events"
 	"github.com/jackby03/waffynx/internal/firewall"
+	"github.com/jackby03/waffynx/internal/hotreload"
 	"github.com/jackby03/waffynx/internal/logging"
 	"github.com/jackby03/waffynx/internal/marketplace"
+	"github.com/jackby03/waffynx/internal/ratelimit"
 	"github.com/jackby03/waffynx/internal/sites"
+	"github.com/jackby03/waffynx/internal/storage"
+	"github.com/jackby03/waffynx/internal/xds"
 )
 
 // Server represents the Waffynx Management API (Control Plane).
@@ -48,6 +54,16 @@ type Server struct {
 	// siteApplier renders the reverse-proxy topology and makes it live. Injected so
 	// the HTTP layer can be tested without nginx.
 	siteApplier *sites.Applier
+
+	// Optional distributed multi-container Control Plane backends (Constitution §1.3 & §2.3).
+	// All remain nil in standalone single-container mode.
+	db              storage.Store
+	reloadBus       hotreload.Bus
+	xdsSrv          *xds.Server
+	analyticsReader analytics.Reader
+	jailStore       ratelimit.JailStore
+	xdsTLS          *tls.Config
+	xdsListen       string
 }
 
 // NewServer initializes the management API server with verified security configurations.
@@ -141,6 +157,63 @@ func (s *Server) Handler() http.Handler {
 	return s.auditMiddleware(s.loggingMiddleware(s.corsMiddleware(mux)))
 }
 
+// SetDistributedBackends wires optional multi-container Control Plane components
+// (PostgreSQL store, Redis hot-reload bus, Envoy xDS server, ClickHouse analytics,
+// and Redis IP jail store). Passing nil keeps standalone single-container behavior.
+func (s *Server) SetDistributedBackends(
+	db storage.Store,
+	bus hotreload.Bus,
+	xdsSrv *xds.Server,
+	xdsListen string,
+	xdsTLS *tls.Config,
+	reader analytics.Reader,
+	jails ratelimit.JailStore,
+) {
+	s.db = db
+	s.reloadBus = bus
+	s.xdsSrv = xdsSrv
+	s.xdsListen = xdsListen
+	s.xdsTLS = xdsTLS
+	s.analyticsReader = reader
+	s.jailStore = jails
+}
+
+// BootstrapDistributedState seeds PostgreSQL on first boot with configured
+// bootstrap users and sites if empty, then publishes the initial policy snapshot
+// to Redis hot-reload and Envoy xDS so Data Plane replicas hydrate immediately.
+func (s *Server) BootstrapDistributedState(ctx context.Context) error {
+	if s.db == nil {
+		return nil
+	}
+	cfg := s.readConfig()
+
+	// Seed admin user(s) from bootstrap config if not yet in PostgreSQL.
+	for _, u := range cfg.API.Auth.Users {
+		if u.Username == "" || u.PasswordHash == "" {
+			continue
+		}
+		if _, err := s.db.GetUser(ctx, u.Username); err != nil {
+			_ = s.db.UpsertUser(ctx, storage.User{
+				Username:     u.Username,
+				PasswordHash: u.PasswordHash,
+				Role:         "admin",
+				Scopes:       []string{"read", "write", "admin"},
+				Enabled:      true,
+			})
+		}
+	}
+
+	// Seed initial sites if PostgreSQL sites table is empty.
+	existingSites, err := s.db.ListSites(ctx)
+	if err == nil && len(existingSites) == 0 {
+		for _, st := range cfg.Sites {
+			_ = s.db.UpsertSite(ctx, st, true)
+		}
+	}
+
+	return s.syncControlPlane(ctx, "bootstrap", "system")
+}
+
 // Run boots the HTTP management API server and orchestrates graceful shutdown and SIGHUP hot reload.
 func (s *Server) Run(ctx context.Context) error {
 	logging.Info().Str("listen", s.cfg.API.Listen).Msg("starting management API")
@@ -153,9 +226,19 @@ func (s *Server) Run(ctx context.Context) error {
 		IdleTimeout:  30 * time.Second,
 	}
 
-	// The dashboard history comes from the sidecar stream: without this the API
-	// broker stays empty and /events/history always answers [].
-	go s.bridgeSidecarEvents(ctx)
+	if s.xdsSrv != nil && s.xdsListen != "" {
+		go func() {
+			if err := s.xdsSrv.Serve(ctx, s.xdsListen, s.xdsTLS); err != nil {
+				logging.Error().Err(err).Msg("Envoy xDS server error")
+			}
+		}()
+	}
+
+	// The dashboard history comes from the sidecar stream in single-container mode.
+	// In distributed Envoy xDS mode telemetry flows asynchronously via NATS -> ClickHouse.
+	if s.xdsSrv == nil {
+		go s.bridgeSidecarEvents(ctx)
+	}
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)

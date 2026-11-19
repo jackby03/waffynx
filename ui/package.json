@@ -6,11 +6,12 @@
   "scripts": {
     "build": "tsc -b && vite build",
     "lint": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test test/event-stream.test.mjs test/api-contract.test.mts",
+    "test": "node --experimental-strip-types --test test/event-stream.test.mjs test/api-contract.test.mts test/ui-validators-security.test.mts",
     "dev": "vite"
   },
   "dependencies": {
     "@vitejs/plugin-react": "6.1.1",
+    "lucide-react": "^1.75.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "typescript": "7.0.2",

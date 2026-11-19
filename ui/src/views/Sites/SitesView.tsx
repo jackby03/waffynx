@@ -1,122 +1,247 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Globe,
+  Lock,
+  Pencil,
+  Plus,
+  Search,
+  Server,
+  Trash2,
+  Unlock,
+  X,
+} from "lucide-react";
 import { wafApi } from "../../api/wafApi";
 import { ApiError } from "../../api/client";
-import type { Site } from "../../api/types";
+import type { PathRule, Site } from "../../api/types";
+import { useWaf } from "../../context/WafContext";
+import { useToast } from "../../context/ToastContext";
+import { KpiCard } from "../../components/common/KpiCard";
+import { Badge } from "../../components/common/Badge";
 import { EmptyState } from "../../components/common/EmptyState";
-import { IconClose, IconShield } from "../../components/common/Icons";
+import { Dialog } from "../../components/common/Dialog";
+import { ConfirmDialog } from "../../components/common/ConfirmDialog";
+import { CodeBlock } from "../../components/common/CodeBlock";
+import { validateSite, type SiteFieldErrors } from "../../utils/validators";
 
-/** Validation messages keyed by field, so each input can own its error. */
-type FieldErrors = Partial<Record<"host" | "upstream" | "tls", string>>;
+type EditorTab = "general" | "tls" | "paths" | "plugins" | "preview";
 
-// A hostname, optionally with a port. No scheme, no path: nginx `server_name`
-// cannot express those, and the API rejects them anyway.
-const HOST_RE = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?$/i;
-// host:port or host — what `proxy_pass` accepts without a scheme.
-const UPSTREAM_RE = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?$/i;
-
-function validate(host: string, upstream: string, cert: string, key: string): FieldErrors {
-  const errors: FieldErrors = {};
-
-  if (!host.trim()) {
-    errors.host = "A hostname is required, for example app.example.com.";
-  } else if (!HOST_RE.test(host.trim())) {
-    errors.host = "Use a bare hostname without scheme or path, for example app.example.com.";
-  }
-
-  if (!upstream.trim()) {
-    errors.upstream = "An upstream is required, for example 10.0.0.5:8080.";
-  } else if (!UPSTREAM_RE.test(upstream.trim())) {
-    errors.upstream = "Use host:port without a scheme, for example backend:8080.";
-  }
-
-  if (Boolean(cert.trim()) !== Boolean(key.trim())) {
-    errors.tls = "A certificate and its key must be provided together.";
-  }
-
-  return errors;
+interface HeaderRow {
+  key: string;
+  value: string;
 }
 
-export const SitesView: React.FC = () => {
-  const [sites, setSites] = useState<Site[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
-  const [query, setQuery] = useState("");
+function buildNginxPreview(site: Site): string {
+  const host = site.host.trim().toLowerCase() || "app.example.com";
+  const upstream = site.upstream.trim() || "backend:8080";
+  const proxyTarget = upstream.includes("://") ? upstream : `http://${upstream}`;
+  const hasTls = Boolean(site.tls?.cert_file.trim() && site.tls?.key_file.trim());
 
+  const lines: string[] = [
+    `server {`,
+    hasTls ? `    listen 8443 ssl;` : `    listen 8080;`,
+    `    server_name ${host};`,
+  ];
+
+  if (hasTls && site.tls) {
+    lines.push(
+      `    ssl_certificate     ${site.tls.cert_file.trim()};`,
+      `    ssl_certificate_key ${site.tls.key_file.trim()};`
+    );
+  }
+
+  lines.push(
+    ``,
+    `    # Waffynx zero-copy inspection (ACCESS phase -> 0600 Unix socket)`,
+    `    waffynx on;`,
+    `    waffynx_socket /opt/waffynx/waffynx.sock;`
+  );
+
+  for (const [k, v] of Object.entries(site.headers ?? {})) {
+    if (k.trim()) {
+      lines.push(`    add_header ${k.trim()} "${v}";`);
+    }
+  }
+
+  for (const pr of site.paths ?? []) {
+    if (!pr.path.trim()) continue;
+    const target = pr.upstream?.trim()
+      ? pr.upstream.includes("://")
+        ? pr.upstream.trim()
+        : `http://${pr.upstream.trim()}`
+      : proxyTarget;
+    lines.push(
+      ``,
+      `    location ${pr.path.trim()} {`,
+      `        proxy_pass ${target};`,
+      `    }`
+    );
+  }
+
+  lines.push(
+    ``,
+    `    location / {`,
+    `        proxy_pass ${proxyTarget};`,
+    `        proxy_set_header Host $host;`,
+    `        proxy_set_header X-Real-IP $remote_addr;`,
+    `    }`,
+    `}`
+  );
+  return lines.join("\n");
+}
+
+interface SitesViewProps {
+  initialQuery?: string;
+}
+
+export const SitesView: React.FC<SitesViewProps> = ({ initialQuery = "" }) => {
+  const { sites, plugins, refreshSites } = useWaf();
+  const { pushToast } = useToast();
+
+  const [query, setQuery] = useState(initialQuery);
+  const [tlsFilter, setTlsFilter] = useState<"all" | "tls" | "http">("all");
+  const [loadError, setLoadError] = useState("");
+
+  // Editor drawer state
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingHost, setEditingHost] = useState<string | null>(null);
+  const [editorTab, setEditorTab] = useState<EditorTab>("general");
   const [host, setHost] = useState("");
   const [upstream, setUpstream] = useState("");
-  const [cert, setCert] = useState("");
-  const [key, setKey] = useState("");
-  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [certFile, setCertFile] = useState("");
+  const [keyFile, setKeyFile] = useState("");
+  const [paths, setPaths] = useState<PathRule[]>([]);
+  const [selectedPlugins, setSelectedPlugins] = useState<string[]>([]);
+  const [headerRows, setHeaderRows] = useState<HeaderRow[]>([]);
+  const [fieldErrors, setFieldErrors] = useState<SiteFieldErrors>({});
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Delete confirmation state
   const [pendingDelete, setPendingDelete] = useState<Site | null>(null);
-  const [deleteError, setDeleteError] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
-  const createDialog = useRef<HTMLDialogElement>(null);
-  const deleteDialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (initialQuery) setQuery(initialQuery);
+  }, [initialQuery]);
 
-  const load = async () => {
-    setLoading(true);
+  const reload = async () => {
     setLoadError("");
     try {
-      setSites(await wafApi.listSites());
+      await refreshSites();
     } catch (err) {
-      // No mock fallback: an invented topology is worse than an error.
       setLoadError(err instanceof ApiError ? err.message : "Could not load sites.");
-    } finally {
-      setLoading(false);
     }
   };
 
-  useEffect(() => {
-    void load();
-  }, []);
-
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return sites;
-    return sites.filter(
-      (s) => s.host.toLowerCase().includes(q) || s.upstream.toLowerCase().includes(q)
-    );
-  }, [sites, query]);
+    return sites.filter((s) => {
+      if (tlsFilter === "tls" && !s.tls) return false;
+      if (tlsFilter === "http" && s.tls) return false;
+      if (!q) return true;
+      return (
+        s.host.toLowerCase().includes(q) ||
+        s.upstream.toLowerCase().includes(q) ||
+        (s.paths ?? []).some((p) => p.path.toLowerCase().includes(q))
+      );
+    });
+  }, [sites, query, tlsFilter]);
+
+  const tlsCount = useMemo(() => sites.filter((s) => Boolean(s.tls)).length, [sites]);
+  const totalPaths = useMemo(() => sites.reduce((acc, s) => acc + (s.paths?.length ?? 0), 0), [sites]);
+  const totalHeaders = useMemo(
+    () => sites.reduce((acc, s) => acc + Object.keys(s.headers ?? {}).length, 0),
+    [sites]
+  );
 
   const openCreate = () => {
+    setEditingHost(null);
+    setEditorTab("general");
     setHost("");
     setUpstream("");
-    setCert("");
-    setKey("");
+    setCertFile("");
+    setKeyFile("");
+    setPaths([]);
+    setSelectedPlugins([]);
+    setHeaderRows([]);
     setFieldErrors({});
     setFormError("");
-    createDialog.current?.showModal();
+    setEditorOpen(true);
   };
 
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const openEdit = (site: Site) => {
+    setEditingHost(site.host);
+    setEditorTab("general");
+    setHost(site.host);
+    setUpstream(site.upstream);
+    setCertFile(site.tls?.cert_file ?? "");
+    setKeyFile(site.tls?.key_file ?? "");
+    setPaths(site.paths ? site.paths.map((p) => ({ ...p })) : []);
+    setSelectedPlugins(site.plugins ? [...site.plugins] : []);
+    setHeaderRows(
+      Object.entries(site.headers ?? {}).map(([key, value]) => ({ key, value }))
+    );
+    setFieldErrors({});
     setFormError("");
+    setEditorOpen(true);
+  };
 
-    const errors = validate(host, upstream, cert, key);
-    setFieldErrors(errors);
-    if (Object.keys(errors).length > 0) return;
-
-    const site: Site = {
+  const buildCandidateSite = (): Site => {
+    const candidate: Site = {
       host: host.trim().toLowerCase(),
       upstream: upstream.trim(),
     };
-    if (cert.trim() && key.trim()) {
-      site.tls = { cert_file: cert.trim(), key_file: key.trim() };
+    if (certFile.trim() || keyFile.trim()) {
+      candidate.tls = { cert_file: certFile.trim(), key_file: keyFile.trim() };
+    }
+    const cleanPaths = paths
+      .map((p) => ({
+        path: p.path.trim(),
+        ...(p.upstream?.trim() ? { upstream: p.upstream.trim() } : {}),
+      }))
+      .filter((p) => p.path !== "");
+    if (cleanPaths.length > 0) candidate.paths = cleanPaths;
+
+    if (selectedPlugins.length > 0) candidate.plugins = selectedPlugins;
+
+    const cleanHeaders: Record<string, string> = {};
+    for (const row of headerRows) {
+      if (row.key.trim()) cleanHeaders[row.key.trim()] = row.value;
+    }
+    if (Object.keys(cleanHeaders).length > 0) candidate.headers = cleanHeaders;
+
+    return candidate;
+  };
+
+  const submitSite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError("");
+    const candidate = buildCandidateSite();
+    const errors = validateSite(candidate);
+    setFieldErrors(errors);
+
+    if (Object.keys(errors).length > 0) {
+      if (errors.host || errors.upstream) setEditorTab("general");
+      else if (errors.tls) setEditorTab("tls");
+      else if (errors.paths) setEditorTab("paths");
+      else if (errors.headers) setEditorTab("plugins");
+      return;
     }
 
     setSaving(true);
     try {
-      await wafApi.createSite(site);
-      createDialog.current?.close();
-      await load();
+      if (editingHost) {
+        await wafApi.updateSite(editingHost, candidate);
+        pushToast("ok", `Updated ${candidate.host}`, "Validated with nginx -t and reloaded.");
+      } else {
+        await wafApi.createSite(candidate);
+        pushToast("ok", `Protected site ${candidate.host} added`, "Validated with nginx -t and active.");
+      }
+      setEditorOpen(false);
+      await refreshSites();
     } catch (err) {
-      // The API validates the same fields and rejects duplicates: its message is
-      // more specific than anything the client can infer.
-      setFormError(err instanceof ApiError ? err.message : "Could not create the site.");
+      setFormError(err instanceof ApiError ? err.message : "Could not apply site configuration.");
     } finally {
       setSaving(false);
     }
@@ -128,94 +253,142 @@ export const SitesView: React.FC = () => {
     setDeleteError("");
     try {
       await wafApi.deleteSite(pendingDelete.host);
-      deleteDialog.current?.close();
+      pushToast("info", `Removed ${pendingDelete.host}`, "Nginx fragment deleted and reloaded.");
       setPendingDelete(null);
-      await load();
+      await refreshSites();
     } catch (err) {
-      setDeleteError(err instanceof ApiError ? err.message : "Could not delete the site.");
+      setDeleteError(err instanceof ApiError ? err.message : "Could not delete site.");
     } finally {
       setDeleting(false);
     }
   };
 
+  const togglePlugin = (name: string) => {
+    setSelectedPlugins((prev) =>
+      prev.includes(name) ? prev.filter((p) => p !== name) : [...prev, name]
+    );
+  };
+
+  const draftPreview = useMemo(
+    () => buildNginxPreview(buildCandidateSite()),
+    [host, upstream, certFile, keyFile, paths, selectedPlugins, headerRows]
+  );
+
   return (
-    <section className="view-stack" aria-labelledby="sites-title">
+    <div className="canvas-inner">
       <header className="view-header">
         <div>
-          <h1 className="view-title" id="sites-title">
-            Sites
+          <h1 className="view-title" id="view-heading" tabIndex={-1}>
+            Protected Sites &amp; Reverse Proxy
           </h1>
           <p className="view-subtitle">
-            Reverse-proxy topology. Every change is validated with <code>nginx -t</code> before it
-            is applied, and rolled back if nginx rejects it.
+            Host-to-upstream topology rendered into Nginx fragments. Every create, update, or delete
+            is verified with <code>nginx -t</code> before touching disk and rolled back on rejection.
           </p>
         </div>
-        <button type="button" className="btn-secondary" onClick={openCreate}>
-          + Add site
-        </button>
+        <div className="view-actions">
+          <button type="button" className="btn btn-primary" onClick={openCreate}>
+            <Plus size={15} aria-hidden="true" />
+            <span>Add Protected Site</span>
+          </button>
+        </div>
       </header>
 
       {loadError && (
-        <div className="alert alert-error" role="alert">
-          {loadError}{" "}
-          <button type="button" className="btn-link" onClick={() => void load()}>
+        <div className="alert-banner error" role="alert">
+          <span>{loadError}</span>
+          <button type="button" className="btn btn-sm" onClick={() => void reload()}>
             Retry
           </button>
         </div>
       )}
 
-      <div className="table-card">
-        <div className="table-card-header">
-          <div>
-            <h2 className="table-title">Protected hosts</h2>
-            <span className="table-subtitle">
-              {sites.length} site{sites.length === 1 ? "" : "s"}
-            </span>
+      <section className="kpi-grid">
+        <KpiCard title="Protected Hosts" value={sites.length} subtext="Active reverse-proxy blocks" tone="info" />
+        <KpiCard title="TLS / HTTPS" value={tlsCount} subtext={`${sites.length - tlsCount} plain HTTP`} tone="ok" />
+        <KpiCard title="Path Rules" value={totalPaths} subtext="Custom prefix upstream routes" tone="default" />
+        <KpiCard title="Custom Headers" value={totalHeaders} subtext="Injected security headers" tone="ml" />
+      </section>
+
+      <section className="panel">
+        <div className="filter-bar">
+          <div className="filter-row">
+            <div className="search-wrap">
+              <Search size={15} className="search-wrap-icon" aria-hidden="true" />
+              <label htmlFor="sites-search" className="visually-hidden">
+                Filter protected sites
+              </label>
+              <input
+                id="sites-search"
+                type="search"
+                className="search-input"
+                placeholder="Filter by hostname, wildcard, upstream, or path…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              {query && (
+                <button
+                  type="button"
+                  className="search-clear-btn"
+                  onClick={() => setQuery("")}
+                  aria-label="Clear filter"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+
+            <div className="pill-group" role="group" aria-label="Filter by TLS mode">
+              {([
+                { id: "all", label: "All" },
+                { id: "tls", label: "HTTPS / TLS" },
+                { id: "http", label: "Plain HTTP" },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className="pill"
+                  aria-pressed={tlsFilter === opt.id}
+                  onClick={() => setTlsFilter(opt.id)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <label className="form-label sr-only" htmlFor="site-search">
-            Filter sites
-          </label>
-          <input
-            id="site-search"
-            type="search"
-            className="form-input search-input"
-            placeholder="Filter by host or upstream"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
         </div>
 
-        {loading ? (
-          <p className="table-hint" role="status">
-            Loading sites…
-          </p>
-        ) : filtered.length === 0 ? (
+        {filtered.length === 0 ? (
           <EmptyState
-            icon={<IconShield size={28} />}
-            title={sites.length === 0 ? "No sites yet" : "No site matches that filter"}
+            icon={<Globe size={22} />}
+            title={sites.length === 0 ? "No protected sites configured" : "No sites match filter"}
             description={
               sites.length === 0
-                ? "Add the first host to start protecting traffic. You can also set WAFFYNX_SITE_HOST and WAFFYNX_SITE_UPSTREAM at boot."
-                : "Clear the filter to see every site again."
+                ? "Add a host to route and inspect traffic, or pass WAFFYNX_SITE_HOST and WAFFYNX_SITE_UPSTREAM via Docker Compose."
+                : "Clear your search or TLS filter to see all configured sites."
+            }
+            action={
+              sites.length === 0 ? (
+                <button type="button" className="btn btn-primary" onClick={openCreate}>
+                  <Plus size={14} aria-hidden="true" />
+                  <span>Add first site</span>
+                </button>
+              ) : undefined
             }
           />
         ) : (
-          <div
-            className="table-scroll"
-            role="region"
-            aria-label="Protected sites"
-            tabIndex={0}
-          >
-            <table className="waf-table">
-              <caption className="sr-only">
-                Protected sites: hostname, upstream, TLS status and path rules
+          <div className="table-scroll" role="region" aria-label="Protected sites table" tabIndex={0}>
+            <table className="data-table">
+              <caption className="visually-hidden">
+                Protected reverse-proxy sites: hostname, upstream, TLS status, path rules, plugins, and actions
               </caption>
               <thead>
                 <tr>
                   <th scope="col">Hostname</th>
                   <th scope="col">Upstream</th>
-                  <th scope="col">TLS</th>
-                  <th scope="col">Path rules</th>
+                  <th scope="col">Transport</th>
+                  <th scope="col">Paths</th>
+                  <th scope="col">Plugins / Headers</th>
                   <th scope="col">Actions</th>
                 </tr>
               </thead>
@@ -223,32 +396,74 @@ export const SitesView: React.FC = () => {
                 {filtered.map((site) => (
                   <tr key={site.host}>
                     <td>
-                      <code>{site.host}</code>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                        <code className="mono" style={{ fontWeight: 700 }}>
+                          {site.host}
+                        </code>
+                        {site.host.startsWith("*.") && <Badge variant="info">Wildcard</Badge>}
+                      </div>
                     </td>
                     <td>
-                      <code className="text-muted">{site.upstream}</code>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }} className="mono text-secondary">
+                        <Server size={13} aria-hidden="true" />
+                        {site.upstream}
+                      </span>
                     </td>
                     <td>
                       {site.tls ? (
-                        <span className="badge badge-ok">enabled</span>
+                        <Badge variant="ok">
+                          <Lock size={11} aria-hidden="true" />
+                          HTTPS / TLS
+                        </Badge>
                       ) : (
-                        <span className="badge">plain HTTP</span>
+                        <Badge variant="high">
+                          <Unlock size={11} aria-hidden="true" />
+                          HTTP
+                        </Badge>
                       )}
                     </td>
-                    <td>{site.paths?.length ?? 0}</td>
+                    <td className="mono">{site.paths?.length ?? 0}</td>
                     <td>
-                      <button
-                        type="button"
-                        className="btn-unban"
-                        onClick={() => {
-                          setPendingDelete(site);
-                          setDeleteError("");
-                          deleteDialog.current?.showModal();
-                        }}
-                        aria-label={`Delete site ${site.host}`}
-                      >
-                        Delete
-                      </button>
+                      <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
+                        {(site.plugins ?? []).map((p) => (
+                          <Badge key={p} variant="ml">
+                            {p}
+                          </Badge>
+                        ))}
+                        {Object.keys(site.headers ?? {}).length > 0 && (
+                          <Badge variant="neutral">
+                            {Object.keys(site.headers ?? {}).length} hdr
+                          </Badge>
+                        )}
+                        {(site.plugins ?? []).length === 0 && Object.keys(site.headers ?? {}).length === 0 && (
+                          <span className="text-muted">Default</span>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", gap: "0.4rem" }}>
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          onClick={() => openEdit(site)}
+                          aria-label={`Edit site ${site.host}`}
+                        >
+                          <Pencil size={13} aria-hidden="true" />
+                          <span>Edit</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          onClick={() => {
+                            setPendingDelete(site);
+                            setDeleteError("");
+                          }}
+                          aria-label={`Delete site ${site.host}`}
+                        >
+                          <Trash2 size={13} aria-hidden="true" />
+                          <span>Delete</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -256,174 +471,335 @@ export const SitesView: React.FC = () => {
             </table>
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Add site */}
-      <dialog
-        ref={createDialog}
-        className="modal"
-        aria-labelledby="add-site-title"
-        onClose={() => createDialog.current?.close()}
-        {...{ closedby: "any" }}
-      >
-        <form className="modal-body" onSubmit={submit} noValidate>
-          <header className="modal-header">
-            <h2 className="modal-title" id="add-site-title">
-              Add site
-            </h2>
-            <button
-              type="button"
-              className="drawer-close-btn"
-              onClick={() => createDialog.current?.close()}
-              aria-label="Close"
-            >
-              <IconClose size={16} />
-            </button>
-          </header>
-
-          {formError && (
-            <div className="alert alert-error" role="alert" id="site-form-error">
-              {formError}
-            </div>
-          )}
-
-          <div className="form-field">
-            <label className="form-label" htmlFor="site-host">
-              Hostname
-            </label>
-            <input
-              id="site-host"
-              className="form-input"
-              value={host}
-              onChange={(e) => setHost(e.target.value)}
-              placeholder="app.example.com"
-              autoComplete="off"
-              aria-invalid={fieldErrors.host ? true : false}
-              aria-describedby={fieldErrors.host ? "site-host-error" : undefined}
-              autoFocus
-              required
-            />
-            {fieldErrors.host && (
-              <p className="field-error" id="site-host-error">
-                {fieldErrors.host}
-              </p>
-            )}
-          </div>
-
-          <div className="form-field">
-            <label className="form-label" htmlFor="site-upstream">
-              Upstream
-            </label>
-            <input
-              id="site-upstream"
-              className="form-input"
-              value={upstream}
-              onChange={(e) => setUpstream(e.target.value)}
-              placeholder="backend:8080"
-              autoComplete="off"
-              aria-invalid={fieldErrors.upstream ? true : false}
-              aria-describedby={fieldErrors.upstream ? "site-upstream-error" : undefined}
-              required
-            />
-            {fieldErrors.upstream && (
-              <p className="field-error" id="site-upstream-error">
-                {fieldErrors.upstream}
-              </p>
-            )}
-          </div>
-
-          <fieldset className="form-field">
-            <legend className="form-label">TLS (optional)</legend>
-            <label className="form-label" htmlFor="site-cert">
-              Certificate path
-            </label>
-            <input
-              id="site-cert"
-              className="form-input"
-              value={cert}
-              onChange={(e) => setCert(e.target.value)}
-              placeholder="/opt/waffynx/certs/app.crt"
-              autoComplete="off"
-              aria-invalid={fieldErrors.tls ? true : false}
-              aria-describedby={fieldErrors.tls ? "site-tls-error" : undefined}
-            />
-            <label className="form-label" htmlFor="site-key">
-              Key path
-            </label>
-            <input
-              id="site-key"
-              className="form-input"
-              value={key}
-              onChange={(e) => setKey(e.target.value)}
-              placeholder="/opt/waffynx/certs/app.key"
-              autoComplete="off"
-              aria-invalid={fieldErrors.tls ? true : false}
-              aria-describedby={fieldErrors.tls ? "site-tls-error" : undefined}
-            />
-            {fieldErrors.tls && (
-              <p className="field-error" id="site-tls-error">
-                {fieldErrors.tls}
-              </p>
-            )}
-          </fieldset>
-
-          <footer className="modal-actions">
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => createDialog.current?.close()}
-            >
+      {/* Create / Edit Site Drawer */}
+      <Dialog
+        open={editorOpen}
+        onClose={() => setEditorOpen(false)}
+        eyebrow={editingHost ? "Edit Reverse-Proxy Site" : "New Reverse-Proxy Site"}
+        title={editingHost ?? "Add Protected Site"}
+        variant="drawer"
+        closedby="closerequest"
+        footer={
+          <>
+            <button type="button" className="btn" onClick={() => setEditorOpen(false)} disabled={saving}>
               Cancel
             </button>
-            <button type="submit" className="btn-primary-danger" disabled={saving} aria-busy={saving}>
-              {saving ? "Applying…" : "Add site"}
+            <button
+              type="submit"
+              form="site-editor-form"
+              className="btn btn-primary"
+              disabled={saving}
+              aria-busy={saving}
+            >
+              {saving ? "Validating nginx -t…" : editingHost ? "Save & Reload Nginx" : "Create & Reload Nginx"}
             </button>
-          </footer>
-        </form>
-      </dialog>
-
-      {/* Delete confirmation */}
-      <dialog
-        ref={deleteDialog}
-        className="modal"
-        aria-labelledby="delete-site-title"
-        {...{ closedby: "closerequest" }}
+          </>
+        }
       >
-        <div className="modal-body">
-          <h2 className="modal-title" id="delete-site-title">
-            Delete {pendingDelete?.host}?
-          </h2>
-          <p className="view-subtitle">
-            The nginx fragment is removed and nginx is reloaded. Traffic for this host will stop
-            being proxied.
-          </p>
-          {deleteError && (
-            <div className="alert alert-error" role="alert">
-              {deleteError}
-            </div>
-          )}
-          <footer className="modal-actions">
-            {/* Destructive confirmation: focus starts on the safe action. */}
+        <div className="tablist" role="tablist" aria-label="Site configuration sections">
+          {(
+            [
+              { id: "general", label: "General" },
+              { id: "tls", label: "TLS / SSL" },
+              { id: "paths", label: `Paths (${paths.length})` },
+              { id: "plugins", label: "Plugins & Headers" },
+              { id: "preview", label: "Nginx Preview" },
+            ] as { id: EditorTab; label: string }[]
+          ).map((t) => (
             <button
+              key={t.id}
               type="button"
-              className="btn-secondary"
-              onClick={() => deleteDialog.current?.close()}
-              autoFocus
+              role="tab"
+              className="tab-item"
+              aria-selected={editorTab === t.id}
+              onClick={() => setEditorTab(t.id)}
             >
-              Keep site
+              {t.label}
             </button>
-            <button
-              type="button"
-              className="btn-primary-danger"
-              onClick={() => void confirmDelete()}
-              disabled={deleting}
-              aria-busy={deleting}
-            >
-              {deleting ? "Deleting…" : "Delete site"}
-            </button>
-          </footer>
+          ))}
         </div>
-      </dialog>
-    </section>
+
+        {formError && (
+          <div className="alert-banner error" role="alert">
+            {formError}
+          </div>
+        )}
+
+        <form id="site-editor-form" onSubmit={submitSite} noValidate style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          {editorTab === "general" && (
+            <>
+              <div className="field">
+                <label className="field-label" htmlFor="site-host-input">
+                  Hostname (supports leading wildcard)
+                </label>
+                <span className="field-hint" id="site-host-hint">
+                  Example: <code>app.example.com</code> or <code>*.api.example.com</code>. No scheme or port.
+                </span>
+                <input
+                  id="site-host-input"
+                  className={`input mono ${fieldErrors.host ? "user-invalid-fallback" : ""}`}
+                  value={host}
+                  onChange={(e) => setHost(e.target.value)}
+                  disabled={Boolean(editingHost)}
+                  placeholder="app.example.com"
+                  autoComplete="off"
+                  aria-invalid={Boolean(fieldErrors.host)}
+                  aria-describedby={fieldErrors.host ? "site-host-hint site-host-err" : "site-host-hint"}
+                  autoFocus={!editingHost}
+                  required
+                />
+                {editingHost && (
+                  <span className="field-hint">
+                    Hostnames cannot be renamed in place; delete and recreate to change the server name.
+                  </span>
+                )}
+                {fieldErrors.host && (
+                  <p className="field-error" id="site-host-err">
+                    {fieldErrors.host}
+                  </p>
+                )}
+              </div>
+
+              <div className="field">
+                <label className="field-label" htmlFor="site-upstream-input">
+                  Upstream Origin
+                </label>
+                <span className="field-hint" id="site-upstream-hint">
+                  Explicit port required: <code>backend:80</code>, <code>10.0.0.5:8080</code>, or <code>https://origin:8443</code>.
+                </span>
+                <input
+                  id="site-upstream-input"
+                  className={`input mono ${fieldErrors.upstream ? "user-invalid-fallback" : ""}`}
+                  value={upstream}
+                  onChange={(e) => setUpstream(e.target.value)}
+                  placeholder="backend:80"
+                  autoComplete="off"
+                  aria-invalid={Boolean(fieldErrors.upstream)}
+                  aria-describedby={fieldErrors.upstream ? "site-upstream-hint site-upstream-err" : "site-upstream-hint"}
+                  autoFocus={Boolean(editingHost)}
+                  required
+                />
+                {fieldErrors.upstream && (
+                  <p className="field-error" id="site-upstream-err">
+                    {fieldErrors.upstream}
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+
+          {editorTab === "tls" && (
+            <>
+              <div className="alert-banner info">
+                Provide container-local certificate and key file paths (e.g. mounted inside <code>/opt/waffynx/certs/</code>). Both are required together.
+              </div>
+              <div className="field">
+                <label className="field-label" htmlFor="site-cert-input">
+                  Certificate File Path
+                </label>
+                <span className="field-hint">Example: /opt/waffynx/certs/server.crt</span>
+                <input
+                  id="site-cert-input"
+                  className="input mono"
+                  value={certFile}
+                  onChange={(e) => setCertFile(e.target.value)}
+                  placeholder="/opt/waffynx/certs/server.crt"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="field">
+                <label className="field-label" htmlFor="site-key-input">
+                  Private Key File Path
+                </label>
+                <span className="field-hint">Example: /opt/waffynx/certs/server.key</span>
+                <input
+                  id="site-key-input"
+                  className="input mono"
+                  value={keyFile}
+                  onChange={(e) => setKeyFile(e.target.value)}
+                  placeholder="/opt/waffynx/certs/server.key"
+                  autoComplete="off"
+                />
+              </div>
+              {fieldErrors.tls && <p className="field-error">{fieldErrors.tls}</p>}
+            </>
+          )}
+
+          {editorTab === "paths" && (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span className="field-hint">
+                  Route specific path prefixes (e.g. <code>/api</code>) to an alternate upstream.
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => setPaths((prev) => [...prev, { path: "/", upstream: "" }])}
+                >
+                  <Plus size={13} />
+                  <span>Add path rule</span>
+                </button>
+              </div>
+
+              {paths.length === 0 ? (
+                <EmptyState
+                  title="No path overrides"
+                  description="All traffic for this host routes to the primary upstream."
+                />
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
+                  {paths.map((row, idx) => (
+                    <div key={idx} className="repeater-row">
+                      <input
+                        className="input mono"
+                        aria-label={`Path prefix ${idx + 1}`}
+                        placeholder="/api"
+                        value={row.path}
+                        onChange={(e) =>
+                          setPaths((prev) =>
+                            prev.map((item, i) => (i === idx ? { ...item, path: e.target.value } : item))
+                          )
+                        }
+                      />
+                      <input
+                        className="input mono"
+                        aria-label={`Path upstream ${idx + 1}`}
+                        placeholder="api-svc:9000 (optional)"
+                        value={row.upstream ?? ""}
+                        onChange={(e) =>
+                          setPaths((prev) =>
+                            prev.map((item, i) => (i === idx ? { ...item, upstream: e.target.value } : item))
+                          )
+                        }
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-icon"
+                        aria-label={`Remove path rule ${idx + 1}`}
+                        onClick={() => setPaths((prev) => prev.filter((_, i) => i !== idx))}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {fieldErrors.paths && <p className="field-error">{fieldErrors.paths}</p>}
+            </>
+          )}
+
+          {editorTab === "plugins" && (
+            <>
+              <div className="field">
+                <span className="field-label">Attached Plugins</span>
+                <span className="field-hint">Select registered inspection plugins to associate with this site.</span>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: "0.5rem", marginTop: "0.35rem" }}>
+                  {plugins.map((pl) => (
+                    <label
+                      key={pl.name}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.5rem",
+                        padding: "0.55rem 0.7rem",
+                        borderRadius: "var(--radius-sm)",
+                        border: "1px solid var(--border-subtle)",
+                        background: "var(--surface-elevated)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedPlugins.includes(pl.name)}
+                        onChange={() => togglePlugin(pl.name)}
+                      />
+                      <span className="mono" style={{ fontSize: "0.8rem" }}>
+                        {pl.name}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="field">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span className="field-label">Custom Response Headers</span>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => setHeaderRows((prev) => [...prev, { key: "", value: "" }])}
+                  >
+                    <Plus size={13} />
+                    <span>Add header</span>
+                  </button>
+                </div>
+
+                {headerRows.map((row, idx) => (
+                  <div key={idx} className="repeater-row">
+                    <input
+                      className="input mono"
+                      aria-label={`Header name ${idx + 1}`}
+                      placeholder="X-Frame-Options"
+                      value={row.key}
+                      onChange={(e) =>
+                        setHeaderRows((prev) =>
+                          prev.map((item, i) => (i === idx ? { ...item, key: e.target.value } : item))
+                        )
+                      }
+                    />
+                    <input
+                      className="input mono"
+                      aria-label={`Header value ${idx + 1}`}
+                      placeholder="DENY"
+                      value={row.value}
+                      onChange={(e) =>
+                        setHeaderRows((prev) =>
+                          prev.map((item, i) => (i === idx ? { ...item, value: e.target.value } : item))
+                        )
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-danger btn-icon"
+                      aria-label={`Remove header ${idx + 1}`}
+                      onClick={() => setHeaderRows((prev) => prev.filter((_, i) => i !== idx))}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+                {fieldErrors.headers && <p className="field-error">{fieldErrors.headers}</p>}
+              </div>
+            </>
+          )}
+
+          {editorTab === "preview" && (
+            <>
+              <div className="alert-banner info">
+                Informational preview of the rendered Nginx server block. The control plane performs
+                authoritative rendering and executes <code>nginx -t</code> before reload.
+              </div>
+              <CodeBlock label="Rendered Topology Preview" copyText={draftPreview}>
+                {draftPreview}
+              </CodeBlock>
+            </>
+          )}
+        </form>
+      </Dialog>
+
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        onClose={() => setPendingDelete(null)}
+        title={`Delete ${pendingDelete?.host ?? "site"}?`}
+        description="The generated Nginx server block will be removed and Nginx reloaded. Incoming traffic for this hostname will receive HTTP 404."
+        confirmLabel="Delete site"
+        cancelLabel="Keep site"
+        busy={deleting}
+        error={deleteError}
+        onConfirm={confirmDelete}
+      />
+    </div>
   );
 };

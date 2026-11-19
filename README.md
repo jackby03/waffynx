@@ -1,195 +1,247 @@
 <div align="center">
   <h1>🛡️ Waffynx</h1>
-  <p><b>The self-hosted Web Application Firewall that runs as one container</b></p>
-  <p>Native Nginx integration • High-performance Go sidecar • Pluggable AI • No feature gating</p>
+  <p><b>Self-Hosted Zero-Trust Web Application Firewall &amp; Reverse Proxy</b></p>
+  <p>Envoy Proxy Edge PEP (Dynamic xDS + TLS 1.3 mTLS) • Stateless Go WAF Engine (<code>ext_authz</code> + <code>ext_proc</code>) • PostgreSQL &amp; Redis Hot-Reload • Async NATS → ClickHouse Observability • Enterprise SOC Control Room</p>
 </div>
 
 <br/>
 
-Waffynx is a self-hosted Web Application Firewall and reverse proxy. It is meant to be
-Cloudflare-WAF-grade protection on hardware you control: one container, no host
-privileges, and every capability available to everyone — there is no license check,
-no feature tier and no telemetry.
+Waffynx is a self-hosted, container-first **Zero-Trust Web Application Firewall (NIST SP 800-207)** and reverse proxy built for **Docker Compose** and **Kubernetes**. It delivers Cloudflare/SafeLine-grade L7 inspection and continuous authorization on hardware you control — with no license checks, no feature tiers, and no phone-home telemetry.
 
-Requests are inspected by a native Nginx C module that hands evaluation to a
-high-performance Go sidecar over a `0600` Unix socket: plugins, a policy engine and
-an anomaly scorer, in that order.
+It supports two deployment topologies from one repository:
+1. **Multi-Container Zero-Trust Stack (Default):** Envoy Proxy Edge PEP configured dynamically over **xDS**, calling horizontally scalable stateless Go **`waf-engine`** replicas over **TLS 1.3 mTLS gRPC** (`ext_authz` + `ext_proc`), backed by **PostgreSQL** (config/RBAC), **Redis** (sliding-window rate limits, IP jails, `atomic.Pointer` hot-reload Pub/Sub), and an asynchronous **NATS JetStream → `log-ingestor` → ClickHouse** observability pipeline.
+2. **Single-Container Standalone Mode:** Upstream Nginx with the native `ngx_waffynx` C module talking to the Go sidecar over a `0600` Unix socket (`deploy/docker/Dockerfile` & `deploy/docker/docker-compose.standalone.yml`).
 
 ---
 
-## 🚀 Key Features
+## 🚀 Key Capabilities
 
-* **Native Nginx Integration**: Intercepts requests at the ACCESS phase with near-zero latency. Runs upstream nginx, built from the official release tag with only the modules it needs and stripped (881 KB).
-* **Multi-Stage Evaluation Pipeline**: Traffic flows through a chain of dynamic plugins, a robust policy engine, and finally the anomaly scorer.
-* **Deep Body Inspection**: Detects SQLi, XSS, Command Injection, and Path Traversal even within complex POST bodies (JSON, GraphQL, File Uploads).
-* **Built-in Protection Plugins**:
-  * `request-validation`: Strict schema enforcement.
-  * `bot-protection`: Advanced bot mitigation.
-  * `rate-limit`: Distributed token bucket (Redis-backed).
-  * `geo-block`: MaxMind IP intelligence.
-* **Pluggable scoring**: in-process Go scorer, or any engine speaking the scorer protocol over a Unix socket (`appsec.engine: open-appsec`). Nothing is vendored, so the choice stays yours.
-* **Management Plane**: REST API with JWT/OIDC authentication and RBAC, a single-page control-room UI, and Prometheus metrics out of the box.
-* **Privilege-free IP blocking**: bans are enforced at the WAF layer, so they work in a container with no `NET_ADMIN`. Kernel-level `nftables`/`ufw` drops are an *optional* system-mode enhancement (`waf-agent`).
-* **`waffynx verify`**: a functional self-test that drives benign and malicious requests through the real inspection pipeline and reports what was blocked and why.
+* **Envoy Proxy Dynamic Edge PEP (`internal/xds`)**: Routes, upstream clusters, TLS 1.3 edge certificates (SDS), and fail-closed `ext_authz`/`ext_proc` filters are pushed live from PostgreSQL via `go-control-plane` with zero restarts and zero static route files.
+* **Zero-Trust Continuous Authorization (`internal/authz` — `ext_authz`)**: Per-route JWT/OIDC verification, required scopes, issuer checks, CIDR allowlists, GeoIP country posture, device posture headers, spoofed `x-waffynx-*` header stripping, and shadow mode — evaluated lock-free via `atomic.Pointer`.
+* **Stateless L7 Inspection (`internal/envoy` — `ext_proc`)**: Strict `1 MiB` anti-OOM body guard (`413`), managed Aho–Corasick catalog (42 tested signatures across SQLi, XSS, RCE, LFI/RFI, SSRF, XXE, Log4Shell, scanners), deep JSON/form/GraphQL/upload body decoding, plugin chain, custom rules, false-positive exclusions, AppSec anomaly scoring, and shadow/observe rollout mode.
+* **Lock-Free Hot-Reload & Outage Autonomy (`internal/hotreload`, `internal/rules`)**: Mutations in PostgreSQL broadcast a compiled immutable snapshot via Redis Pub/Sub; `waf-engine` swaps policies atomically via `atomic.Pointer` with zero dropped connections and continues enforcing its last valid snapshot even during total Control Plane, DB, or Observability outages.
+* **Distributed Sliding-Window Rate Limits & IP Jails (`internal/ratelimit`)**: Atomic Redis Lua sliding-window counters and temporary IP jails with strict `<= 10ms` hot-path timeouts and configurable controlled fail-open without weakening L7 rules.
+* **Internal Zero-Trust PKI & TLS 1.3 mTLS (`internal/pki`)**: Pure stdlib ECDSA P-256 internal CA (`waffynx-bootstrap --pki-only`) with `0600` private keys and hot-reloading TLS 1.3 mTLS across `envoy`, `waf-engine`, and `control-api` (and SPIRE / cert-manager ready in Kubernetes).
+* **Strictly Async Observability & Mandatory PII Redaction (`internal/telemetry`, `cmd/log-ingestor`, `internal/analytics`)**: Non-blocking buffered NATS JetStream emission → batched Go worker (`500` events or `1s` flush) with local MaxMind GeoIP enrichment and mandatory credential/PII scrubbing (`Authorization`, cookies, JWTs, PANs, query secrets including `:path`/`Referer`) → ClickHouse `MergeTree` analytics.
+* **Enterprise SOC Control Room UI (`ui/`)**: React 19 + TypeScript SPA served from a minimal non-root container (`nginx-unprivileged`), featuring dual themes (*Obsidian Edge SOC* & *Daylight Ops*), Command Palette (`Ctrl+K`), ClickHouse + live SSE forensics, **1-click "Create Exclusion"** false-positive tuning, Zero-Trust policy management, and live multi-plane Envoy xDS cluster topology.
 
-## 🏗️ Architecture
+---
 
-Waffynx decouples the proxy layer from the security evaluation layer to maximize throughput:
+## 🏗️ Multi-Container Zero-Trust Architecture
+
+All components are isolated into dedicated planes and microsegmented networks. Only Envoy receives external ingress; protected upstreams, databases, message brokers, and analytics stores have zero direct public exposure.
 
 ```mermaid
-flowchart LR
-    Client([Client]) --> Nginx[Nginx WAF Module]
-    Nginx -- Unix Socket --> Sidecar[Go Evaluation Engine]
-    
-    subgraph Waffynx Pipeline
-        Sidecar --> Plugins[Plugins]
-        Plugins --> Policy[Policy Engine]
-        Policy --> Scorer[Anomaly Scorer]
+flowchart TB
+    Internet([Internet TLS 1.3]) --> Envoy
+
+    subgraph DMZ["Data Plane (dmz-net / data-plane-net / upstream-net)"]
+        Envoy["Envoy Proxy Edge PEP\n(:8080 / :8443 TLS 1.3 SDS)"]
+        Engine["waf-engine (Stateless Go)\next_authz + ext_proc\natomic.Pointer + sync.Pool"]
+        Redis[("Redis 7\nSliding Window / IP Jails\nHot-Reload Pub/Sub")]
+        Backend[("Protected Upstreams\n(upstream-net internal only)")]
+
+        Envoy -- "mTLS gRPC (TLS 1.3)" --> Engine
+        Engine <-- "<=10ms bounded" --> Redis
+        Envoy -- "Reverse Proxy" --> Backend
     end
-    
-    Scorer -. 204 Allow .-> Nginx
-    Scorer -. 403 Block .-> Nginx
-    
-    Nginx --> Backend[(Upstream Servers)]
+
+    subgraph OBS["Observability Plane (observability-net — Async Only)"]
+        NATS["NATS JetStream\n(WAFFYNX_EVENTS)"]
+        Ingestor["log-ingestor (Go)\nBatch + GeoIP + PII Redact"]
+        CH[("ClickHouse\nsecurity_events")]
+
+        Engine -. "Async Fire-and-Forget" .-> NATS
+        NATS --> Ingestor
+        Ingestor -- "Bulk JSONEachRow" --> CH
+    end
+
+    subgraph CTRL["Control Plane (control-net — VPN / ZTNA Management)"]
+        UI["React SOC Control Room\n(nginx-unprivileged)"]
+        API["control-api (Go)\nREST API + Envoy v3 xDS"]
+        PG[("PostgreSQL 16\nSites, Rules, Exclusions,\nZT Policies, RBAC Users")]
+
+        UI --> API
+        API <--> PG
+        API -- "mTLS gRPC xDS (:18000)" --> Envoy
+        API -- "Redis Pub/Sub Snapshot" --> Redis
+        API -- "Parameterized SQL Queries" --> CH
+    end
 ```
+
+For deep design details, network segmentation tables, and API contracts, see **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** and **[constitution.md](constitution.md)**.
+
+---
 
 ## ⚡ Quick Start
 
-> Waffynx targets **Linux**. The container path requires no host privileges; the
-> host-firewall agent is system mode only.
+> Waffynx targets **Linux** containers (non-root, zero host privileges required). The optional kernel host-firewall daemon (`waf-agent`) is for bare-metal system mode only.
 
-### Container (recommended, no host privileges)
-
-One command, no config file. `WAFFYNX_SITE_HOST` and `WAFFYNX_SITE_UPSTREAM` create
-the first site at boot; the JWT secret is generated once and persisted `0600` in the
-data directory.
+### 1. Multi-Container Zero-Trust Stack (Docker Compose — Recommended)
 
 ```bash
 git clone --recurse-submodules https://github.com/jackby03/waffynx.git
 cd waffynx
-docker build -f deploy/docker/Dockerfile -t waffynx .
 
-# An upstream to protect (replace with your own service)
+# 1. Configure secrets and ports (never commit .env)
+cp .env.example .env
+# Edit .env and replace all REPLACE_WITH_* placeholders with strong secrets
+
+# 2. Build and start all 4 isolated planes (waits until every service is healthy)
+docker compose up -d --build --wait
+
+# 3. Verify all services are Up (healthy)
+docker compose ps
+```
+
+Verify live Zero-Trust WAF enforcement through Envoy:
+
+```bash
+# Benign HTTP & HTTPS (TLS 1.3 via Envoy SDS) -> 200 OK
+curl -i -H 'Host: app.example.test' http://127.0.0.1:8080/
+curl -ik --tlsv1.3 -H 'Host: app.example.test' https://127.0.0.1:8443/
+
+# Unknown host (default-deny) -> 404
+curl -i -H 'Host: unknown.example.test' http://127.0.0.1:8080/
+
+# Attacks blocked at Envoy PEP via mTLS ext_proc -> 403 Forbidden
+curl -i -H 'Host: app.example.test' 'http://127.0.0.1:8080/?q=UNION+SELECT+1,2,3'
+curl -i -H 'Host: app.example.test' -H 'User-Agent: sqlmap/1.7.2' http://127.0.0.1:8080/
+curl -i -H 'Host: app.example.test' -H 'Content-Type: application/json' \
+  -d '{"q":"<script>alert(1)</script>"}' http://127.0.0.1:8080/
+
+# Open the SOC Control Room UI (bound to 127.0.0.1 by default):
+# http://127.0.0.1:9090  (login with WAFFYNX_ADMIN_USER / WAFFYNX_ADMIN_PASSWORD from .env)
+```
+
+Scale stateless Data Plane inspection replicas horizontally:
+
+```bash
+docker compose up -d --scale waf-engine=3
+```
+
+UI live HMR development against the running stack:
+
+```bash
+docker compose --profile dev up --build
+# Open http://127.0.0.1:5173 (proxies /api, /metrics and /health to control-api:9090)
+```
+
+### 2. Kubernetes Deployment (Helm Chart)
+
+The Helm chart in [`deploy/helm/waffynx/`](deploy/helm/waffynx/) deploys separate non-root Deployments for `envoy`, `waf-engine`, `control-api`, `ui`, and `log-ingestor`, with HPAs, PodDisruptionBudgets, `/healthz` + `/readyz` probes, and strict default-deny Kubernetes `NetworkPolicies`:
+
+```bash
+# 1. Create runtime secrets (zero secrets in values.yaml)
+kubectl create secret generic waffynx-secrets \
+  --from-literal=jwt-secret="$(openssl rand -hex 32)" \
+  --from-literal=admin-password="CHANGE_ME_STRONG_PASSWORD" \
+  --from-literal=postgres-dsn="postgres://waffynx:PASS@postgres:5432/waffynx?sslmode=require" \
+  --from-literal=redis-password="CHANGE_ME_REDIS_PASS" \
+  --from-literal=clickhouse-password="CHANGE_ME_CH_PASS"
+
+# 2. Provision mTLS bundle (via cert-manager, SPIRE, or waffynx-bootstrap --pki-only)
+#    into Secret `waffynx-mesh-certs`, then install:
+helm upgrade --install waffynx ./deploy/helm/waffynx \
+  --namespace waffynx --create-namespace
+```
+
+### 3. Single-Container Standalone Mode (Nginx C Module)
+
+Prefer one self-contained Nginx + Go sidecar container with zero external databases?
+
+```bash
+# Via standalone Compose file:
+docker compose -f deploy/docker/docker-compose.standalone.yml up -d --build
+
+# Or single `docker run` with zero config file:
+docker build -f deploy/docker/Dockerfile -t waffynx .
 docker network create waffynx
 docker run -d --name app --network waffynx nginx:alpine
-
-docker run -d --name waffynx --network waffynx -p 8080:8080 \
+docker run -d --name waffynx --network waffynx -p 8080:8080 -p 9090:9090 \
   -v waffynx-data:/opt/waffynx/data \
   -e WAFFYNX_SITE_HOST=app.example.com \
   -e WAFFYNX_SITE_UPSTREAM=app:80 \
   waffynx
-
-curl -H 'Host: app.example.com' http://localhost:8080/                        # 200, proxied
-curl -H 'Host: app.example.com' 'http://localhost:8080/?q=UNION+SELECT+1,2,3'  # 403, blocked
 ```
 
-| Variable | Effect |
-|---|---|
-| `WAFFYNX_SITE_HOST` + `WAFFYNX_SITE_UPSTREAM` | create the first site; both are required together |
-| `WAFFYNX_SITE_TLS_CERT` + `WAFFYNX_SITE_TLS_KEY` | optional TLS pair for that site |
-| `WAFFYNX_JWT_SECRET` | API signing key; if unset a 32-byte key is generated once and persisted |
-| `WAFFYNX_DATA_DIR` | where the generated secret lives (default `/opt/waffynx/data`) |
-| `WAFFYNX_LISTEN` | top-level `listen` value |
+---
 
-**Keep the data volume.** It holds the generated signing key; losing it invalidates
-every issued token.
+## ⚙️ Key Environment Variables
 
-Adding more sites needs no restart: `POST /api/v1/sites` reconfigures the proxy,
-validates the result with `nginx -t` and only then persists it.
+See [`.env.example`](.env.example) for the complete template:
 
-Still pending: a **published** multi-arch image (today you build it).
+| Variable | Plane | Description |
+| :--- | :--- | :--- |
+| `WAFFYNX_SITE_HOST` / `WAFFYNX_SITE_UPSTREAM` | Control / Data | Initial site seeded at boot (`app.example.test` → `backend:80`) |
+| `WAFFYNX_ADMIN_USER` / `WAFFYNX_ADMIN_PASSWORD` | Control | Initial admin operator credentials (bcrypt hashed; fail-closed if missing) |
+| `WAFFYNX_JWT_SECRET` | Control / Data | Shared JWT signing secret (`>= 32` chars) used by API and `ext_authz` |
+| `WAFFYNX_POSTGRES_DSN` | Control | PostgreSQL connection string for durable sites, rules, exclusions, ZT policies & RBAC |
+| `WAFFYNX_REDIS_ADDR` / `WAFFYNX_REDIS_PASSWORD` | Data / Control | Redis endpoint for sliding-window rate limits, IP jails & hot-reload Pub/Sub |
+| `WAFFYNX_REDIS_TIMEOUT_MS` / `WAFFYNX_RATE_LIMIT_FAIL_OPEN` | Data | Bounded Redis lookup timeout (default `10ms`) and controlled rate-limit degradation |
+| `WAFFYNX_XDS_LISTEN` / `WAFFYNX_MTLS_ENABLED` | Control / Data | Envoy v3 xDS gRPC listen address (`:18000`) and strict TLS 1.3 mTLS enforcement |
+| `WAFFYNX_MAX_BODY_BYTES` / `WAFFYNX_SHADOW_MODE` | Data | Anti-OOM body inspection ceiling (default `1 MiB`) and non-blocking shadow mode |
+| `WAFFYNX_NATS_URL` / `WAFFYNX_CLICKHOUSE_URL` | Observability | Async JetStream telemetry bus and ClickHouse analytics store |
 
-### Verify that it actually protects
+---
+
+## 🧪 Verification & Quality Gates
+
+Waffynx enforces verification-first delivery (Constitution §3):
 
 ```bash
-waffynx verify -c waffynx.local.yaml
+# Static Linux builds for all 7 binaries (CGO_ENABLED=0)
+CGO_ENABLED=0 GOOS=linux go build -o bin/ ./cmd/...
+
+# Strict security & performance static analysis (must return 0 issues)
+GOOS=linux CGO_ENABLED=0 golangci-lint run ./...
+
+# Full unit test suite, race detector (Linux), coverage floors, benchmark & fuzz inventories
+make test
+make cover
+make gatecheck
+
+# Functional pipeline self-test (no network or proxy needed)
+waffynx verify -c configs/waffynx.yaml
+
+# Frontend TypeScript check, security invariants suite & production build
+cd ui && npm run lint && npm test && npm run build
 ```
 
-Runs benign and malicious requests through the real inspection pipeline and exits
-non-zero on any mismatch. No proxy, upstream or network needed.
+---
 
-```
-       CASE                         WANT   GOT    DETAIL
-  ok   benign: prose query          allow  allow
-  ok   sqli: comment terminator     block  block  waf pattern: '--
-  ok   xss: script tag              block  block  waf pattern: <script
-  skip scanner: sqlmap              block  allow  bot-protection mode=log
+## 🗺️ Status & Roadmap
 
-  20 passed, 0 failed, 1 skipped (of 21)
-```
+NGFW, VPN, SD-WAN, DLP and forward-proxy work is explicitly out of scope: Waffynx is a Zero-Trust WAF and reverse proxy.
 
-### From source (system mode / host agent)
+### ✅ Implemented & Verified
 
-```bash
-sudo apt-get update && sudo apt-get install -y build-essential libpcre2-dev libssl-dev zlib1g-dev
-
-make nginx-checkout && make nginx-configure && make nginx-build
-make build && make bridge-build
-```
-
-For a full sandbox, `make vagrant-up && make vagrant-ssh` provisions a Linux VM
-with Waffynx running:
-
-```bash
-curl http://localhost:8080/                          # 200 OK (allowed)
-curl "http://localhost:8080/?q=UNION+SELECT+1,2,3"   # 403 Forbidden (blocked)
-```
-
-## 🗺️ Roadmap
-
-Phases below are the plan for this repository. NGFW, VPN, SD-WAN, DLP and
-forward-proxy work is explicitly out of scope: this is a WAF and reverse proxy.
-
-### ✅ Working today
-
-* **Native Nginx ingress C module + Go sidecar** over a `0600` Unix socket.
-* **L7 policy engine**: SQLi, XSS, path traversal, command injection, scanner signatures.
-* **WAF-layer IP blocking** with no privileges, plus optional kernel drop in system mode.
-* **Rate limiting**, in-memory and Redis-backed.
-* **Managed ruleset**: 42 signatures across SQLi, XSS, RCE, LFI, RFI, SSRF, XXE, scanners and protocol anomalies, including headers and user-agent. Each rule ships with a positive and a negative test, and the suite fails if a rule is added untested.
-* **Anomaly scoring**, built in: signature patterns plus Shannon entropy with hand-tuned weights, so a verdict is explainable and adds no network call. Or delegate to any engine speaking the scorer socket.
-* **Management API** (JWT/OIDC, RBAC) and the React control room.
-* **`waffynx verify`** functional self-test.
-* **Zero-file bootstrap**: `docker run` with `WAFFYNX_SITE_HOST`/`_UPSTREAM` protects a site, no config file needed.
-* **Site management over the API**: create, update and delete reverse-proxy sites; each change is validated with `nginx -t` before it is persisted.
-
-### 🚧 Phase 0 — remaining
-
-* Published multi-arch image (today you `docker build` it).
-* A `LICENSE` file: no rights are granted until one exists.
-* GUI for site management; the API and CLI come first by design.
+* **Multi-Container Zero-Trust Stack (Compose & Kubernetes Helm):** Envoy Proxy Edge PEP (dynamic ADS xDS + TLS 1.3 SDS), stateless `waf-engine` (`ext_authz` + `ext_proc` over TLS 1.3 mTLS), `control-api`, non-root `ui`, and async `log-ingestor`.
+* **Persistent Control Plane & Lock-Free Hot-Reload:** PostgreSQL (`pgx/v5`) schema + migrations, Redis sliding-window rate limits & IP jails, Redis Pub/Sub snapshot distribution swapped via `atomic.Pointer`, full Data Plane outage autonomy.
+* **Zero-Trust Continuous Authorization (`ext_authz`):** Per-route JWT/OIDC verification, required scopes, CIDRs, GeoIP country blocks, device posture headers, spoofed header stripping, and shadow mode.
+* **Deep L7 Inspection Pipeline:** 42 tested Aho–Corasick managed rules, anti-OOM body guard, JSON/form/GraphQL/upload decoders, plugin chain, custom rules, false-positive exclusions, and pluggable AppSec anomaly scoring (in-process Go scorer or external `open-appsec` socket bridge).
+* **Async Observability Pipeline:** Non-blocking NATS JetStream emission → batched GeoIP + mandatory PII/credential redaction → ClickHouse bulk inserts & parameterized analytics queries.
+* **Enterprise SOC Control Room UI:** 12-view React 19 console with Overview, ClickHouse + SSE Security Events, 1-click **"Create Exclusion"**, Protected Sites, Zero Trust & Mesh topology, Managed/Custom Rules, IP Bans, Learning, Pipeline, Marketplace, Audit Log, and System Config.
+* **Standalone Single-Container Nginx Mode:** Upstream Nginx with native `ngx_waffynx` C module + `0600` Unix socket sidecar + `waffynx verify`.
 
 ### 📅 Next
 
-* **Phase 1**: rule expression language, managed rule catalog, IP/geo/ASN lists, staged mode, security events.
-* **Phase 2**: bot defense, API schema validation, SIEM export.
-* **Phase 3 — AI, deliberately last** (it is the differentiator, not the foundation):
-  * **Assistance before decision.** An LLM explains *why* a request was blocked, triages
-    events, and drafts rules from plain language. It never sits in the request path —
-    no network hop inside a 2 ms budget.
-  * **Optional learned scoring, out of tree.** Point `appsec.engine: open-appsec` at a
-    scoring engine you run (open-appsec is Apache-2.0) over a Unix socket: it
-    receives the decoded request as JSON and answers `{verdict, score, reasons}`.
-    Nothing is vendored, so their releases never become our maintenance.
-  * **Frontier-model providers** — Anthropic, OpenAI, Gemini, Vertex, local
-    (Ollama/llama.cpp) — with per-provider privacy controls: what leaves the box,
-    redaction, retention, and opt-in per site.
+* Published multi-arch OCI images (`linux/amd64`, `linux/arm64`) for `waf-engine`, `control-api`, `log-ingestor`, `ui`, and standalone `waffynx`.
+* Formal `LICENSE` selection and file.
+* Optional out-of-band AI SOC co-pilot (triage explanations and natural-language rule drafting strictly on the Control Plane, never in the hot path).
 
-  Today the built-in scorer is deterministic (signatures + Shannon entropy). This
-  phase is where an actual model enters, and only as a signal you can measure first.
-* **GUI work comes after the CLI and API settle.**
+---
 
 ## 📖 Documentation
 
-* **[SECURITY.md](SECURITY.md)**: how to report a vulnerability, and the nginx patching policy.
-* **[AGENTS.md](AGENTS.md)**: Detailed architecture specs, development gotchas, and internal component mapping.
-* **Configuration**: Check out `configs/waffynx.yaml` for a full production configuration template.
+* **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**: Multi-plane topology, network microsegmentation, request lifecycle, Kubernetes deployment, and distributed API reference.
+* **[constitution.md](constitution.md)**: Supreme architectural law, security invariants, latency budgets, and multi-container resilience rules.
+* **[AGENTS.md](AGENTS.md)**: Operational directives, repository layout, and verification commands.
+* **[SECURITY.md](SECURITY.md)**: Vulnerability disclosure policy, mTLS/secrets guarantees, and upstream Nginx CVE patching workflow.
+* **[configs/waffynx.yaml](configs/waffynx.yaml)**: Runtime configuration template.
+
+---
 
 ## 📄 License
 
-**Not yet chosen.** No `LICENSE` file exists in this repository, so no rights are
-granted beyond what GitHub's terms allow. The licence is deliberately pending a
-market study; a public commitment will land with the `LICENSE` file.
-
-This README previously declared MIT without shipping the file, which is a claim the
-repository could not back.
+**Not yet chosen.** No `LICENSE` file exists in this repository, so no rights are granted beyond what GitHub's terms allow. A public commitment will land with the `LICENSE` file.

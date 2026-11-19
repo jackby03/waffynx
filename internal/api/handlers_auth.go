@@ -52,6 +52,34 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check PostgreSQL RBAC user table first when distributed persistence is active.
+	if s.db != nil {
+		if u, err := s.db.GetUser(r.Context(), req.Username); err == nil {
+			if !u.Enabled {
+				s.writeError(w, r, http.StatusForbidden, "account disabled")
+				return
+			}
+			if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(req.Password)); err != nil {
+				s.writeError(w, r, http.StatusUnauthorized, "invalid credentials")
+				return
+			}
+			scopes := u.Scopes
+			if len(scopes) == 0 {
+				scopes = []string{"read"}
+			}
+			token, err := s.authMgr.GenerateToken(u.Username, u.Role, scopes)
+			if err != nil {
+				s.writeError(w, r, http.StatusInternalServerError, "token generation failed")
+				return
+			}
+			s.writeJSON(w, r, http.StatusOK, map[string]string{
+				"token": token,
+				"role":  u.Role,
+			})
+			return
+		}
+	}
+
 	cfg := s.readConfig()
 	if len(cfg.API.Auth.Users) == 0 {
 		s.writeError(w, r, http.StatusNotImplemented, "no users configured")

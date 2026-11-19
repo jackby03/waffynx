@@ -12,6 +12,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	requireAdmin := s.requireRole("admin")
 
 	mux.HandleFunc("GET /health", s.handleHealth)
+	mux.HandleFunc("GET /healthz", s.handleHealth)
+	mux.HandleFunc("GET /readyz", s.handleReadyz)
 
 	// Auth routes. Preflight for this (and every other /api/v1/ route) is
 	// answered by corsMiddleware, so no explicit OPTIONS mapping is needed — and
@@ -67,6 +69,27 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/firewall/rules", withAuth(s.handleFirewallRules))
 	mux.HandleFunc("POST /api/v1/firewall/block", withAuth(requireAdmin(s.handleFirewallBlock)))
 	mux.HandleFunc("DELETE /api/v1/firewall/unblock/{ip}", withAuth(requireAdmin(s.handleFirewallUnblock)))
+
+	// False-Positive Exclusions (Phase 1 & Phase 4)
+	mux.HandleFunc("GET /api/v1/exclusions", withAuth(s.handleExclusionList))
+	mux.HandleFunc("POST /api/v1/exclusions", withAuth(requireAdmin(s.handleExclusionCreate)))
+	mux.HandleFunc("DELETE /api/v1/exclusions/{id}", withAuth(requireAdmin(s.handleExclusionDelete)))
+
+	// Zero-Trust Continuous Authorization Policies (Phase 3 ext_authz)
+	mux.HandleFunc("GET /api/v1/zero-trust/policies", withAuth(s.handleZTPolicyList))
+	mux.HandleFunc("POST /api/v1/zero-trust/policies", withAuth(requireAdmin(s.handleZTPolicyCreate)))
+	mux.HandleFunc("PUT /api/v1/zero-trust/policies/{id}", withAuth(requireAdmin(s.handleZTPolicyUpdate)))
+	mux.HandleFunc("DELETE /api/v1/zero-trust/policies/{id}", withAuth(requireAdmin(s.handleZTPolicyDelete)))
+
+	// Observability & ClickHouse Analytics (Phase 4)
+	mux.HandleFunc("GET /api/v1/analytics/events", withAuth(s.handleAnalyticsEvents))
+	mux.HandleFunc("GET /api/v1/analytics/summary", withAuth(s.handleAnalyticsSummary))
+
+	// Multi-Plane Cluster Topology & RBAC Users
+	mux.HandleFunc("GET /api/v1/cluster/topology", withAuth(s.handleClusterTopology))
+	mux.HandleFunc("GET /api/v1/users", withAuth(requireAdmin(s.handleUserList)))
+	mux.HandleFunc("POST /api/v1/users", withAuth(requireAdmin(s.handleUserCreate)))
+	mux.HandleFunc("DELETE /api/v1/users/{username}", withAuth(requireAdmin(s.handleUserDelete)))
 
 	// Prometheus Metrics & Profiling
 	mux.HandleFunc("GET /metrics", metrics.Handler().ServeHTTP)

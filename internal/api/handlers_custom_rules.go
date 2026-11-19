@@ -10,6 +10,7 @@ import (
 	"github.com/jackby03/waffynx/internal/audit"
 	"github.com/jackby03/waffynx/internal/logging"
 	"github.com/jackby03/waffynx/internal/rules"
+	"github.com/jackby03/waffynx/internal/storage"
 )
 
 const (
@@ -51,6 +52,16 @@ func (s *Server) writeProxyError(w http.ResponseWriter, r *http.Request, err err
 // rules are evaluated by the sidecar on every request, so the sidecar is the
 // only honest source for what is enforced.
 func (s *Server) handleCustomRuleList(w http.ResponseWriter, r *http.Request) {
+	if s.db != nil {
+		list, err := s.db.ListCustomRules(r.Context())
+		if err != nil {
+			s.writeError(w, r, http.StatusInternalServerError, "could not list custom rules")
+			return
+		}
+		s.writeJSON(w, r, http.StatusOK, map[string]interface{}{"rules": list})
+		return
+	}
+
 	client := s.sidecar()
 	if client == nil {
 		s.writeError(w, r, http.StatusServiceUnavailable, "sidecar socket is not configured")
@@ -68,12 +79,6 @@ func (s *Server) handleCustomRuleList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCustomRuleCreate(w http.ResponseWriter, r *http.Request) {
-	client := s.sidecar()
-	if client == nil {
-		s.writeError(w, r, http.StatusServiceUnavailable, "sidecar socket is not configured")
-		return
-	}
-
 	r.Body = http.MaxBytesReader(w, r.Body, maxRuleBodyBytes)
 	var rule rules.CustomRule
 	decoder := json.NewDecoder(r.Body)
@@ -89,10 +94,38 @@ func (s *Server) handleCustomRuleCreate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// An empty id is allowed here: the sidecar assigns one and returns it. A
+	// An empty id is allowed here: the store/sidecar assigns one and returns it. A
 	// supplied id must be safe to delete later, so it is validated now.
 	if rule.ID != "" && !validRuleID(rule.ID) {
 		s.writeError(w, r, http.StatusBadRequest, "invalid rule id")
+		return
+	}
+
+	if s.db != nil {
+		created, err := s.db.UpsertCustomRule(r.Context(), rule)
+		if err != nil {
+			s.writeError(w, r, http.StatusInternalServerError, "could not save custom rule")
+			return
+		}
+		if err := s.syncControlPlane(r.Context(), "custom_rules", UserFromContext(r.Context())); err != nil {
+			logging.Warn().Err(err).Msg("hot-reload sync after custom rule create")
+		}
+		if s.audit != nil {
+			s.audit.Record(audit.Event{
+				Actor:    UserFromContext(r.Context()),
+				Action:   "custom_rule_create",
+				Resource: created.ID,
+				Result:   "success",
+				Details:  created.Name,
+			})
+		}
+		s.writeJSON(w, r, http.StatusCreated, created)
+		return
+	}
+
+	client := s.sidecar()
+	if client == nil {
+		s.writeError(w, r, http.StatusServiceUnavailable, "sidecar socket is not configured")
 		return
 	}
 
@@ -117,15 +150,40 @@ func (s *Server) handleCustomRuleCreate(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleCustomRuleDelete(w http.ResponseWriter, r *http.Request) {
-	client := s.sidecar()
-	if client == nil {
-		s.writeError(w, r, http.StatusServiceUnavailable, "sidecar socket is not configured")
-		return
-	}
-
 	id := r.PathValue("id")
 	if !validRuleID(id) {
 		s.writeError(w, r, http.StatusBadRequest, "invalid rule id")
+		return
+	}
+
+	if s.db != nil {
+		if err := s.db.DeleteCustomRule(r.Context(), id); err != nil {
+			if errors.Is(err, storage.ErrNotFound) {
+				s.writeError(w, r, http.StatusNotFound, "rule not found")
+				return
+			}
+			s.writeError(w, r, http.StatusInternalServerError, "could not delete custom rule")
+			return
+		}
+		if err := s.syncControlPlane(r.Context(), "custom_rules", UserFromContext(r.Context())); err != nil {
+			logging.Warn().Err(err).Msg("hot-reload sync after custom rule delete")
+		}
+		if s.audit != nil {
+			s.audit.Record(audit.Event{
+				Actor:    UserFromContext(r.Context()),
+				Action:   "custom_rule_delete",
+				Resource: id,
+				Result:   "success",
+				Details:  "deleted via control room",
+			})
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	client := s.sidecar()
+	if client == nil {
+		s.writeError(w, r, http.StatusServiceUnavailable, "sidecar socket is not configured")
 		return
 	}
 

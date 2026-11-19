@@ -23,11 +23,12 @@ type Config struct {
 	// Sites is the reverse-proxy topology: host -> upstream, rendered into nginx
 	// fragments. Distinct from Routes, which belongs to the frozen forward-proxy
 	// gateway.
-	Sites    []sites.Site   `yaml:"sites"`
-	Routes   []RouteConfig  `yaml:"routes"`
-	Plugins  []PluginConfig `yaml:"plugins"`
-	Firewall FirewallConfig `yaml:"firewall"`
-	API      APIConfig      `yaml:"api"`
+	Sites       []sites.Site      `yaml:"sites"`
+	Routes      []RouteConfig     `yaml:"routes"`
+	Plugins     []PluginConfig    `yaml:"plugins"`
+	Firewall    FirewallConfig    `yaml:"firewall"`
+	API         APIConfig         `yaml:"api"`
+	Distributed DistributedConfig `yaml:"distributed"`
 }
 
 type SidecarConfig struct {

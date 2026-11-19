@@ -105,7 +105,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/waffynx
-RUN mkdir -p bin config logs data nginx/sbin nginx/conf nginx/logs certs
+RUN mkdir -p bin config defaults logs data nginx/sbin nginx/conf nginx/conf/sites nginx/logs certs
 
 COPY --from=nginx-builder /build/nginx/objs/nginx nginx/sbin/nginx
 COPY --from=nginx-builder /build/nginx/conf/mime.types nginx/conf/mime.types
@@ -117,10 +117,11 @@ COPY --from=go-builder /waf-api bin/waf-api
 COPY --from=go-builder /waf-agent bin/waf-agent
 
 COPY configs/waffynx.yaml config/waffynx.yaml
+COPY configs/waffynx.yaml defaults/waffynx.yaml
 COPY deploy/docker/nginx.conf nginx/conf/nginx.conf
 
 COPY deploy/docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh bin/*
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh bin/*
 
 EXPOSE 8080 8443 9090
 

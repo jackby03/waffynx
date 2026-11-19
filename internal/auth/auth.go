@@ -35,6 +35,7 @@ func (m *Manager) GenerateToken(username, role string, scopes []string) (string,
 	claims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        uuid.New().String(),
+			Issuer:    "waffynx",
 			Subject:   username,
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(m.TokenTTL)),

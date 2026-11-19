@@ -12,6 +12,9 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// EnvAdminUser overrides the bootstrap admin username (defaults to "admin").
+const EnvAdminUser = "WAFFYNX_ADMIN_USER"
+
 // EnvAdminPassword overrides the admin credential at boot. When it is unset and
 // the configured hash is not usable, a password is generated once and reported to
 // the caller, which must show it to the operator.
@@ -49,14 +52,40 @@ var randReader io.Reader = rand.Reader
 // bcrypt value, so nobody could log in to a fresh container. Rather than ship a
 // default password (the worst option) or fail to start (unhelpful for a first
 // run), a password is generated and reported once.
+func resolveAdminUsername(getenv func(string) string) (string, error) {
+	raw := strings.TrimSpace(getenv(EnvAdminUser))
+	if raw == "" {
+		return "admin", nil
+	}
+	if len(raw) > 64 {
+		return "", fmt.Errorf("%s must be 64 characters or fewer", EnvAdminUser)
+	}
+	for _, r := range raw {
+		valid := (r >= 'a' && r <= 'z') ||
+			(r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') ||
+			r == '.' || r == '_' || r == '-' || r == '@'
+		if !valid {
+			return "", fmt.Errorf("%s contains invalid character %q", EnvAdminUser, r)
+		}
+	}
+	return raw, nil
+}
+
 func resolveAdmin(cfg *Config, getenv func(string) string) (AdminCredential, error) {
+	username, err := resolveAdminUsername(getenv)
+	if err != nil {
+		return AdminCredential{}, err
+	}
+
 	if pw := strings.TrimSpace(getenv(EnvAdminPassword)); pw != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost)
 		if err != nil {
 			return AdminCredential{}, fmt.Errorf("hashing %s: %w", EnvAdminPassword, err)
 		}
-		hashInto(cfg, "admin", string(hash))
-		return AdminCredential{Username: "admin", Password: pw, Generated: true}, nil
+		prunePlaceholderUsers(cfg)
+		hashInto(cfg, username, string(hash))
+		return AdminCredential{Username: username, Password: pw, Generated: true}, nil
 	}
 
 	// A usable hash already configured means the operator set this up earlier:
@@ -68,8 +97,9 @@ func resolveAdmin(cfg *Config, getenv func(string) string) (AdminCredential, err
 	// A hash persisted in the data directory survives a new container with the same
 	// volume, which is what makes the printed password usable after a recreate.
 	if persisted, ok := persistedAdminHash(getenv); ok {
-		hashInto(cfg, "admin", persisted)
-		return AdminCredential{Username: "admin"}, nil
+		prunePlaceholderUsers(cfg)
+		hashInto(cfg, username, persisted)
+		return AdminCredential{Username: username}, nil
 	}
 
 	password, err := generatePassword()
@@ -86,8 +116,23 @@ func resolveAdmin(cfg *Config, getenv func(string) string) (AdminCredential, err
 	if err := writeFileAtomic(adminHashPath(getenv), []byte(string(hash))); err != nil {
 		return AdminCredential{}, fmt.Errorf("persisting the admin hash: %w", err)
 	}
-	hashInto(cfg, "admin", string(hash))
-	return AdminCredential{Username: "admin", Password: password, Generated: true}, nil
+	prunePlaceholderUsers(cfg)
+	hashInto(cfg, username, string(hash))
+	return AdminCredential{Username: username, Password: password, Generated: true}, nil
+}
+
+// prunePlaceholderUsers drops entries with unusable (non-bcrypt) password hashes
+// so switching WAFFYNX_ADMIN_USER never leaves a dead placeholder user behind.
+func prunePlaceholderUsers(cfg *Config) {
+	kept := cfg.API.Auth.Users[:0]
+	for _, u := range cfg.API.Auth.Users {
+		if u.Username != "" && u.PasswordHash != "" {
+			if _, err := bcrypt.Cost([]byte(u.PasswordHash)); err == nil {
+				kept = append(kept, u)
+			}
+		}
+	}
+	cfg.API.Auth.Users = kept
 }
 
 // adminHashPath mirrors jwtSecretPath: the data directory is the durable store for

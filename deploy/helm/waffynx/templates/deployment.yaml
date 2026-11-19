@@ -1,55 +1,463 @@
+# ============================================================================
+# DATA PLANE — Envoy Edge PEP Deployment (Stateless, Horizontally Scalable)
+# ============================================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Release.Name }}
+  name: {{ .Release.Name }}-envoy
   labels:
     app.kubernetes.io/name: waffynx
     app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: envoy
+    waffynx.io/plane: data-plane
 spec:
-  replicas: {{ .Values.replicaCount }}
+  replicas: {{ .Values.envoy.replicaCount }}
   selector:
     matchLabels:
-      app.kubernetes.io/name: waffynx
       app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: envoy
   template:
     metadata:
       labels:
         app.kubernetes.io/name: waffynx
         app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: envoy
+        waffynx.io/plane: data-plane
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
       containers:
-        - name: waffynx
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+        - name: envoy
+          image: "{{ .Values.envoy.image.repository }}:{{ .Values.envoy.image.tag }}"
+          imagePullPolicy: {{ .Values.envoy.image.pullPolicy }}
+          args:
+            - "-c"
+            - "/etc/envoy/envoy.yaml"
+            - "--service-node"
+            - "$(POD_NAME)"
+            - "--service-cluster"
+            - "waffynx-data-plane"
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           ports:
             - name: http
-              containerPort: {{ .Values.service.httpPort }}
+              containerPort: {{ .Values.envoy.service.httpPort }}
             - name: https
-              containerPort: {{ .Values.service.httpsPort }}
-            - name: api
-              containerPort: {{ .Values.service.apiPort }}
+              containerPort: {{ .Values.envoy.service.httpsPort }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           resources:
-            {{- toYaml .Values.resources | nindent 12 }}
-          volumeMounts:
-            - name: config
-              mountPath: /opt/waffynx/config
-            - name: logs
-              mountPath: /opt/waffynx/logs
+            {{- toYaml .Values.envoy.resources | nindent 12 }}
           livenessProbe:
             httpGet:
-              path: /health
-              port: api
-            initialDelaySeconds: 10
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
             periodSeconds: 10
           readinessProbe:
             httpGet:
-              path: /health
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          volumeMounts:
+            - name: envoy-config
+              mountPath: /etc/envoy
+              readOnly: true
+            {{- if .Values.mtls.enabled }}
+            - name: mesh-certs
+              mountPath: /etc/waffynx/certs
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: envoy-config
+          configMap:
+            name: {{ .Release.Name }}-envoy-bootstrap
+        {{- if .Values.mtls.enabled }}
+        - name: mesh-certs
+          secret:
+            secretName: {{ .Values.mtls.certsSecretName }}
+            defaultMode: 0400
+        {{- end }}
+---
+# ============================================================================
+# DATA PLANE — Stateless Go WAF Engine (Envoy ext_proc + ext_authz gRPC)
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-waf-engine
+  labels:
+    app.kubernetes.io/name: waffynx
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: waf-engine
+    waffynx.io/plane: data-plane
+spec:
+  replicas: {{ .Values.wafEngine.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: waf-engine
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: waffynx
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: waf-engine
+        waffynx.io/plane: data-plane
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+      containers:
+        - name: waf-engine
+          image: "{{ .Values.wafEngine.image.repository }}:{{ .Values.wafEngine.image.tag }}"
+          imagePullPolicy: {{ .Values.wafEngine.image.pullPolicy }}
+          env:
+            - name: WAFFYNX_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: WAFFYNX_ENGINE_GRPC_LISTEN
+              value: ":{{ .Values.wafEngine.grpcPort }}"
+            - name: WAFFYNX_ENGINE_HEALTH_LISTEN
+              value: ":{{ .Values.wafEngine.healthPort }}"
+            - name: WAFFYNX_MAX_BODY_BYTES
+              value: "{{ .Values.wafEngine.maxBodyBytes }}"
+            - name: WAFFYNX_SHADOW_MODE
+              value: "{{ .Values.wafEngine.shadowMode }}"
+            - name: WAFFYNX_MTLS_ENABLED
+              value: "{{ .Values.mtls.enabled }}"
+            - name: WAFFYNX_CERT_DIR
+              value: "/etc/waffynx/certs"
+            - name: WAFFYNX_REDIS_ADDR
+              value: {{ .Values.externalServices.redisAddr | quote }}
+            - name: WAFFYNX_REDIS_TIMEOUT_MS
+              value: "{{ .Values.wafEngine.redisTimeoutMs }}"
+            - name: WAFFYNX_RATE_LIMIT_ENABLED
+              value: "{{ .Values.wafEngine.rateLimitEnabled }}"
+            - name: WAFFYNX_RATE_LIMIT_RPS
+              value: "{{ .Values.wafEngine.rateLimitRPS }}"
+            - name: WAFFYNX_RATE_LIMIT_FAIL_OPEN
+              value: "{{ .Values.wafEngine.rateLimitFailOpen }}"
+            - name: WAFFYNX_NATS_URL
+              value: {{ .Values.externalServices.natsURL | quote }}
+            - name: WAFFYNX_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: jwt-secret
+            - name: WAFFYNX_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: redis-password
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.wafEngine.grpcPort }}
+            - name: health
+              containerPort: {{ .Values.wafEngine.healthPort }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.wafEngine.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          {{- if .Values.mtls.enabled }}
+          volumeMounts:
+            - name: mesh-certs
+              mountPath: /etc/waffynx/certs
+              readOnly: true
+          {{- end }}
+      {{- if .Values.mtls.enabled }}
+      volumes:
+        - name: mesh-certs
+          secret:
+            secretName: {{ .Values.mtls.certsSecretName }}
+            defaultMode: 0400
+      {{- end }}
+---
+# ============================================================================
+# CONTROL PLANE — Management REST API + Envoy xDS Control Plane
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-control-api
+  labels:
+    app.kubernetes.io/name: waffynx
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: control-api
+    waffynx.io/plane: control-plane
+spec:
+  replicas: {{ .Values.controlApi.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: control-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: waffynx
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: control-api
+        waffynx.io/plane: control-plane
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+      containers:
+        - name: control-api
+          image: "{{ .Values.controlApi.image.repository }}:{{ .Values.controlApi.image.tag }}"
+          imagePullPolicy: {{ .Values.controlApi.image.pullPolicy }}
+          env:
+            - name: WAFFYNX_ADMIN_USER
+              value: {{ .Values.controlApi.adminUser | quote }}
+            - name: WAFFYNX_SITE_HOST
+              value: {{ .Values.controlApi.initialSiteHost | quote }}
+            - name: WAFFYNX_SITE_UPSTREAM
+              value: {{ .Values.controlApi.initialSiteUpstream | quote }}
+            - name: WAFFYNX_XDS_LISTEN
+              value: ":{{ .Values.controlApi.xdsPort }}"
+            - name: WAFFYNX_WAF_ENGINE_HOST
+              value: "{{ .Release.Name }}-waf-engine"
+            - name: WAFFYNX_WAF_ENGINE_PORT
+              value: "{{ .Values.wafEngine.grpcPort }}"
+            - name: WAFFYNX_MTLS_ENABLED
+              value: "{{ .Values.mtls.enabled }}"
+            - name: WAFFYNX_EDGE_TLS
+              value: "{{ .Values.controlApi.edgeTLS }}"
+            - name: WAFFYNX_UPSTREAM_MTLS
+              value: "{{ .Values.controlApi.upstreamMTLS }}"
+            - name: WAFFYNX_CERT_DIR
+              value: "/etc/waffynx/certs"
+            - name: WAFFYNX_REDIS_ADDR
+              value: {{ .Values.externalServices.redisAddr | quote }}
+            - name: WAFFYNX_NATS_URL
+              value: {{ .Values.externalServices.natsURL | quote }}
+            - name: WAFFYNX_CLICKHOUSE_URL
+              value: {{ .Values.externalServices.clickhouseURL | quote }}
+            - name: WAFFYNX_CLICKHOUSE_DB
+              value: {{ .Values.externalServices.clickhouseDB | quote }}
+            - name: WAFFYNX_CLICKHOUSE_USER
+              value: {{ .Values.externalServices.clickhouseUser | quote }}
+            - name: WAFFYNX_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: admin-password
+            - name: WAFFYNX_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: jwt-secret
+            - name: WAFFYNX_POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: postgres-dsn
+            - name: WAFFYNX_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: redis-password
+            - name: WAFFYNX_CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: clickhouse-password
+          ports:
+            - name: api
+              containerPort: {{ .Values.controlApi.apiPort }}
+            - name: xds
+              containerPort: {{ .Values.controlApi.xdsPort }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.controlApi.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: api
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
               port: api
             initialDelaySeconds: 5
             periodSeconds: 5
+          volumeMounts:
+            - name: runtime-config
+              mountPath: /opt/waffynx/config
+            - name: runtime-data
+              mountPath: /opt/waffynx/data
+            {{- if .Values.mtls.enabled }}
+            - name: mesh-certs
+              mountPath: /etc/waffynx/certs
+              readOnly: true
+            {{- end }}
       volumes:
-        - name: config
-          configMap:
-            name: {{ .Release.Name }}-config
-        - name: logs
+        - name: runtime-config
           emptyDir: {}
+        - name: runtime-data
+          emptyDir: {}
+        {{- if .Values.mtls.enabled }}
+        - name: mesh-certs
+          secret:
+            secretName: {{ .Values.mtls.certsSecretName }}
+            defaultMode: 0400
+        {{- end }}
+---
+# ============================================================================
+# CONTROL PLANE — Non-Root React SOC Control Room UI
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-ui
+  labels:
+    app.kubernetes.io/name: waffynx
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: ui
+    waffynx.io/plane: control-plane
+spec:
+  replicas: {{ .Values.ui.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: waffynx
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: ui
+        waffynx.io/plane: control-plane
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: ui
+          image: "{{ .Values.ui.image.repository }}:{{ .Values.ui.image.tag }}"
+          imagePullPolicy: {{ .Values.ui.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.ui.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+{{- if .Values.logIngestor.enabled }}
+---
+# ============================================================================
+# OBSERVABILITY PLANE — Async NATS JetStream -> ClickHouse Log Ingestor
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-log-ingestor
+  labels:
+    app.kubernetes.io/name: waffynx
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: log-ingestor
+    waffynx.io/plane: observability
+spec:
+  replicas: {{ .Values.logIngestor.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: log-ingestor
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: waffynx
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: log-ingestor
+        waffynx.io/plane: observability
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+      containers:
+        - name: log-ingestor
+          image: "{{ .Values.logIngestor.image.repository }}:{{ .Values.logIngestor.image.tag }}"
+          imagePullPolicy: {{ .Values.logIngestor.image.pullPolicy }}
+          env:
+            - name: WAFFYNX_NATS_URL
+              value: {{ .Values.externalServices.natsURL | quote }}
+            - name: WAFFYNX_CLICKHOUSE_URL
+              value: {{ .Values.externalServices.clickhouseURL | quote }}
+            - name: WAFFYNX_CLICKHOUSE_DB
+              value: {{ .Values.externalServices.clickhouseDB | quote }}
+            - name: WAFFYNX_CLICKHOUSE_USER
+              value: {{ .Values.externalServices.clickhouseUser | quote }}
+            - name: WAFFYNX_CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: clickhouse-password
+            - name: WAFFYNX_INGEST_BATCH_SIZE
+              value: "{{ .Values.logIngestor.batchSize }}"
+            - name: WAFFYNX_INGEST_FLUSH_MS
+              value: "{{ .Values.logIngestor.flushMs }}"
+          ports:
+            - name: health
+              containerPort: {{ .Values.logIngestor.healthPort }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.logIngestor.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 5
+{{- end }}

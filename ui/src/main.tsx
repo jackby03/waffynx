@@ -1,5 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { ThemeProvider } from "./context/ThemeContext";
+import { ToastProvider } from "./context/ToastContext";
 import { AuthProvider } from "./context/AuthContext";
 import { WafProvider } from "./context/WafContext";
 import { App } from "./App";
@@ -12,10 +14,14 @@ if (!rootElement) {
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <AuthProvider>
-      <WafProvider>
-        <App />
-      </WafProvider>
-    </AuthProvider>
+    <ThemeProvider>
+      <ToastProvider>
+        <AuthProvider>
+          <WafProvider>
+            <App />
+          </WafProvider>
+        </AuthProvider>
+      </ToastProvider>
+    </ThemeProvider>
   </React.StrictMode>
 );

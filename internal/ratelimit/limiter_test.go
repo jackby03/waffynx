@@ -1,11 +1,16 @@
 package ratelimit
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 func TestMemoryLimiter_Allow(t *testing.T) {
@@ -155,5 +160,212 @@ func TestRedisLimiter_Disabled(t *testing.T) {
 	}
 	if rl != nil {
 		t.Error("expected nil RedisLimiter when disabled")
+	}
+}
+
+func TestConfig_EffectiveTimeout(t *testing.T) {
+	if got := (Config{}).EffectiveTimeout(); got != DefaultTimeout {
+		t.Fatalf("expected default %v, got %v", DefaultTimeout, got)
+	}
+	if got := (Config{TimeoutMs: 7}).EffectiveTimeout(); got != 7*time.Millisecond {
+		t.Fatalf("expected 7ms, got %v", got)
+	}
+}
+
+func TestMemoryLimiter_Jails(t *testing.T) {
+	limiter := NewMemoryLimiter()
+	defer limiter.Close()
+	ctx := context.Background()
+
+	jailed, _, err := limiter.IsJailed(ctx, "203.0.113.5")
+	if err != nil || jailed {
+		t.Fatalf("expected unjailed IP, got jailed=%v err=%v", jailed, err)
+	}
+
+	if err := limiter.JailIP(ctx, "203.0.113.5", "credential stuffing", 200*time.Millisecond); err != nil {
+		t.Fatalf("JailIP failed: %v", err)
+	}
+	jailed, reason, err := limiter.IsJailed(ctx, "203.0.113.5")
+	if err != nil || !jailed || reason != "credential stuffing" {
+		t.Fatalf("expected jailed with reason, got jailed=%v reason=%q err=%v", jailed, reason, err)
+	}
+
+	list, err := limiter.ListJails(ctx)
+	if err != nil || len(list) != 1 || list[0].IP != "203.0.113.5" {
+		t.Fatalf("unexpected jail list: %+v err=%v", list, err)
+	}
+
+	if err := limiter.UnjailIP(ctx, "203.0.113.5"); err != nil {
+		t.Fatalf("UnjailIP failed: %v", err)
+	}
+	jailed, _, _ = limiter.IsJailed(ctx, "203.0.113.5")
+	if jailed {
+		t.Fatal("expected IP to be unjailed")
+	}
+
+	// Expiry check.
+	_ = limiter.JailIP(ctx, "203.0.113.9", "short", 30*time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
+	jailed, _, _ = limiter.IsJailed(ctx, "203.0.113.9")
+	if jailed {
+		t.Fatal("expected expired jail to clear")
+	}
+
+	// Default TTL and cleanup of expired jails.
+	_ = limiter.JailIP(ctx, "203.0.113.10", "default ttl", 0)
+	_ = limiter.JailIP(ctx, "203.0.113.11", "expired", 10*time.Millisecond)
+	time.Sleep(25 * time.Millisecond)
+	limiter.cleanup()
+	list, _ = limiter.ListJails(ctx)
+	if len(list) != 1 || list[0].IP != "203.0.113.10" {
+		t.Fatalf("expected only active jail after cleanup, got %+v", list)
+	}
+}
+
+// startFakeRedis serves minimal RESP2 responses (PING, EVALSHA/EVAL, SET, GET, DEL, SCAN)
+// so RedisLimiter methods are exercised deterministically without external Redis.
+func startFakeRedis(t *testing.T) (string, func()) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen fake redis: %v", err)
+	}
+	var mu sync.Mutex
+	kv := make(map[string]string)
+	done := make(chan struct{})
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				r := bufio.NewReader(c)
+				for {
+					line, err := r.ReadString('\n')
+					if err != nil {
+						return
+					}
+					if !strings.HasPrefix(line, "*") {
+						continue
+					}
+					var nargs int
+					_, _ = fmt.Sscanf(strings.TrimSpace(line), "*%d", &nargs)
+					args := make([]string, 0, nargs)
+					for i := 0; i < nargs; i++ {
+						_, _ = r.ReadString('\n')
+						val, err := r.ReadString('\n')
+						if err != nil {
+							return
+						}
+						args = append(args, strings.TrimRight(val, "\r\n"))
+					}
+					if len(args) == 0 {
+						continue
+					}
+					cmd := strings.ToUpper(args[0])
+					switch cmd {
+					case "HELLO":
+						_, _ = c.Write([]byte("-ERR unknown command HELLO\r\n"))
+					case "CLIENT":
+						_, _ = c.Write([]byte("+OK\r\n"))
+					case "PING":
+						_, _ = c.Write([]byte("+PONG\r\n"))
+					case "EVALSHA", "EVAL":
+						_, _ = c.Write([]byte(":1\r\n"))
+					case "SET":
+						if len(args) >= 3 {
+							mu.Lock()
+							kv[args[1]] = args[2]
+							mu.Unlock()
+						}
+						_, _ = c.Write([]byte("+OK\r\n"))
+					case "GET":
+						mu.Lock()
+						v, ok := kv[args[1]]
+						mu.Unlock()
+						if !ok {
+							_, _ = c.Write([]byte("$-1\r\n"))
+						} else {
+							_, _ = fmt.Fprintf(c, "$%d\r\n%s\r\n", len(v), v)
+						}
+					case "DEL":
+						mu.Lock()
+						delete(kv, args[1])
+						mu.Unlock()
+						_, _ = c.Write([]byte(":1\r\n"))
+					case "SCAN":
+						mu.Lock()
+						keys := make([]string, 0, len(kv))
+						for k := range kv {
+							keys = append(keys, k)
+						}
+						mu.Unlock()
+						var b strings.Builder
+						fmt.Fprintf(&b, "*2\r\n$1\r\n0\r\n*%d\r\n", len(keys))
+						for _, k := range keys {
+							fmt.Fprintf(&b, "$%d\r\n%s\r\n", len(k), k)
+						}
+						_, _ = c.Write([]byte(b.String()))
+					default:
+						_, _ = c.Write([]byte("+OK\r\n"))
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	return ln.Addr().String(), func() {
+		close(done)
+		_ = ln.Close()
+	}
+}
+
+func TestRedisLimiter_SlidingWindowAndJails(t *testing.T) {
+	addr, stop := startFakeRedis(t)
+	defer stop()
+
+	rl, err := NewRedisLimiter(Config{Enabled: true, Addr: addr, TimeoutMs: 100})
+	if err != nil {
+		t.Fatalf("NewRedisLimiter failed: %v", err)
+	}
+	defer rl.Close()
+
+	ctx := context.Background()
+	allowed, err := rl.Allow(ctx, "198.51.100.1", 10, time.Second)
+	if err != nil || !allowed {
+		t.Fatalf("expected Allow=true, got allowed=%v err=%v", allowed, err)
+	}
+	allowedZero, err := rl.Allow(ctx, "198.51.100.1", 0, time.Second)
+	if err != nil || allowedZero {
+		t.Fatalf("expected Allow=false for limit=0, got allowed=%v err=%v", allowedZero, err)
+	}
+
+	if err := rl.JailIP(ctx, "198.51.100.2", "bot abuse", time.Minute); err != nil {
+		t.Fatalf("JailIP failed: %v", err)
+	}
+	jailed, reason, err := rl.IsJailed(ctx, "198.51.100.2")
+	if err != nil || !jailed || reason != "bot abuse" {
+		t.Fatalf("expected jailed with reason, got jailed=%v reason=%q err=%v", jailed, reason, err)
+	}
+	notJailed, _, err := rl.IsJailed(ctx, "198.51.100.99")
+	if err != nil || notJailed {
+		t.Fatalf("expected unjailed, got %v err=%v", notJailed, err)
+	}
+	jails, err := rl.ListJails(ctx)
+	if err != nil || len(jails) != 1 || jails[0].IP != "198.51.100.2" {
+		t.Fatalf("unexpected ListJails: %+v err=%v", jails, err)
+	}
+	if err := rl.UnjailIP(ctx, "198.51.100.2"); err != nil {
+		t.Fatalf("UnjailIP failed: %v", err)
+	}
+
+	// Verify NewRedisLimiterWithClient wrapper.
+	wrapped := NewRedisLimiterWithClient(redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"}), 0)
+	defer wrapped.Close()
+	if _, err := wrapped.Allow(ctx, "k", 5, time.Second); err == nil {
+		t.Fatal("expected error against closed port")
 	}
 }

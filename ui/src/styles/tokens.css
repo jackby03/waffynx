@@ -1,40 +1,216 @@
-:root {
-  /* Color Palette - F5 / Cloudflare Enterprise Dark SOC */
-  --bg-app: #0a0d14;
-  --bg-sidebar: #0f131d;
-  --bg-panel: #131826;
-  --bg-card: #182032;
-  --bg-input: #101624;
-  --bg-hover: #1f2a42;
+@layer tokens {
+  :root {
+    color-scheme: light dark;
 
-  --border-subtle: #1e283d;
-  --border-accent: #2e3d5c;
+    /* Map <meta name="color-scheme"> override back to CSS color-scheme */
+    &:has(> head > meta[name="color-scheme"][content="dark"]) {
+      color-scheme: dark;
+    }
+    &:has(> head > meta[name="color-scheme"][content="light"]) {
+      color-scheme: light;
+    }
 
-  --text-main: #f1f5f9;
-  --text-muted: #94a3b8;
-  --text-dim: #64748b;
+    /* Raw theme pairs — Daylight Ops (Light) vs Obsidian Edge SOC (Dark) */
+    --surface-canvas-light: #f3f5f9;
+    --surface-canvas-dark: #080b10;
 
-  --accent-cyan: #00f2fe;
-  --accent-blue: #38bdf8;
-  --accent-crimson: #ff0055;
-  --accent-purple: #a855f7;
-  --accent-amber: #f59e0b;
-  --accent-emerald: #10b981;
+    --surface-rail-light: #ffffff;
+    --surface-rail-dark: #0d1118;
 
-  /* Typography */
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+    --surface-card-light: #ffffff;
+    --surface-card-dark: #111621;
 
-  /* Shadows & Glows */
-  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.7);
+    --surface-elevated-light: #f8fafc;
+    --surface-elevated-dark: #161d2b;
 
-  --glow-cyan: 0 0 20px rgba(0, 242, 254, 0.25);
-  --glow-crimson: 0 0 20px rgba(255, 0, 85, 0.25);
-  --glow-emerald: 0 0 20px rgba(16, 185, 129, 0.25);
+    --surface-hover-light: #eef2f7;
+    --surface-hover-dark: #1c2536;
 
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+    --surface-input-light: #ffffff;
+    --surface-input-dark: #0a0e15;
+
+    --surface-code: #070a10;
+    --text-code: #e2e8f0;
+
+    --border-subtle-light: #e2e8f0;
+    --border-subtle-dark: #1e2736;
+
+    --border-strong-light: #cbd5e1;
+    --border-strong-dark: #2f3d54;
+
+    --text-primary-light: #0f172a;
+    --text-primary-dark: #f1f5f9;
+
+    --text-secondary-light: #475569;
+    --text-secondary-dark: #94a3b8;
+
+    --text-muted-light: #64748b;
+    --text-muted-dark: #6b7c93;
+
+    --accent-primary-light: #0284c7;
+    --accent-primary-dark: #38bdf8;
+
+    --accent-primary-bg-light: rgba(2, 132, 199, 0.1);
+    --accent-primary-bg-dark: rgba(56, 189, 248, 0.12);
+
+    --accent-brand-light: #ea580c;
+    --accent-brand-dark: #fb923c;
+
+    --status-critical-light: #dc2626;
+    --status-critical-dark: #fb7185;
+    --status-critical-bg-light: rgba(220, 38, 38, 0.09);
+    --status-critical-bg-dark: rgba(244, 63, 94, 0.14);
+
+    --status-high-light: #d97706;
+    --status-high-dark: #fbbf24;
+    --status-high-bg-light: rgba(217, 119, 6, 0.1);
+    --status-high-bg-dark: rgba(251, 191, 36, 0.14);
+
+    --status-medium-light: #2563eb;
+    --status-medium-dark: #60a5fa;
+    --status-medium-bg-light: rgba(37, 99, 235, 0.1);
+    --status-medium-bg-dark: rgba(96, 165, 250, 0.14);
+
+    --status-ok-light: #059669;
+    --status-ok-dark: #34d399;
+    --status-ok-bg-light: rgba(5, 150, 105, 0.1);
+    --status-ok-bg-dark: rgba(52, 211, 153, 0.13);
+
+    --status-ml-light: #7c3aed;
+    --status-ml-dark: #a78bfa;
+    --status-ml-bg-light: rgba(124, 58, 237, 0.1);
+    --status-ml-bg-dark: rgba(167, 139, 250, 0.14);
+
+    --scrollbar-track-light: #e2e8f0;
+    --scrollbar-track-dark: #0d1118;
+    --scrollbar-thumb-light: #94a3b8;
+    --scrollbar-thumb-dark: #334155;
+
+    --shadow-card-light: 0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.04);
+    --shadow-card-dark: 0 1px 2px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+
+    --shadow-overlay-light: 0 20px 50px rgba(15, 23, 42, 0.18);
+    --shadow-overlay-dark: 0 24px 60px rgba(0, 0, 0, 0.72);
+
+    /* Semantic tokens — fallback defaults (light) */
+    --surface-canvas: var(--surface-canvas-light);
+    --surface-rail: var(--surface-rail-light);
+    --surface-card: var(--surface-card-light);
+    --surface-elevated: var(--surface-elevated-light);
+    --surface-hover: var(--surface-hover-light);
+    --surface-input: var(--surface-input-light);
+    --border-subtle: var(--border-subtle-light);
+    --border-strong: var(--border-strong-light);
+    --text-primary: var(--text-primary-light);
+    --text-secondary: var(--text-secondary-light);
+    --text-muted: var(--text-muted-light);
+    --accent-primary: var(--accent-primary-light);
+    --accent-primary-bg: var(--accent-primary-bg-light);
+    --accent-brand: var(--accent-brand-light);
+    --status-critical: var(--status-critical-light);
+    --status-critical-bg: var(--status-critical-bg-light);
+    --status-high: var(--status-high-light);
+    --status-high-bg: var(--status-high-bg-light);
+    --status-medium: var(--status-medium-light);
+    --status-medium-bg: var(--status-medium-bg-light);
+    --status-ok: var(--status-ok-light);
+    --status-ok-bg: var(--status-ok-bg-light);
+    --status-ml: var(--status-ml-light);
+    --status-ml-bg: var(--status-ml-bg-light);
+    --scrollbar-track: var(--scrollbar-track-light);
+    --scrollbar-thumb: var(--scrollbar-thumb-light);
+    --shadow-card: var(--shadow-card-light);
+    --shadow-overlay: var(--shadow-overlay-light);
+
+    @media (prefers-color-scheme: dark) {
+      --surface-canvas: var(--surface-canvas-dark);
+      --surface-rail: var(--surface-rail-dark);
+      --surface-card: var(--surface-card-dark);
+      --surface-elevated: var(--surface-elevated-dark);
+      --surface-hover: var(--surface-hover-dark);
+      --surface-input: var(--surface-input-dark);
+      --border-subtle: var(--border-subtle-dark);
+      --border-strong: var(--border-strong-dark);
+      --text-primary: var(--text-primary-dark);
+      --text-secondary: var(--text-secondary-dark);
+      --text-muted: var(--text-muted-dark);
+      --accent-primary: var(--accent-primary-dark);
+      --accent-primary-bg: var(--accent-primary-bg-dark);
+      --accent-brand: var(--accent-brand-dark);
+      --status-critical: var(--status-critical-dark);
+      --status-critical-bg: var(--status-critical-bg-dark);
+      --status-high: var(--status-high-dark);
+      --status-high-bg: var(--status-high-bg-dark);
+      --status-medium: var(--status-medium-dark);
+      --status-medium-bg: var(--status-medium-bg-dark);
+      --status-ok: var(--status-ok-dark);
+      --status-ok-bg: var(--status-ok-bg-dark);
+      --status-ml: var(--status-ml-dark);
+      --status-ml-bg: var(--status-ml-bg-dark);
+      --scrollbar-track: var(--scrollbar-track-dark);
+      --scrollbar-thumb: var(--scrollbar-thumb-dark);
+      --shadow-card: var(--shadow-card-dark);
+      --shadow-overlay: var(--shadow-overlay-dark);
+    }
+
+    @supports (color: light-dark(white, black)) {
+      --surface-canvas: light-dark(var(--surface-canvas-light), var(--surface-canvas-dark));
+      --surface-rail: light-dark(var(--surface-rail-light), var(--surface-rail-dark));
+      --surface-card: light-dark(var(--surface-card-light), var(--surface-card-dark));
+      --surface-elevated: light-dark(var(--surface-elevated-light), var(--surface-elevated-dark));
+      --surface-hover: light-dark(var(--surface-hover-light), var(--surface-hover-dark));
+      --surface-input: light-dark(var(--surface-input-light), var(--surface-input-dark));
+      --border-subtle: light-dark(var(--border-subtle-light), var(--border-subtle-dark));
+      --border-strong: light-dark(var(--border-strong-light), var(--border-strong-dark));
+      --text-primary: light-dark(var(--text-primary-light), var(--text-primary-dark));
+      --text-secondary: light-dark(var(--text-secondary-light), var(--text-secondary-dark));
+      --text-muted: light-dark(var(--text-muted-light), var(--text-muted-dark));
+      --accent-primary: light-dark(var(--accent-primary-light), var(--accent-primary-dark));
+      --accent-primary-bg: light-dark(var(--accent-primary-bg-light), var(--accent-primary-bg-dark));
+      --accent-brand: light-dark(var(--accent-brand-light), var(--accent-brand-dark));
+      --status-critical: light-dark(var(--status-critical-light), var(--status-critical-dark));
+      --status-critical-bg: light-dark(var(--status-critical-bg-light), var(--status-critical-bg-dark));
+      --status-high: light-dark(var(--status-high-light), var(--status-high-dark));
+      --status-high-bg: light-dark(var(--status-high-bg-light), var(--status-high-bg-dark));
+      --status-medium: light-dark(var(--status-medium-light), var(--status-medium-dark));
+      --status-medium-bg: light-dark(var(--status-medium-bg-light), var(--status-medium-bg-dark));
+      --status-ok: light-dark(var(--status-ok-light), var(--status-ok-dark));
+      --status-ok-bg: light-dark(var(--status-ok-bg-light), var(--status-ok-bg-dark));
+      --status-ml: light-dark(var(--status-ml-light), var(--status-ml-dark));
+      --status-ml-bg: light-dark(var(--status-ml-bg-light), var(--status-ml-bg-dark));
+      --scrollbar-track: light-dark(var(--scrollbar-track-light), var(--scrollbar-track-dark));
+      --scrollbar-thumb: light-dark(var(--scrollbar-thumb-light), var(--scrollbar-thumb-dark));
+    }
+
+    /* Explicit dark/light shadows for manual overrides */
+    &:has(> head > meta[name="color-scheme"][content="dark"]) {
+      --shadow-card: var(--shadow-card-dark);
+      --shadow-overlay: var(--shadow-overlay-dark);
+    }
+    &:has(> head > meta[name="color-scheme"][content="light"]) {
+      --shadow-card: var(--shadow-card-light);
+      --shadow-overlay: var(--shadow-overlay-light);
+    }
+
+    /* Typography */
+    --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", "Fira Code", Consolas, monospace;
+
+    /* Scale & Geometry */
+    --rail-width: 248px;
+    --rail-collapsed: 64px;
+    --topbar-height: 56px;
+    --radius-xs: 4px;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-pill: 9999px;
+
+    --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+    --dur-fast: 140ms;
+    --dur-base: 220ms;
+
+    accent-color: var(--accent-primary);
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  }
 }
