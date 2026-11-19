@@ -45,16 +45,19 @@ export interface Status {
   engine_state: "online" | "degraded" | "offline";
 }
 
+/**
+ * A rule from the managed catalog, as /api/v1/rules returns it.
+ *
+ * The catalog is immutable at runtime: there is no per-rule enable toggle and no
+ * hit counter, so the view must not pretend otherwise.
+ */
 export interface Rule {
   id: string;
   name: string;
-  category: "sqli" | "xss" | "traversal" | "bot" | "cmdinj" | "ml" | "custom";
   severity: "critical" | "high" | "medium" | "low";
-  action: "deny" | "challenge" | "log";
-  pattern: string;
-  hits: number;
-  description: string;
-  enabled: boolean;
+  action: "block" | "log";
+  tags: string[];
+  fields: string[];
 }
 
 export interface BannedIP {

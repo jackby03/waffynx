@@ -5,7 +5,6 @@ import type {
 import {
   MOCK_INITIAL_STATUS,
   MOCK_INITIAL_METRICS,
-  MOCK_RULES,
   MOCK_BANNED_IPS,
   MOCK_PLUGINS,
 } from "./mock/mockFixtures";
@@ -14,7 +13,6 @@ import { getInitialEvents, startMockEventStream } from "./mock/mockEvents";
 import { toWafEvent } from "./events";
 
 // Local state for mutable mock fixtures
-let mockRules = [...MOCK_RULES];
 let mockBanned = [...MOCK_BANNED_IPS];
 let mockPlugins = [...MOCK_PLUGINS];
 let mockStatus = { ...MOCK_INITIAL_STATUS };
@@ -104,13 +102,12 @@ export const wafApi = {
   // Security Policies
   async getRules(): Promise<Rule[]> {
     if (isMockMode()) {
-      return mockRules;
+      // No fixture: a fake rule matrix hides that the catalog is the core of the
+      // product, and it stops matching the real shape the moment it changes.
+      return [];
     }
-    try {
-      return await apiFetch<Rule[]>("/api/v1/rules");
-    } catch {
-      return mockRules;
-    }
+    const data = await apiFetch<{ rules: Rule[] }>("/api/v1/rules");
+    return data.rules ?? [];
   },
 
   // Sites: the reverse-proxy topology. No mock fallback on purpose: if the API

@@ -33,6 +33,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v1/sites/{host}", withAuth(requireAdmin(s.handleSiteDelete)))
 
 	// Plugins
+	mux.HandleFunc("GET /api/v1/rules", withAuth(s.handleRuleList))
 	mux.HandleFunc("GET /api/v1/plugins", withAuth(s.handleListPlugins))
 	mux.HandleFunc("GET /api/v1/plugins/{name}", withAuth(s.handleGetPlugin))
 
@@ -62,6 +63,16 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /debug/pprof/trace", withAuth(requireAdmin(pprof.Trace)))
 
 	// UI SPA assets
+	// Unknown /api/v1 paths must not fall through to the SPA/JSON root handler:
+	// it answers 200, so a typo in the dashboard looked like a successful call
+	// that returned the wrong shape ("r.map is not a function").
+	//
+	// Registered per method because a method-less subtree conflicts with "GET /"
+	// in the Go 1.22 mux, and the panic happens at startup, not at request time.
+	for _, method := range []string{"GET", "POST", "PUT", "DELETE", "PATCH"} {
+		mux.HandleFunc(method+" /api/v1/", s.handleAPINotFound)
+	}
+
 	mux.HandleFunc("GET /", s.handleRoot)
 	mux.HandleFunc("GET /assets/", s.handleUIAsset)
 }
