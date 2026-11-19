@@ -5,6 +5,8 @@ import (
 	"encoding/base32"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/crypto/bcrypt"
@@ -16,6 +18,10 @@ import (
 //
 //nolint:gosec // G101: this is the name of an environment variable, not a credential.
 const EnvAdminPassword = "WAFFYNX_ADMIN_PASSWORD"
+
+// AdminHashFile is the file inside the data directory that persists the admin
+// credential, so a new container with the same volume keeps the same password.
+const AdminHashFile = "admin.hash"
 
 // AdminCredential is the resolved admin user.
 type AdminCredential struct {
@@ -49,9 +55,7 @@ func resolveAdmin(cfg *Config, getenv func(string) string) (AdminCredential, err
 		if err != nil {
 			return AdminCredential{}, fmt.Errorf("hashing %s: %w", EnvAdminPassword, err)
 		}
-		if err := hashInto(cfg, "admin", string(hash)); err != nil {
-			return AdminCredential{}, err
-		}
+		hashInto(cfg, "admin", string(hash))
 		return AdminCredential{Username: "admin", Password: pw, Generated: true}, nil
 	}
 
@@ -59,6 +63,13 @@ func resolveAdmin(cfg *Config, getenv func(string) string) (AdminCredential, err
 	// keep it and stay quiet.
 	if existing, ok := configuredAdmin(cfg); ok {
 		return AdminCredential{Username: existing}, nil
+	}
+
+	// A hash persisted in the data directory survives a new container with the same
+	// volume, which is what makes the printed password usable after a recreate.
+	if persisted, ok := persistedAdminHash(getenv); ok {
+		hashInto(cfg, "admin", persisted)
+		return AdminCredential{Username: "admin"}, nil
 	}
 
 	password, err := generatePassword()
@@ -69,8 +80,38 @@ func resolveAdmin(cfg *Config, getenv func(string) string) (AdminCredential, err
 	if err != nil {
 		return AdminCredential{}, fmt.Errorf("hashing the generated password: %w", err)
 	}
-	return AdminCredential{Username: "admin", Password: password, Generated: true},
-		hashInto(cfg, "admin", string(hash))
+	// Persist before returning: if this write fails, the credential must not be
+	// announced, or the operator would store a password that stops working on the
+	// next boot.
+	if err := writeFileAtomic(adminHashPath(getenv), []byte(string(hash))); err != nil {
+		return AdminCredential{}, fmt.Errorf("persisting the admin hash: %w", err)
+	}
+	hashInto(cfg, "admin", string(hash))
+	return AdminCredential{Username: "admin", Password: password, Generated: true}, nil
+}
+
+// adminHashPath mirrors jwtSecretPath: the data directory is the durable store for
+// anything that must outlive the image.
+func adminHashPath(getenv func(string) string) string {
+	dataDir := envValue(getenv, EnvDataDir)
+	if dataDir == "" {
+		dataDir = DefaultDataDir
+	}
+	return filepath.Join(dataDir, AdminHashFile)
+}
+
+// persistedAdminHash returns a usable hash from the data directory, if any.
+// A corrupt or missing file is not an error: the next step generates a new one.
+func persistedAdminHash(getenv func(string) string) (string, bool) {
+	raw, err := os.ReadFile(adminHashPath(getenv))
+	if err != nil {
+		return "", false
+	}
+	hash := strings.TrimSpace(string(raw))
+	if _, err := bcrypt.Cost([]byte(hash)); err != nil {
+		return "", false
+	}
+	return hash, true
 }
 
 // configuredAdmin reports the username of the first user whose hash is a real
@@ -89,15 +130,14 @@ func configuredAdmin(cfg *Config) (string, bool) {
 }
 
 // hashInto installs a single admin user, replacing whatever placeholder was there.
-func hashInto(cfg *Config, username, hash string) error {
+func hashInto(cfg *Config, username, hash string) {
 	for i := range cfg.API.Auth.Users {
 		if cfg.API.Auth.Users[i].Username == username {
 			cfg.API.Auth.Users[i].PasswordHash = hash
-			return nil
+			return
 		}
 	}
 	cfg.API.Auth.Users = append(cfg.API.Auth.Users, UserConfig{Username: username, PasswordHash: hash})
-	return nil
 }
 
 // generatePassword returns a human-transcribable random password.

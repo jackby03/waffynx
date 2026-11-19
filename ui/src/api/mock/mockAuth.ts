@@ -11,7 +11,7 @@ export function mockLogin(username: string, password: string): UserSession {
     localStorage.setItem("waffynx_auth", JSON.stringify(session));
     return session;
   }
-  throw new Error("Invalid username or password (use admin / admin)");
+  throw new Error("Invalid username or password");
 }
 
 export function getStoredSession(): UserSession | null {

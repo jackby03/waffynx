@@ -32,12 +32,12 @@ export const ThreatRadar: React.FC<ThreatRadarProps> = ({ onSelectEvent }) => {
   // Category counts
   const categories = useMemo(() => {
     const counts = {
-      sqli: events.filter((e) => e.rule_id.includes("sqli")).length,
-      xss: events.filter((e) => e.rule_id.includes("xss")).length,
-      traversal: events.filter((e) => e.rule_id.includes("traversal")).length,
-      bot: events.filter((e) => e.rule_id.includes("bot")).length,
-      cmdinj: events.filter((e) => e.rule_id.includes("cmdinj")).length,
-      ml: events.filter((e) => e.rule_id.includes("appsec") || e.rule_id.includes("ml")).length,
+      sqli: events.filter((e) => (e.rule_id || "").includes("sqli")).length,
+      xss: events.filter((e) => (e.rule_id || "").includes("xss")).length,
+      traversal: events.filter((e) => (e.rule_id || "").includes("traversal")).length,
+      bot: events.filter((e) => (e.rule_id || "").includes("bot")).length,
+      cmdinj: events.filter((e) => (e.rule_id || "").includes("cmdinj")).length,
+      ml: events.filter((e) => (e.rule_id || "").includes("appsec") || (e.rule_id || "").includes("ml")).length,
     };
     const total = Object.values(counts).reduce((a, b) => a + b, 0) || 1;
 

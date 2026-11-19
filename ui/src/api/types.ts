@@ -1,4 +1,7 @@
 export interface WafEvent {
+  /** Server-side discriminator: "blocked", "rate_limited", "stats", ... */
+  type?: string;
+  reason?: string;
   timestamp: string;
   rule_id: string;
   action: "deny" | "allow" | "challenge" | "rate_limited";
