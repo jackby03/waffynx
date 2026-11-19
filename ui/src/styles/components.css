@@ -1161,20 +1161,19 @@
 /* ============================================================
    FORENSIC DRAWER
    ============================================================ */
-.forensic-drawer-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+/* The drawer is a native <dialog>: the browser owns the top layer, the focus
+   trap and Esc. What is left to style is the panel and the backdrop. */
+.forensic-drawer::backdrop {
   background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(4px);
-  z-index: 999;
-  display: flex;
-  justify-content: flex-end;
 }
 
 .forensic-drawer {
+  /* A modal dialog is centred by default; pin it to the right edge instead. */
+  margin: 0 0 0 auto;
+  max-width: min(520px, 100vw);
+  max-height: 100dvh;
+  border: none;
   width: 520px;
   background: var(--bg-sidebar);
   border-left: 1px solid var(--border-accent);
@@ -1186,6 +1185,16 @@
   overflow-y: auto;
   box-shadow: var(--shadow-lg);
   animation: slideInRight 0.25s ease-out;
+}
+
+/* Without these, scrolling inside the drawer or over the backdrop scrolls the
+   page behind it. */
+dialog:modal {
+  overscroll-behavior: contain;
+}
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
 }
 
 @keyframes slideInRight {

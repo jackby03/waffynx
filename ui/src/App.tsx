@@ -65,7 +65,11 @@ export const App: React.FC = () => {
           </div>
 
           <form className="login-form" onSubmit={handleLoginSubmit}>
-            {loginError && <div className="login-error">{loginError}</div>}
+            {loginError && (
+              <div className="login-error" id="login-error" role="alert">
+                {loginError}
+              </div>
+            )}
 
             <div className="form-field">
               <label className="form-label" htmlFor="username">
@@ -77,6 +81,9 @@ export const App: React.FC = () => {
                 className="form-input"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
+                autoComplete="username"
+                aria-invalid={loginError ? true : false}
+                aria-describedby={loginError ? "login-error" : undefined}
                 autoFocus
                 required
               />
@@ -92,11 +99,14 @@ export const App: React.FC = () => {
                 className="form-input"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                aria-invalid={loginError ? true : false}
+                aria-describedby={loginError ? "login-error" : undefined}
                 required
               />
             </div>
 
-            <button type="submit" className="login-btn" disabled={isSubmitting}>
+            <button type="submit" className="login-btn" disabled={isSubmitting} aria-busy={isSubmitting}>
               {isSubmitting ? "Authenticating..." : "Access Control Room"}
             </button>
 
