@@ -1,20 +1,202 @@
-export interface WafEvent {
-  /** Server-side discriminator: "blocked", "rate_limited", "stats", ... */
-  type?: string;
-  reason?: string;
+/**
+ * Frozen client-side contracts for the control-plane API.
+ *
+ * Everything here is checked against the Go structs in this repository; if a field
+ * is not sent by the server it does not belong in this file. The rule exists
+ * because the previous contract invented `status_code`, `country`, `hits` and
+ * `enabled` fields that no handler ever wrote, and the views then rendered blanks
+ * as if the backend were broken.
+ *
+ * Two shapes are deliberately separate:
+ *   WireWafEvent  — exactly what the engine puts on the socket.
+ *   WafEvent      — what the console shows, with fields derived on the client.
+ * Collapsing them is how "matched value" ended up looking like server data when it
+ * was always a guess.
+ */
+
+// ---------------------------------------------------------------------------
+// Events
+// ---------------------------------------------------------------------------
+
+/** The only event types the data plane publishes today. There is no "allowed". */
+export type WireEventType = "blocked" | "rate_limited";
+
+/**
+ * A WAF event as the engine sends it.
+ *
+ * The sidecar publishes into its broker only when the verdict is "block", so the
+ * console must never expect an "allowed" series: the backend does not emit one.
+ */
+export interface WireWafEvent {
+  type?: WireEventType | string;
   timestamp: string;
-  rule_id: string;
-  action: "deny" | "allow" | "challenge" | "rate_limited";
-  remote_ip: string;
   method: string;
   path: string;
+  remote_ip: string;
+  rule_id: string;
+  reason?: string;
+  /** Raw matched fragment, already normalised by the engine. */
+  payload?: string;
+}
+
+/** A periodic stats frame from the same stream. It is not an event. */
+export interface LiveStatsFrame {
+  type: "stats";
+  timestamp?: string;
+  total?: number;
+  blocked?: number;
+  allowed?: number;
+  rate_limited?: number;
+  max?: number;
+}
+
+export type Verdict = "deny" | "allow" | "challenge" | "rate_limited";
+
+/**
+ * A WAF event as the console renders it.
+ *
+ * `action` is derived from `type` because the engine does not send it; the
+ * `matched_*` fields are derived from `reason`/`payload` for display and are
+ * labelled as such in the drawer.
+ */
+export interface WafEvent extends WireWafEvent {
+  action: Verdict;
   matched_field: string;
   matched_value: string;
-  anomaly_score?: number;
-  country?: string;
-  user_agent?: string;
-  status_code?: number;
 }
+
+// ---------------------------------------------------------------------------
+// Managed catalog
+// ---------------------------------------------------------------------------
+
+export type Severity = "critical" | "high" | "medium" | "low";
+
+/**
+ * One signature from the managed catalog (/api/v1/rules).
+ *
+ * The catalog is immutable while the process runs: there is no enable toggle and
+ * no hit counter, because neither exists in internal/catalog.
+ */
+export interface ManagedRule {
+  id: string;
+  name: string;
+  severity: Severity;
+  action: "block" | "log";
+  tags: string[];
+  fields: string[];
+}
+
+/** Custom rules live in the data plane and are mutated through the sidecar. */
+export type CustomRuleAction = "block" | "log" | "allow";
+
+export interface CustomRule {
+  id: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+  priority: number;
+  action: CustomRuleAction;
+  methods?: string[];
+  path_pattern?: string;
+  path_exact?: string;
+  hosts?: string[];
+  ips?: string[];
+  ip_cidrs?: string[];
+  header_name?: string;
+  header_value?: string;
+  body_contains?: string;
+  query_param?: string;
+  query_value?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Host bans
+// ---------------------------------------------------------------------------
+
+/**
+ * An IP ban.
+ *
+ * Only meaningful in system mode: the ban is applied to the host firewall by
+ * waf-agent. In the container there is no NET_ADMIN, so the control plane records
+ * the intent and the enforcement point is absent.
+ */
+export interface BannedIP {
+  ip: string;
+  reason: string;
+  created_at: string;
+  expires_at: string;
+  /** Seconds remaining, computed by the API at read time. */
+  ttl: number;
+}
+
+// ---------------------------------------------------------------------------
+// Plugins
+// ---------------------------------------------------------------------------
+
+/** The plugin phases the engine understands. */
+export type PluginPhase = "pre_request" | "post_request" | "response" | "log";
+
+/** A plugin as /api/v1/plugins returns it: metadata only, never live state. */
+export interface PluginMetadata {
+  name: string;
+  version: string;
+  description: string;
+  author: string;
+  license: string;
+  phase: PluginPhase | string;
+  priority: number;
+  tags?: string[];
+  homepage?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Learning
+// ---------------------------------------------------------------------------
+
+export interface LearningSuggestion {
+  type: "whitelist" | "blocklist" | "rate_limit" | string;
+  pattern: string;
+  description: string;
+  /** 0..1 */
+  confidence: number;
+  matches: number;
+  sample: string;
+}
+
+export interface LearningStats {
+  total: number;
+  blocked: number;
+  allowed: number;
+  max: number;
+}
+
+// ---------------------------------------------------------------------------
+// Sites
+// ---------------------------------------------------------------------------
+
+export interface TLSPair {
+  cert_file: string;
+  key_file: string;
+}
+
+export interface PathRule {
+  path: string;
+  upstream?: string;
+}
+
+/** A reverse-proxy site: the object the control plane renders into nginx. */
+export interface Site {
+  host: string;
+  upstream: string;
+  tls?: TLSPair;
+  paths?: PathRule[];
+  plugins?: string[];
+  headers?: Record<string, string>;
+}
+
+// ---------------------------------------------------------------------------
+// Observability
+// ---------------------------------------------------------------------------
 
 export interface Metrics {
   go: {
@@ -48,66 +230,44 @@ export interface Status {
   };
 }
 
-/**
- * A rule from the managed catalog, as /api/v1/rules returns it.
- *
- * The catalog is immutable at runtime: there is no per-rule enable toggle and no
- * hit counter, so the view must not pretend otherwise.
- */
-export interface Rule {
-  id: string;
-  name: string;
-  severity: "critical" | "high" | "medium" | "low";
-  action: "block" | "log";
-  tags: string[];
-  fields: string[];
+/** One audit record (/api/v1/audit). */
+export interface AuditEvent {
+  timestamp: string;
+  actor: string;
+  actor_ip: string;
+  action: string;
+  resource: string;
+  result: string;
+  details?: string;
+  request_id?: string;
 }
 
-export interface BannedIP {
-  ip: string;
-  reason: string;
-  created_at: string;
-  expires_at: string;
-  ttl_seconds: number;
-  packets_dropped?: number;
-}
+// ---------------------------------------------------------------------------
+// Auth
+// ---------------------------------------------------------------------------
 
-export interface PluginItem {
-  id: string;
-  name: string;
-  version: string;
-  author: string;
-  category: "core" | "detection" | "mitigation" | "ml";
-  description: string;
-  enabled: boolean;
-  installed: boolean;
-  priority: number;
-  tags: string[];
-}
+export type Role = "admin" | "analyst" | "viewer";
 
 export interface UserSession {
   token: string;
   username: string;
-  role: "admin" | "analyst" | "viewer";
+  role: Role;
+  /** Epoch milliseconds. */
   expires_at: number;
 }
 
-/** A reverse-proxy site, as stored by the control plane and rendered into nginx. */
-export interface TLSPair {
-  cert_file: string;
-  key_file: string;
+/** GET /api/v1/auth/me — the truth about who is logged in. */
+export interface CurrentUser {
+  username: string;
+  role: Role | string;
+  scopes: string[];
 }
 
-export interface PathRule {
-  path: string;
-  upstream?: string;
-}
+// ---------------------------------------------------------------------------
+// Compatibility aliases
+// ---------------------------------------------------------------------------
 
-export interface Site {
-  host: string;
-  upstream: string;
-  tls?: TLSPair;
-  paths?: PathRule[];
-  plugins?: string[];
-  headers?: Record<string, string>;
-}
+/** @deprecated Use ManagedRule: there is a single rule concept on the read path. */
+export type Rule = ManagedRule;
+/** @deprecated Use PluginMetadata: the API exposes metadata, not live state. */
+export type PluginItem = PluginMetadata;

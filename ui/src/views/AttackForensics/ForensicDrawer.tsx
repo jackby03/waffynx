@@ -46,7 +46,7 @@ export const ForensicDrawer: React.FC<ForensicDrawerProps> = ({ event, onClose }
   if (!event) return null;
 
   const handleCopyRaw = () => {
-    const raw = `${event.method} ${event.path} HTTP/1.1\nHost: target-application.internal\nUser-Agent: ${event.user_agent || "Unknown"}\nX-Waffynx-Rule: ${event.rule_id}\n\n[Matched Field: ${event.matched_field}]\n${event.matched_value}`;
+    const raw = `${event.method} ${event.path} HTTP/1.1\nHost: target-application.internal\nUser-Agent: (not forwarded by the C module)\nX-Waffynx-Rule: ${event.rule_id}\n\n[Matched Field: ${event.matched_field}]\n${event.matched_value}`;
     navigator.clipboard.writeText(raw);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -100,9 +100,11 @@ export const ForensicDrawer: React.FC<ForensicDrawerProps> = ({ event, onClose }
             <span className="drawer-cell-value purple">{event.matched_field}</span>
           </div>
           <div className="drawer-cell">
-            <span className="drawer-cell-label">ML Anomaly Score</span>
+            <span className="drawer-cell-label">Matched field</span>
             <span className="drawer-cell-value amber">
-              {event.anomaly_score ? `${(event.anomaly_score * 100).toFixed(1)}%` : "N/A"}
+              {/* Derived on the client from the event reason: the engine sends no
+                  field name, so this is a label, not server data. */}
+              {event.matched_field || "unavailable"}
             </span>
           </div>
         </div>
