@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 
 	"github.com/jackby03/waffynx/internal/sites"
@@ -143,6 +144,13 @@ func TestBootstrapAppliesEnvSiteAndSecret(t *testing.T) {
 
 func TestBootstrapNoOpLeavesConfigByteIdentical(t *testing.T) {
 	nginxConf := filepath.Join(t.TempDir(), "nginx", "conf")
+	// The admin hash has to be usable for this to be a no-op: a fresh deployment
+	// legitimately rewrites the file once to persist the generated credential
+	// (see TestBootstrapPersistsGeneratedAdmin).
+	hash, err := bcrypt.GenerateFromPassword([]byte("an-existing-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hashing fixture password: %v", err)
+	}
 	path := writeBootstrapConfig(t, fmt.Sprintf(`
 # this comment must survive a restart
 name: bootstrap-test
@@ -151,7 +159,10 @@ nginx:
 api:
   auth:
     jwt_secret: %s
-`, nginxConf, testJWTSecret))
+    users:
+      - username: admin
+        password_hash: %q
+`, nginxConf, testJWTSecret, string(hash)))
 	dataDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dataDir, JWTSecretFile), []byte(testJWTSecret), 0o600); err != nil {
 		t.Fatalf("writing persisted secret: %v", err)

@@ -52,10 +52,8 @@ export const wafApi = {
       localStorage.setItem("waffynx_auth", JSON.stringify(session));
       return session;
     } catch (err) {
-      // Fallback to mock login in case backend is down or during transition
-      if (username === "admin" && password === "admin") {
-        return mockLogin(username, password);
-      }
+      // No mock fallback: an invented session with a fake token made the whole
+      // dashboard look alive while every request behind it was failing 401.
       throw err;
     }
   },
@@ -117,7 +115,10 @@ export const wafApi = {
   // Sites: the reverse-proxy topology. No mock fallback on purpose: if the API
   // cannot list them, the operator must see the error, not an invented topology.
   async listSites(): Promise<Site[]> {
-    return apiFetch<Site[]>("/api/v1/sites");
+    // The API wraps the list: {"sites": [...]}. Verified against a running
+    // container, not inferred from the handler name.
+    const data = await apiFetch<{ sites: Site[] }>("/api/v1/sites");
+    return data.sites ?? [];
   },
 
   async createSite(site: Site): Promise<Site> {

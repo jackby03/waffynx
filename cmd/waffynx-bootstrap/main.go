@@ -28,6 +28,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Show the credential once. It is not written in clear text anywhere: the
+	// config gets the bcrypt hash, so this output is the only place the operator
+	// can read it. Setting WAFFYNX_ADMIN_PASSWORD again rotates it.
+	if result.Admin.Generated && result.Admin.Password != "" {
+		logging.Warn().
+			Str("username", result.Admin.Username).
+			Str("password", result.Admin.Password).
+			Msg("generated an admin password for this deployment; store it now, it will not be shown again")
+	}
+
 	if result.Secret.Generated {
 		logging.Warn().
 			Str("path", result.Secret.Path).

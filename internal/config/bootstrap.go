@@ -17,6 +17,10 @@ import (
 type BootstrapResult struct {
 	Config *Config
 	Secret JWTSecret
+	// Admin reports the credential resolved for this boot. Password is non-empty
+	// only when it was generated or supplied now, and must be shown to the
+	// operator once: it is not recoverable from the config afterwards.
+	Admin AdminCredential
 }
 
 // Bootstrap makes an environment-only deployment possible: it loads path, applies
@@ -49,11 +53,19 @@ func Bootstrap(path string, getenv func(string) string) (*BootstrapResult, error
 	}
 	effective.API.Auth.JWTSecret = secret.Value
 
+	// A fresh deployment has no usable admin hash: without this, the API answers
+	// "invalid credentials" to every login and the dashboard is unreachable.
+	admin, err := resolveAdmin(effective, getenv)
+	if err != nil {
+		return nil, err
+	}
+
 	siteOverlay := envValue(getenv, EnvSiteHost) != "" || envValue(getenv, EnvSiteUpstream) != ""
 	listenOverlay := envValue(getenv, EnvListen) != ""
-	changed := siteOverlay || listenOverlay || loaded.API.Auth.JWTSecret != secret.Value
+	adminChanged := admin.Generated
+	changed := siteOverlay || listenOverlay || adminChanged || loaded.API.Auth.JWTSecret != secret.Value
 
-	result := &BootstrapResult{Config: effective, Secret: secret}
+	result := &BootstrapResult{Config: effective, Secret: secret, Admin: admin}
 	if changed {
 		merged, mergeErr := mergeBootstrapConfig(raw, effective, siteOverlay, listenOverlay)
 		if mergeErr != nil {
@@ -157,6 +169,14 @@ func mergeBootstrapConfig(raw []byte, cfg *Config, sitesRequested, listenRequest
 		return nil, err
 	}
 	auth["jwt_secret"] = cfg.API.Auth.JWTSecret
+
+	// The admin hash has to be persisted like the secret: otherwise every boot
+	// sees the shipped placeholder, generates a new password and invalidates the
+	// session the operator just created. Users are only rewritten when the
+	// bootstrap resolved them, so a hand-managed list is left alone.
+	if len(cfg.API.Auth.Users) > 0 {
+		auth["users"] = cfg.API.Auth.Users
+	}
 
 	merged, err := yaml.Marshal(doc)
 	if err != nil {
