@@ -127,6 +127,15 @@ func (w *auditResponseWriter) Flush() {
 	}
 }
 
+// Unwrap exposes the underlying writer so http.ResponseController can reach it.
+//
+// Without it, a streaming handler cannot clear the server WriteTimeout: the
+// controller returns ErrNotSupported for any wrapper that does not implement
+// Unwrap, the deadline stays at 10s, and the SSE feed dies at the heartbeat.
+func (w *auditResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 func (s *Server) auditMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.audit == nil {

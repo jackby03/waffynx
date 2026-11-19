@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"runtime"
@@ -10,6 +11,7 @@ import (
 	"github.com/jackby03/waffynx/internal/audit"
 	"github.com/jackby03/waffynx/internal/config"
 	"github.com/jackby03/waffynx/internal/events"
+	"github.com/jackby03/waffynx/internal/logging"
 )
 
 func (s *Server) handleAuditQuery(w http.ResponseWriter, r *http.Request) {
@@ -64,6 +66,10 @@ func (s *Server) handleIngestEvent(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, r, http.StatusAccepted, map[string]string{"status": "ingested"})
 }
 
+// sseHeartbeat is the interval between stats frames. A variable so a test can use a
+// short one instead of waiting ten seconds.
+var sseHeartbeat = 10 * time.Second
+
 func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -75,10 +81,19 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
+	// The server sets WriteTimeout: 10s for ordinary requests, which killed this
+	// stream exactly at the heartbeat interval: the dashboard saw a dead feed every
+	// ten seconds and could never stay connected. A streaming response owns its
+	// deadline; clearing it is the supported way to opt out of the server default.
+	rc := http.NewResponseController(w)
+	if err := rc.SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		logging.Warn().Err(err).Msg("could not clear the write deadline for the event stream")
+	}
+
 	w.Write([]byte(": connected\n\n"))
 	flusher.Flush()
 
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(sseHeartbeat)
 	defer ticker.Stop()
 
 	var eventCh <-chan []byte
