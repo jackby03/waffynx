@@ -9,13 +9,13 @@ interface TopbarProps {
 }
 
 const TAB_TITLES: Record<ViewTab, { title: string; subtitle: string }> = {
-  threats: {
-    title: "Threat Radar & Telemetry",
-    subtitle: "Real-time edge inspection metrics and anomaly telemetry",
+  overview: {
+    title: "Overview",
+    subtitle: "Blocks per minute and stored history reported by the control plane",
   },
-  forensics: {
-    title: "Live Incident Forensics",
-    subtitle: "Deep packet inspection and matched signature analysis",
+  events: {
+    title: "Security Events",
+    subtitle: "Stored history plus the live stream, newest first",
   },
   sites: {
     title: "Sites & Upstreams",

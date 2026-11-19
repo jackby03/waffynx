@@ -13,8 +13,6 @@ interface WafContextType {
   connected: boolean;
   /** Set when the last refresh failed. Views must show it instead of looking empty. */
   loadError: string | null;
-  selectedEvent: WafEvent | null;
-  setSelectedEvent: (e: WafEvent | null) => void;
   unbanIP: (ip: string) => Promise<void>;
   refreshAll: () => Promise<void>;
 }
@@ -30,7 +28,6 @@ export const WafProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [bannedIPs, setBannedIPs] = useState<BannedIP[]>([]);
   const [plugins, setPlugins] = useState<PluginItem[]>([]);
   const [connected, setConnected] = useState<boolean>(false);
-  const [selectedEvent, setSelectedEvent] = useState<WafEvent | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const refreshAll = useCallback(async () => {
@@ -95,8 +92,6 @@ export const WafProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         plugins,
         connected,
         loadError,
-        selectedEvent,
-        setSelectedEvent,
         unbanIP,
 
         refreshAll,

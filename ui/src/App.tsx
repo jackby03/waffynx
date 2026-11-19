@@ -4,9 +4,8 @@ import { useWaf } from "./context/WafContext";
 import { Sidebar, type ViewTab } from "./components/layout/Sidebar";
 import { Topbar } from "./components/layout/Topbar";
 import { ThreatTicker } from "./components/layout/ThreatTicker";
-import { ThreatRadar } from "./views/ThreatRadar/ThreatRadar";
-import { AttackForensics } from "./views/AttackForensics/AttackForensics";
-import { ForensicDrawer } from "./views/AttackForensics/ForensicDrawer";
+import { OverviewView } from "./views/Overview/OverviewView";
+import { EventsView } from "./views/Events/EventsView";
 import { SecurityPolicies } from "./views/SecurityPolicies/SecurityPolicies";
 import { IpBans } from "./views/HostFirewall/IpBans";
 import { SitesView } from "./views/Sites/SitesView";
@@ -14,9 +13,9 @@ import { ErrorBoundary } from "./components/common/ErrorBoundary";
 
 export const App: React.FC = () => {
   const { isAuthenticated, login } = useAuth();
-  const { events, bannedIPs, selectedEvent, setSelectedEvent } = useWaf();
+  const { events, bannedIPs } = useWaf();
 
-  const [currentTab, setCurrentTab] = useState<ViewTab>("threats");
+  const [currentTab, setCurrentTab] = useState<ViewTab>("overview");
 
   // Login form state
   const [username, setUsername] = useState("admin");
@@ -134,24 +133,19 @@ export const App: React.FC = () => {
         <Topbar currentTab={currentTab} />
         <ThreatTicker
           events={events}
-          onSelectEvent={(e) => setSelectedEvent(e)}
-          onViewAll={() => setCurrentTab("forensics")}
+          onSelectEvent={() => setCurrentTab("events")}
+          onViewAll={() => setCurrentTab("events")}
         />
 
         {/* Tab Views */}
         <ErrorBoundary>
-        {currentTab === "threats" && <ThreatRadar />}
-        {currentTab === "forensics" && <AttackForensics />}
+        {currentTab === "overview" && <OverviewView />}
+        {currentTab === "events" && <EventsView />}
         {currentTab === "sites" && <SitesView />}
         {currentTab === "policies" && <SecurityPolicies />}
         {currentTab === "firewall" && <IpBans />}
         </ErrorBoundary>
       </main>
-
-      {/* Global Forensic Drawer if opened from Ticker/Radar while in any tab */}
-      {currentTab !== "forensics" && (
-        <ForensicDrawer event={selectedEvent} onClose={() => setSelectedEvent(null)} />
-      )}
     </div>
   );
 };
