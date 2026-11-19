@@ -1,4 +1,4 @@
-import { getStoredSession } from "./mock/mockAuth";
+import { getStoredSession } from "./session";
 
 const BASE_URL = "";
 
