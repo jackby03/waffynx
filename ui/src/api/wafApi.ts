@@ -176,7 +176,17 @@ export const wafApi = {
       }
     };
 
-    void connect();
+    // Reconnect: a proxy restart or an idle-timeout closes the stream, and without
+    // a retry the dashboard would sit on "Connecting…" until a manual reload.
+    const run = async () => {
+      while (!controller.signal.aborted) {
+        await connect();
+        if (controller.signal.aborted) break;
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    };
+
+    void run();
     return () => controller.abort();
   },
 };
