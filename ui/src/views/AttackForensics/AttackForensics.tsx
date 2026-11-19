@@ -30,8 +30,8 @@ export const AttackForensics: React.FC = () => {
       // Category filter
       if (filter !== "all") {
         if (filter === "ml") {
-          if (!e.rule_id.includes("appsec") && !e.rule_id.includes("ml")) return false;
-        } else if (!e.rule_id.toLowerCase().includes(filter)) {
+          if (!(e.rule_id || "").includes("appsec") && !(e.rule_id || "").includes("ml")) return false;
+        } else if (!(e.rule_id || "").toLowerCase().includes(filter)) {
           return false;
         }
       }
@@ -39,10 +39,10 @@ export const AttackForensics: React.FC = () => {
       if (search.trim()) {
         const q = search.toLowerCase();
         const match =
-          e.remote_ip.toLowerCase().includes(q) ||
-          e.path.toLowerCase().includes(q) ||
-          e.rule_id.toLowerCase().includes(q) ||
-          e.matched_value.toLowerCase().includes(q);
+          (e.remote_ip || "").toLowerCase().includes(q) ||
+          (e.path || "").toLowerCase().includes(q) ||
+          (e.rule_id || "").toLowerCase().includes(q) ||
+          (e.matched_value || "").toLowerCase().includes(q);
         if (!match) return false;
       }
       return true;
@@ -62,8 +62,8 @@ export const AttackForensics: React.FC = () => {
               tab.id === "all"
                 ? events.length
                 : tab.id === "ml"
-                ? events.filter((e) => e.rule_id.includes("appsec") || e.rule_id.includes("ml")).length
-                : events.filter((e) => e.rule_id.toLowerCase().includes(tab.id)).length;
+                ? events.filter((e) => (e.rule_id || "").includes("appsec") || (e.rule_id || "").includes("ml")).length
+                : events.filter((e) => (e.rule_id || "").toLowerCase().includes(tab.id)).length;
 
             return (
               <button

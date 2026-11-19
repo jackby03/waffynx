@@ -11,6 +11,7 @@ import {
 } from "./mock/mockFixtures";
 import { mockLogin, getStoredSession, clearSession } from "./mock/mockAuth";
 import { getInitialEvents, startMockEventStream } from "./mock/mockEvents";
+import { toWafEvent } from "./events";
 
 // Local state for mutable mock fixtures
 let mockRules = [...MOCK_RULES];
@@ -257,7 +258,8 @@ export const wafApi = {
             if (!data) continue;
 
             try {
-              onEvent(JSON.parse(data) as WafEvent);
+              const ev = toWafEvent(JSON.parse(data));
+              if (ev) onEvent(ev);
             } catch {
               // A frame that is not valid JSON is not worth tearing the stream
               // down for: the next one may be fine.

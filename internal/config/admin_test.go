@@ -2,6 +2,8 @@ package config
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,7 +23,14 @@ func TestAdminGeneratedWhenHashIsUnusable(t *testing.T) {
 	cfg := &Config{}
 	cfg.API.Auth.Users = []UserConfig{{Username: "admin", PasswordHash: placeholderHash}}
 
-	admin, err := resolveAdmin(cfg, func(string) string { return "" })
+	dataDir := t.TempDir()
+	env := func(k string) string {
+		if k == EnvDataDir {
+			return dataDir
+		}
+		return ""
+	}
+	admin, err := resolveAdmin(cfg, env)
 	if err != nil {
 		t.Fatalf("resolveAdmin: %v", err)
 	}
@@ -120,7 +129,10 @@ func TestBootstrapPersistsGeneratedAdmin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	env := map[string]string{"WAFFYNX_JWT_SECRET": strings.Repeat("a", 64)}
+	env := map[string]string{
+		"WAFFYNX_JWT_SECRET": strings.Repeat("a", 64),
+		EnvDataDir:           dir + "/data",
+	}
 	first, err := Bootstrap(path, func(k string) string { return env[k] })
 	if err != nil {
 		t.Fatalf("Bootstrap: %v", err)
@@ -190,7 +202,14 @@ func TestAdminFailsWhenRandomnessFails(t *testing.T) {
 	cfg := &Config{}
 	cfg.API.Auth.Users = []UserConfig{{Username: "admin", PasswordHash: placeholderHash}}
 
-	if _, err := resolveAdmin(cfg, func(string) string { return "" }); err == nil {
+	dataDir := t.TempDir()
+	env := func(k string) string {
+		if k == EnvDataDir {
+			return dataDir
+		}
+		return ""
+	}
+	if _, err := resolveAdmin(cfg, env); err == nil {
 		t.Fatal("expected an error when randomness is unavailable")
 	}
 }
@@ -198,3 +217,95 @@ func TestAdminFailsWhenRandomnessFails(t *testing.T) {
 type failingReader struct{}
 
 func (failingReader) Read([]byte) (int, error) { return 0, errNoRandom }
+
+// A new container with the same data volume must keep the password the operator
+// saved. Without the persisted hash the image's placeholder wins, a new password
+// is generated, and the one in their notes stops working.
+func TestAdminHashSurvivesNewContainer(t *testing.T) {
+	dataDir := t.TempDir()
+	env := map[string]string{EnvDataDir: dataDir}
+
+	first := &Config{}
+	first.API.Auth.Users = []UserConfig{{Username: "admin", PasswordHash: placeholderHash}}
+	admin, err := resolveAdmin(first, func(k string) string { return env[k] })
+	if err != nil || !admin.Generated {
+		t.Fatalf("first boot: %v (generated=%v)", err, admin.Generated)
+	}
+
+	// Fresh image: the config carries the placeholder again, the volume does not.
+	second := &Config{}
+	second.API.Auth.Users = []UserConfig{{Username: "admin", PasswordHash: placeholderHash}}
+	again, err := resolveAdmin(second, func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatalf("second boot: %v", err)
+	}
+	if again.Generated || again.Password != "" {
+		t.Errorf("a new container generated a new password: %+v", again)
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(second.API.Auth.Users[0].PasswordHash), []byte(admin.Password)); err != nil {
+		t.Errorf("the persisted hash does not verify the original password: %v", err)
+	}
+}
+
+// A corrupt file must not brick startup: it is ignored and a new credential is
+// generated, which is the same path as a first boot.
+func TestAdminIgnoresCorruptPersistedHash(t *testing.T) {
+	dataDir := t.TempDir()
+	if err := writeFileAtomic(adminHashPath(func(k string) string {
+		if k == EnvDataDir {
+			return dataDir
+		}
+		return ""
+	}), []byte("not-a-bcrypt-hash")); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &Config{}
+	env := func(k string) string {
+		if k == EnvDataDir {
+			return dataDir
+		}
+		return ""
+	}
+	admin, err := resolveAdmin(cfg, env)
+	if err != nil {
+		t.Fatalf("resolveAdmin: %v", err)
+	}
+	if !admin.Generated {
+		t.Error("expected a new credential when the persisted hash is unusable")
+	}
+}
+
+// If the hash cannot be persisted, the boot must fail instead of announcing a
+// password that stops working as soon as the container is recreated.
+func TestAdminFailsWhenHashCannotBePersisted(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The data directory is a regular file, so creating admin.hash inside it fails.
+	env := func(k string) string {
+		if k == EnvDataDir {
+			return filepath.Join(file, "data")
+		}
+		return ""
+	}
+
+	cfg := &Config{}
+	cfg.API.Auth.Users = []UserConfig{{Username: "admin", PasswordHash: placeholderHash}}
+	if _, err := resolveAdmin(cfg, env); err == nil {
+		t.Fatal("expected an error when the hash cannot be persisted")
+	}
+}
+
+// With no data directory configured the hash path still resolves under the
+// default, which is what a bare host install relies on.
+func TestAdminHashPathDefaults(t *testing.T) {
+	got := adminHashPath(func(string) string { return "" })
+	if !strings.HasSuffix(got, AdminHashFile) {
+		t.Errorf("path = %q, want it to end with %q", got, AdminHashFile)
+	}
+	if !strings.Contains(got, "waffynx") {
+		t.Errorf("path = %q, want the default data dir", got)
+	}
+}

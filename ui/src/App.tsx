@@ -12,6 +12,7 @@ import { HostFirewall } from "./views/HostFirewall/HostFirewall";
 import { MarketplaceView } from "./views/Marketplace/MarketplaceView";
 import { TrafficDirector } from "./views/TrafficDirector/TrafficDirector";
 import { SitesView } from "./views/Sites/SitesView";
+import { ErrorBoundary } from "./components/common/ErrorBoundary";
 import { BotDefense } from "./views/BotDefense/BotDefense";
 
 export const App: React.FC = () => {
@@ -22,7 +23,7 @@ export const App: React.FC = () => {
 
   // Login form state
   const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("admin");
+  const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -111,7 +112,10 @@ export const App: React.FC = () => {
               {isSubmitting ? "Authenticating..." : "Access Control Room"}
             </button>
 
-            <p className="login-footer-hint">Default credentials: admin / admin</p>
+            <p className="login-footer-hint">
+              First run? The admin password is printed once in the container log:{" "}
+              <code>docker logs &lt;container&gt; | grep password=</code>
+            </p>
           </form>
         </div>
       </div>
@@ -138,6 +142,7 @@ export const App: React.FC = () => {
         />
 
         {/* Tab Views */}
+        <ErrorBoundary>
         {currentTab === "threats" && (
           <ThreatRadar onSelectEvent={(e) => setSelectedEvent(e)} />
         )}
@@ -148,6 +153,7 @@ export const App: React.FC = () => {
         {currentTab === "policies" && <SecurityPolicies />}
         {currentTab === "firewall" && <HostFirewall />}
         {currentTab === "marketplace" && <MarketplaceView />}
+        </ErrorBoundary>
       </main>
 
       {/* Global Forensic Drawer if opened from Ticker/Radar while in any tab */}

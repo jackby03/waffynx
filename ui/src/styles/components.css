@@ -2102,3 +2102,10 @@ dialog::backdrop {
   gap: 0.75rem;
   padding-top: 0.5rem;
 }
+
+.error-details {
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  overflow-x: auto;
+}
