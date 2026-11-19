@@ -8,12 +8,10 @@ import { ThreatRadar } from "./views/ThreatRadar/ThreatRadar";
 import { AttackForensics } from "./views/AttackForensics/AttackForensics";
 import { ForensicDrawer } from "./views/AttackForensics/ForensicDrawer";
 import { SecurityPolicies } from "./views/SecurityPolicies/SecurityPolicies";
-import { HostFirewall } from "./views/HostFirewall/HostFirewall";
+import { IpBans } from "./views/HostFirewall/IpBans";
 import { MarketplaceView } from "./views/Marketplace/MarketplaceView";
-import { TrafficDirector } from "./views/TrafficDirector/TrafficDirector";
 import { SitesView } from "./views/Sites/SitesView";
 import { ErrorBoundary } from "./components/common/ErrorBoundary";
-import { BotDefense } from "./views/BotDefense/BotDefense";
 
 export const App: React.FC = () => {
   const { isAuthenticated, login } = useAuth();
@@ -143,15 +141,11 @@ export const App: React.FC = () => {
 
         {/* Tab Views */}
         <ErrorBoundary>
-        {currentTab === "threats" && (
-          <ThreatRadar onSelectEvent={(e) => setSelectedEvent(e)} />
-        )}
+        {currentTab === "threats" && <ThreatRadar />}
         {currentTab === "forensics" && <AttackForensics />}
-        {currentTab === "bot" && <BotDefense />}
-        {currentTab === "traffic" && <TrafficDirector />}
         {currentTab === "sites" && <SitesView />}
         {currentTab === "policies" && <SecurityPolicies />}
-        {currentTab === "firewall" && <HostFirewall />}
+        {currentTab === "firewall" && <IpBans />}
         {currentTab === "marketplace" && <MarketplaceView />}
         </ErrorBoundary>
       </main>

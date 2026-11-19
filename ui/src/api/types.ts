@@ -20,29 +20,32 @@ export interface Metrics {
   go: {
     goroutines: number;
     heap_alloc: number;
-    heap_sys: number;
+    heap_inuse: number;
     gc_pause_ns: number;
+    num_gc?: number;
+    stack_inuse?: number;
   };
-  http: {
-    requests_total: number;
-    blocks_total: number;
-    bytes_in: number;
-    bytes_out: number;
-  };
-  engine: {
-    latency_p50_us: number;
-    latency_p99_us: number;
+  engine?: {
+    engine?: string;
+    appsec_enabled?: boolean;
+    plugins_count?: number;
   };
 }
 
+/** /api/v1/status: process and build information, not dashboard aggregates. */
 export interface Status {
   version: string;
-  uptime_seconds: number;
-  rules_count: number;
-  plugins_active: number;
-  banned_ips_count: number;
-  enforcement_mode: "blocking" | "transparent";
-  engine_state: "online" | "degraded" | "offline";
+  git_commit?: string;
+  build_time?: string;
+  go_version?: string;
+  goroutines?: number;
+  memory?: { alloc_mb: number; total_alloc_mb: number };
+  config?: {
+    name?: string;
+    engine?: string;
+    appsec_enabled?: boolean;
+    plugins_count?: number;
+  };
 }
 
 /**

@@ -9,7 +9,7 @@ import {
   IconPlug,
 } from "../common/Icons";
 
-export type ViewTab = "threats" | "forensics" | "bot" | "traffic" | "sites" | "policies" | "firewall" | "marketplace";
+export type ViewTab = "threats" | "forensics" | "sites" | "policies" | "firewall" | "marketplace";
 
 interface SidebarProps {
   currentTab: ViewTab;
@@ -41,13 +41,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badge: threatCount,
       badgeVariant: "red",
     },
-    { id: "bot", label: "Bot Defense", icon: <IconBot size={18} />, section: "SECURITY OPS" },
-    { id: "traffic", label: "Reverse Proxy & Traffic", icon: <IconArrows size={18} />, section: "TRAFFIC & PROXY" },
     { id: "sites", label: "Sites", icon: <IconGlobe size={18} />, section: "TRAFFIC & PROXY" },
     { id: "policies", label: "Security Policies", icon: <IconShield size={18} />, section: "ENFORCEMENT & L3-L7" },
     {
       id: "firewall",
-      label: "Host Firewall",
+      label: "IP Bans",
       icon: <IconFirewall size={18} />,
       section: "ENFORCEMENT & L3-L7",
       badge: bannedCount,

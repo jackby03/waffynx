@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import type { WafEvent, Status, Metrics, Rule, BannedIP, PluginItem } from "../api/types";
-import { wafApi, isMockMode } from "../api/wafApi";
+import { wafApi } from "../api/wafApi";
 import { useAuth } from "./AuthContext";
 
 interface WafContextType {
@@ -11,7 +11,8 @@ interface WafContextType {
   bannedIPs: BannedIP[];
   plugins: PluginItem[];
   connected: boolean;
-  isMock: boolean;
+  /** Set when the last refresh failed. Views must show it instead of looking empty. */
+  loadError: string | null;
   selectedEvent: WafEvent | null;
   setSelectedEvent: (e: WafEvent | null) => void;
   unbanIP: (ip: string) => Promise<void>;
@@ -31,7 +32,7 @@ export const WafProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [plugins, setPlugins] = useState<PluginItem[]>([]);
   const [connected, setConnected] = useState<boolean>(false);
   const [selectedEvent, setSelectedEvent] = useState<WafEvent | null>(null);
-  const isMock = isMockMode();
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const refreshAll = useCallback(async () => {
     try {
@@ -47,8 +48,10 @@ export const WafProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setRules(rl);
       setBannedIPs(bp);
       setPlugins(pl);
-    } catch {
-      // ignore
+      setLoadError(null);
+    } catch (err) {
+      // Surface it: an empty dashboard and a broken dashboard looked identical.
+      setLoadError(err instanceof Error ? err.message : "Could not reach the control plane");
     }
   }, []);
 
@@ -97,7 +100,7 @@ export const WafProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         bannedIPs,
         plugins,
         connected,
-        isMock,
+        loadError,
         selectedEvent,
         setSelectedEvent,
         unbanIP,

@@ -17,14 +17,6 @@ const TAB_TITLES: Record<ViewTab, { title: string; subtitle: string }> = {
     title: "Live Incident Forensics",
     subtitle: "Deep packet inspection and matched signature analysis",
   },
-  bot: {
-    title: "Bot Defense & Mitigation",
-    subtitle: "Automated browser verification, JS proof-of-work challenges, and JA3/JA4 fingerprinting",
-  },
-  traffic: {
-    title: "Reverse Proxy, Traffic & Cloaking",
-    subtitle: "Virtual servers, upstream health probes, custom error templates (404/500), and header cloaking",
-  },
   sites: {
     title: "Sites & Upstreams",
     subtitle: "Reverse-proxy topology: hostname, upstream, TLS and path rules, applied with nginx -t",
@@ -45,12 +37,11 @@ const TAB_TITLES: Record<ViewTab, { title: string; subtitle: string }> = {
 
 export const Topbar: React.FC<TopbarProps> = ({ currentTab }) => {
   const { session, logout } = useAuth();
-  const { connected, isMock, status } = useWaf();
+  const { connected, loadError, status } = useWaf();
   const viewInfo = TAB_TITLES[currentTab] || {
     title: "Waffynx Control Room",
     subtitle: "Unified Network & Application Security",
   };
-  const mode = status?.enforcement_mode || "blocking";
 
   return (
     <header className="topbar">
@@ -60,9 +51,9 @@ export const Topbar: React.FC<TopbarProps> = ({ currentTab }) => {
       </div>
 
       <div className="topbar-actions">
-        {isMock && (
-          <span className="dev-pill" title="Local mock backend mode active">
-            <IconFlask size={13} /> DEV MOCK
+        {loadError && (
+          <span className="dev-pill" title={loadError}>
+            <IconFlask size={13} /> CONTROL PLANE UNREACHABLE
           </span>
         )}
 
@@ -71,12 +62,6 @@ export const Topbar: React.FC<TopbarProps> = ({ currentTab }) => {
           <span className="conn-text">{connected ? "Live Stream" : "Connecting..."}</span>
         </div>
 
-        <div className={`mode-badge mode-${mode}`}>
-          <span className="mode-icon">
-            <IconShield size={14} />
-          </span>
-          <span>MODE: {mode.toUpperCase()}</span>
-        </div>
 
         {session && (
           <div className="user-profile">

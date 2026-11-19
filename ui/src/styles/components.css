@@ -2109,3 +2109,18 @@ dialog::backdrop {
   font-size: 0.85rem;
   overflow-x: auto;
 }
+
+/* Inline form used by IP bans: fields on one row, action at the end. */
+.inline-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0 1rem 1rem;
+}
+.form-field-narrow {
+  max-width: 9rem;
+}
+.text-danger {
+  color: var(--accent-crimson);
+}
