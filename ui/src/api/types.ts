@@ -82,3 +82,23 @@ export interface UserSession {
   role: "admin" | "analyst" | "viewer";
   expires_at: number;
 }
+
+/** A reverse-proxy site, as stored by the control plane and rendered into nginx. */
+export interface TLSPair {
+  cert_file: string;
+  key_file: string;
+}
+
+export interface PathRule {
+  path: string;
+  upstream?: string;
+}
+
+export interface Site {
+  host: string;
+  upstream: string;
+  tls?: TLSPair;
+  paths?: PathRule[];
+  plugins?: string[];
+  headers?: Record<string, string>;
+}

@@ -11,6 +11,7 @@ import { SecurityPolicies } from "./views/SecurityPolicies/SecurityPolicies";
 import { HostFirewall } from "./views/HostFirewall/HostFirewall";
 import { MarketplaceView } from "./views/Marketplace/MarketplaceView";
 import { TrafficDirector } from "./views/TrafficDirector/TrafficDirector";
+import { SitesView } from "./views/Sites/SitesView";
 import { BotDefense } from "./views/BotDefense/BotDefense";
 
 export const App: React.FC = () => {
@@ -143,6 +144,7 @@ export const App: React.FC = () => {
         {currentTab === "forensics" && <AttackForensics />}
         {currentTab === "bot" && <BotDefense />}
         {currentTab === "traffic" && <TrafficDirector />}
+        {currentTab === "sites" && <SitesView />}
         {currentTab === "policies" && <SecurityPolicies />}
         {currentTab === "firewall" && <HostFirewall />}
         {currentTab === "marketplace" && <MarketplaceView />}

@@ -25,6 +25,10 @@ const TAB_TITLES: Record<ViewTab, { title: string; subtitle: string }> = {
     title: "Reverse Proxy, Traffic & Cloaking",
     subtitle: "Virtual servers, upstream health probes, custom error templates (404/500), and header cloaking",
   },
+  sites: {
+    title: "Sites & Upstreams",
+    subtitle: "Reverse-proxy topology: hostname, upstream, TLS and path rules, applied with nginx -t",
+  },
   policies: {
     title: "Security Policies & Rule Matrix",
     subtitle: "Active signature sets, OWASP CRS rules, and engine thresholds",

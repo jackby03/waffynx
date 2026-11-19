@@ -1,5 +1,7 @@
 import { apiFetch } from "./client";
-import type { Status, Metrics, Rule, BannedIP, PluginItem, WafEvent, UserSession } from "./types";
+import type {
+  Status, Metrics, Rule, BannedIP, PluginItem, WafEvent, UserSession, Site,
+} from "./types";
 import {
   MOCK_INITIAL_STATUS,
   MOCK_INITIAL_METRICS,
@@ -110,6 +112,30 @@ export const wafApi = {
     } catch {
       return mockRules;
     }
+  },
+
+  // Sites: the reverse-proxy topology. No mock fallback on purpose: if the API
+  // cannot list them, the operator must see the error, not an invented topology.
+  async listSites(): Promise<Site[]> {
+    return apiFetch<Site[]>("/api/v1/sites");
+  },
+
+  async createSite(site: Site): Promise<Site> {
+    return apiFetch<Site>("/api/v1/sites", {
+      method: "POST",
+      body: JSON.stringify(site),
+    });
+  },
+
+  async updateSite(host: string, site: Site): Promise<Site> {
+    return apiFetch<Site>(`/api/v1/sites/${encodeURIComponent(host)}`, {
+      method: "PUT",
+      body: JSON.stringify(site),
+    });
+  },
+
+  async deleteSite(host: string): Promise<void> {
+    await apiFetch(`/api/v1/sites/${encodeURIComponent(host)}`, { method: "DELETE" });
   },
 
   // Host Firewall
