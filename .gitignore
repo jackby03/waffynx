@@ -71,3 +71,8 @@ tmp/
 
 # Gate reports and raw gate output (go-test.json, bench.txt).
 .artifacts/
+
+# Agent skill installs (npx modern-web-guidance): tooling, not repository content.
+.agents/
+.claude/
+skills-lock.json

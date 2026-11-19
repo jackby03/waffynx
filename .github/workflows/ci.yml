@@ -121,8 +121,10 @@ jobs:
 
       # ui/embed.go embeds all:dist, and TestAPI_RootServesDashboardForHTMLClients
       # asserts the Vite shell is served. Without this step the suite fails.
-      - name: Build UI
-        run: cd ui && npm ci && npm run build
+      # Test as well as build: the UI suite had a test pointing at a file that has
+      # never existed, and CI only built the bundle, so the failure stayed invisible.
+      - name: Test and build UI
+        run: cd ui && npm ci && npm test && npm run build
 
       # -race requires CGO, so the environment default (CGO_ENABLED=1) is used here.
       # ./... (not ./internal/...) so cmd/ is covered too.

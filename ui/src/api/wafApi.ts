@@ -182,38 +182,70 @@ export const wafApi = {
     }
 
     const session = getStoredSession();
-    const sseUrl = `/api/v1/events${session?.token ? `?token=${encodeURIComponent(session.token)}` : ""}`;
-    let es: EventSource | null = null;
-    let fallbackCleanup: (() => void) | null = null;
 
-    try {
-      es = new EventSource(sseUrl);
-      es.onopen = () => {
+    // Authenticate the stream with a header. EventSource cannot send one, so the
+    // previous implementation appended the JWT to the URL, which lands in the
+    // nginx access log, in proxy logs and in browser history — and the API only
+    // accepts Authorization, so the stream never authenticated in production
+    // anyway.
+    const controller = new AbortController();
+
+    const connect = async () => {
+      try {
+        const res = await fetch("/api/v1/events", {
+          headers: {
+            Accept: "text/event-stream",
+            ...(session?.token ? { Authorization: `Bearer ${session.token}` } : {}),
+          },
+          signal: controller.signal,
+        });
+        if (!res.ok || !res.body) {
+          onStatus(false);
+          return;
+        }
         onStatus(true);
-      };
-      es.onmessage = (msg) => {
-        try {
-          const parsed = JSON.parse(msg.data) as WafEvent;
-          onEvent(parsed);
-        } catch {
-          // ignore parse error
-        }
-      };
-      es.onerror = () => {
-        onStatus(false);
-        // Fallback to mock stream if real SSE fails in development
-        if (import.meta.env.DEV && !fallbackCleanup) {
-          fallbackCleanup = startMockEventStream(onEvent, 2500);
-        }
-      };
-    } catch {
-      onStatus(false);
-      fallbackCleanup = startMockEventStream(onEvent, 2500);
-    }
 
-    return () => {
-      if (es) es.close();
-      if (fallbackCleanup) fallbackCleanup();
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          // Server-Sent Events frames are separated by a blank line; only the
+          // `data:` fields carry the payload.
+          let boundary = buffer.indexOf("\n\n");
+          while (boundary >= 0) {
+            const frame = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+            boundary = buffer.indexOf("\n\n");
+
+            const data = frame
+              .split("\n")
+              .filter((line) => line.startsWith("data:"))
+              .map((line) => line.slice(5).trim())
+              .join("\n");
+            if (!data) continue;
+
+            try {
+              onEvent(JSON.parse(data) as WafEvent);
+            } catch {
+              // A frame that is not valid JSON is not worth tearing the stream
+              // down for: the next one may be fine.
+            }
+          }
+        }
+        onStatus(false);
+      } catch {
+        // Aborting is the normal teardown path, not a connection failure.
+        if (!controller.signal.aborted) onStatus(false);
+      }
     };
+
+    void connect();
+
+    return () => controller.abort();
   },
 };

@@ -124,16 +124,25 @@ export const AttackForensics: React.FC = () => {
           />
         ) : (
           <div className="table-responsive">
+            <div
+              className="table-scroll"
+              role="region"
+              aria-label="Security events"
+              tabIndex={0}
+            >
             <table className="waf-table">
+              <caption className="sr-only">
+                Security events: timestamp, rule, action, source address, method, path and score
+              </caption>
               <thead>
                 <tr>
-                  <th>Timestamp</th>
-                  <th>Rule ID</th>
-                  <th>Action</th>
-                  <th>Source IP</th>
-                  <th>Method</th>
-                  <th>Target URI</th>
-                  <th>ML Score</th>
+                  <th scope="col">Timestamp</th>
+                  <th scope="col">Rule ID</th>
+                  <th scope="col">Action</th>
+                  <th scope="col">Source IP</th>
+                  <th scope="col">Method</th>
+                  <th scope="col">Target URI</th>
+                  <th scope="col">ML Score</th>
                 </tr>
               </thead>
               <tbody>
@@ -170,6 +179,7 @@ export const AttackForensics: React.FC = () => {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         )}
 

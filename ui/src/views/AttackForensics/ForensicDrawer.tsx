@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { WafEvent } from "../../api/types";
 import { Badge } from "../../components/common/Badge";
 import { useWaf } from "../../context/WafContext";
@@ -32,8 +32,16 @@ function highlightPayload(text: string): React.ReactNode {
 
 export const ForensicDrawer: React.FC<ForensicDrawerProps> = ({ event, onClose }) => {
   const { unbanIP } = useWaf();
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const [copied, setCopied] = useState(false);
   const [actionDone, setActionDone] = useState(false);
+
+  // showModal() provides focus containment, the top layer and Esc handling that
+  // the previous overlay did not have: no focus trap, no Esc, background not inert.
+  useEffect(() => {
+    const el = dialogRef.current;
+    if (el && !el.open) el.showModal();
+  }, [event]);
 
   if (!event) return null;
 
@@ -51,15 +59,20 @@ export const ForensicDrawer: React.FC<ForensicDrawerProps> = ({ event, onClose }
   };
 
   return (
-    <aside className="forensic-drawer-overlay" onClick={onClose}>
-      <div className="forensic-drawer" onClick={(e) => e.stopPropagation()}>
+    <dialog
+      ref={dialogRef}
+      className="forensic-drawer"
+      aria-labelledby="forensic-drawer-title"
+      onClose={onClose}
+      {...{ closedby: "any" }}
+    >
         {/* Drawer Header */}
         <div className="drawer-header">
           <div className="drawer-title-group">
             <span className="drawer-pretitle">DEEP PACKET FORENSICS</span>
-            <h2 className="drawer-rule-title">{event.rule_id}</h2>
+            <h2 className="drawer-rule-title" id="forensic-drawer-title">{event.rule_id}</h2>
           </div>
-          <button type="button" className="drawer-close-btn" onClick={onClose} aria-label="Close">
+          <button type="button" className="drawer-close-btn" onClick={() => dialogRef.current?.close()} aria-label="Close">
             <IconClose size={16} />
           </button>
         </div>
@@ -152,7 +165,6 @@ export const ForensicDrawer: React.FC<ForensicDrawerProps> = ({ event, onClose }
             )}
           </button>
         </div>
-      </div>
-    </aside>
+    </dialog>
   );
 };
