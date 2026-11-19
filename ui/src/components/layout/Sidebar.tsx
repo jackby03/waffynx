@@ -8,7 +8,7 @@ import {
   IconFirewall,
 } from "../common/Icons";
 
-export type ViewTab = "threats" | "forensics" | "sites" | "policies" | "firewall";
+export type ViewTab = "overview" | "events" | "sites" | "policies" | "firewall";
 
 interface SidebarProps {
   currentTab: ViewTab;
@@ -31,10 +31,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     badge?: number;
     badgeVariant?: "red" | "cyan";
   }[] = [
-    { id: "threats", label: "Threat Radar", icon: <IconGlobe size={18} />, section: "SECURITY OPS" },
+    { id: "overview", label: "Overview", icon: <IconGlobe size={18} />, section: "SECURITY OPS" },
     {
-      id: "forensics",
-      label: "Attack Forensics",
+      id: "events",
+      label: "Events",
       icon: <IconSearch size={18} />,
       section: "SECURITY OPS",
       badge: threatCount,
@@ -97,7 +97,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span className="status-dot online" />
           <span>Core: Online (L7 Pipeline)</span>
         </div>
-        <div className="version-info">v0.2.0 • Zero-Copy Sidecar</div>
+        <div className="version-info">v0.2.0 • Unix socket sidecar</div>
       </div>
     </nav>
   );
