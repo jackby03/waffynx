@@ -1,144 +1,171 @@
-import React, { useState, useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { useWaf } from "../../context/WafContext";
 import { KpiCard } from "../../components/common/KpiCard";
 import { Badge } from "../../components/common/Badge";
-import { ToggleSwitch } from "../../components/common/ToggleSwitch";
-import type { Rule } from "../../api/types";
 
+// SecurityPolicies renders the managed ruleset exactly as /api/v1/rules reports it.
+//
+// It is deliberately read-only: the catalog is compiled into the binary at startup
+// and cannot be toggled per rule at runtime. The previous version showed enable
+// switches and hit counters that did not exist on the server, which is worse than
+// useless: it looks like control the operator does not have.
 export const SecurityPolicies: React.FC = () => {
   const { rules } = useWaf();
-  const [activeCategory, setActiveCategory] = useState<string>("all");
-  const [localRules, setLocalRules] = useState<Rule[]>(rules);
+  const [activeTag, setActiveTag] = useState<string>("all");
+  const [query, setQuery] = useState("");
 
-  // Sync when rules load
-  React.useEffect(() => {
-    if (rules.length) setLocalRules(rules);
+  const tags = useMemo(() => {
+    const set = new Set<string>();
+    for (const rule of rules) {
+      for (const tag of rule.tags ?? []) set.add(tag);
+    }
+    return ["all", ...[...set].sort()];
   }, [rules]);
 
-  const toggleRule = (id: string) => {
-    setLocalRules((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r))
-    );
-  };
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return rules.filter((rule) => {
+      const matchesTag = activeTag === "all" || (rule.tags ?? []).includes(activeTag);
+      if (!matchesTag) return false;
+      if (!q) return true;
+      return (
+        rule.id.toLowerCase().includes(q) ||
+        rule.name.toLowerCase().includes(q)
+      );
+    });
+  }, [rules, activeTag, query]);
 
-  const categories = useMemo(() => {
-    const list = Array.from(new Set(localRules.map((r) => r.category)));
-    return ["all", ...list];
-  }, [localRules]);
-
-  const filteredRules = useMemo(() => {
-    if (activeCategory === "all") return localRules;
-    return localRules.filter((r) => r.category === activeCategory);
-  }, [localRules, activeCategory]);
-
-  const criticalCount = localRules.filter((r) => r.severity === "critical").length;
-  const enabledCount = localRules.filter((r) => r.enabled).length;
+  const critical = rules.filter((r) => r.severity === "critical").length;
+  const high = rules.filter((r) => r.severity === "high").length;
+  const logging = rules.filter((r) => r.action === "log").length;
 
   return (
-    <div className="view-container">
-      {/* 4 Standardized KPI Cards */}
+    <div className="view-stack">
+      <header className="view-header">
+        <div>
+          <h1 className="view-title">Security Policies</h1>
+          <p className="view-subtitle">
+            The managed ruleset compiled into this build. It is read-only here: rule ids,
+            severities and actions come from the catalog, and changing them means shipping a new
+            catalog, not flipping a switch.
+          </p>
+        </div>
+      </header>
+
       <section className="kpi-grid">
         <KpiCard
-          title="Active Signatures"
-          value={`${enabledCount} / ${localRules.length}`}
-          subtext="Compiled into deterministic Aho-Corasick tree"
-          badge="Enforced"
+          title="Managed signatures"
+          value={rules.length}
+          subtext="One Aho–Corasick pass per field"
+          badge="Deterministic"
           variant="info"
         />
         <KpiCard
-          title="Critical Signatures"
-          value={criticalCount}
-          subtext="Immediate drop on match"
-          badge="High Priority"
+          title="Critical"
+          value={critical}
+          subtext="Blocked before any other stage"
+          badge="Immediate drop"
           variant="critical"
         />
         <KpiCard
-          title="Inspection Latency"
-          value="180 µs"
-          subtext="P50 evaluation time per request"
-          badge="Zero-Copy"
-          variant="success"
+          title="High"
+          value={high}
+          subtext="Blocked, lower confidence than critical"
+          badge="Enforced"
+          variant="warning"
         />
         <KpiCard
-          title="Threat Coverage"
-          value="OWASP Top 10"
-          subtext="A01 through A10 full mitigation"
-          badge="Compliant"
-          variant="default"
+          title="Log only"
+          value={logging}
+          subtext="Recorded but never blocked"
+          badge="Advisory"
+          variant="success"
         />
       </section>
 
-      {/* Category Tabs */}
-      <div className="category-toolbar">
-        <div className="category-tabs">
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              type="button"
-              className={`cat-btn ${activeCategory === cat ? "active" : ""}`}
-              onClick={() => setActiveCategory(cat)}
-            >
-              {cat.toUpperCase()}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Rules Table */}
       <div className="table-card">
         <div className="table-card-header">
           <div>
-            <h2 className="table-title">Signature Set & Rule Inspection</h2>
+            <h2 className="table-title">Rule matrix</h2>
             <span className="table-subtitle">
-              Configured security policies enforced at Nginx module ingress
+              {filtered.length} of {rules.length} rules
             </span>
           </div>
+          <label className="form-label sr-only" htmlFor="rule-search">
+            Filter rules
+          </label>
+          <input
+            id="rule-search"
+            type="search"
+            className="form-input search-input"
+            placeholder="Filter by id or name"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
         </div>
 
-        <div className="table-responsive">
-          <table className="waf-table">
-            <thead>
-              <tr>
-                <th>Status</th>
-                <th>Rule ID</th>
-                <th>Rule Name & Description</th>
-                <th>Category</th>
-                <th>Severity</th>
-                <th>Total Hits</th>
-                <th>Pattern / Expression</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRules.map((rule) => (
-                <tr key={rule.id}>
-                  <td>
-                    <ToggleSwitch
-                      checked={rule.enabled}
-                      onChange={() => toggleRule(rule.id)}
-                    />
-                  </td>
-                  <td className="cell-rule">
-                    <span className="rule-tag">{rule.id}</span>
-                  </td>
-                  <td className="cell-desc">
-                    <strong>{rule.name}</strong>
-                    <p className="rule-explanation">{rule.description}</p>
-                  </td>
-                  <td>
-                    <span className="category-pill">{rule.category.toUpperCase()}</span>
-                  </td>
-                  <td>
-                    <Badge variant={rule.severity}>{rule.severity.toUpperCase()}</Badge>
-                  </td>
-                  <td className="cell-hits">{rule.hits.toLocaleString()}</td>
-                  <td className="cell-pattern">
-                    <code>{rule.pattern}</code>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="pill-row" role="group" aria-label="Filter by tag">
+          {tags.map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              className={`pill ${activeTag === tag ? "pill-active" : ""}`}
+              aria-pressed={activeTag === tag}
+              onClick={() => setActiveTag(tag)}
+            >
+              {tag}
+            </button>
+          ))}
         </div>
+
+        {rules.length === 0 ? (
+          <p className="table-hint" role="status">
+            The ruleset could not be loaded. The API returns 503 when the embedded catalog is
+            invalid, rather than an empty list that would look like “nothing to enforce”.
+          </p>
+        ) : filtered.length === 0 ? (
+          <p className="table-hint" role="status">
+            No rule matches that filter.
+          </p>
+        ) : (
+          <div className="table-scroll" role="region" aria-label="Managed rules" tabIndex={0}>
+            <table className="waf-table">
+              <caption className="sr-only">
+                Managed rules: identifier, name, severity, action, tags and inspected fields
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Rule</th>
+                  <th scope="col">Name</th>
+                  <th scope="col">Severity</th>
+                  <th scope="col">Action</th>
+                  <th scope="col">Tags</th>
+                  <th scope="col">Fields</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((rule) => (
+                  <tr key={rule.id}>
+                    <td>
+                      <code>{rule.id}</code>
+                    </td>
+                    <td>{rule.name}</td>
+                    <td>
+                      <Badge variant={rule.severity}>{rule.severity.toUpperCase()}</Badge>
+                    </td>
+                    <td>
+                      <span className={rule.action === "block" ? "text-danger" : "text-muted"}>
+                        {rule.action}
+                      </span>
+                    </td>
+                    <td>{(rule.tags ?? []).join(", ")}</td>
+                    <td className="text-muted">{(rule.fields ?? []).join(", ")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

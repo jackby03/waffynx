@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackby03/waffynx/internal/audit"
 	"github.com/jackby03/waffynx/internal/auth"
+	"github.com/jackby03/waffynx/internal/catalog"
 	"github.com/jackby03/waffynx/internal/config"
 	"github.com/jackby03/waffynx/internal/events"
 	"github.com/jackby03/waffynx/internal/firewall"
@@ -39,6 +40,10 @@ type Server struct {
 	// in container mode, where kernel filtering is unavailable.
 	wafRules ruleInjector
 	uiDir    string
+
+	// catalog is the managed ruleset, exposed read-only so the dashboard can show
+	// what is actually enforced instead of inventing a rule list.
+	catalog *catalog.Catalog
 
 	// siteApplier renders the reverse-proxy topology and makes it live. Injected so
 	// the HTTP layer can be tested without nginx.
@@ -85,6 +90,7 @@ func NewServer(cfg *config.Config, configPath string, uiDir string) (*Server, er
 		bannedIPs:  make(map[string]BannedIP),
 		firewall:   fwMgr,
 		uiDir:      uiDir,
+		catalog:    loadCatalog(),
 	}
 
 	// Bans are enforced through the sidecar, which evaluates custom rules on
