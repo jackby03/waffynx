@@ -169,11 +169,9 @@ export const AttackForensics: React.FC = () => {
                       {e.path}
                     </td>
                     <td className="cell-score">
-                      {e.anomaly_score ? (
-                        <span className="score-pill">{(e.anomaly_score * 100).toFixed(0)}%</span>
-                      ) : (
-                        "--"
-                      )}
+                      {/* The engine sends no numeric anomaly score: the catalog decides
+                          block or log per signature. Showing "--" is honest. */}
+                      --
                     </td>
                   </tr>
                 ))}

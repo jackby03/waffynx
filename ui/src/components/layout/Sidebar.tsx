@@ -6,10 +6,9 @@ import {
   IconArrows,
   IconShield,
   IconFirewall,
-  IconPlug,
 } from "../common/Icons";
 
-export type ViewTab = "threats" | "forensics" | "sites" | "policies" | "firewall" | "marketplace";
+export type ViewTab = "threats" | "forensics" | "sites" | "policies" | "firewall";
 
 interface SidebarProps {
   currentTab: ViewTab;
@@ -51,7 +50,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badge: bannedCount,
       badgeVariant: "cyan",
     },
-    { id: "marketplace", label: "AppSec Marketplace", icon: <IconPlug size={18} />, section: "EXTENSIONS" },
   ];
 
   const sections = Array.from(new Set(navItems.map((n) => n.section)));

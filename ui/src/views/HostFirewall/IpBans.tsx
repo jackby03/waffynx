@@ -34,7 +34,7 @@ export const IpBans: React.FC = () => {
 
     setSaving(true);
     try {
-      await wafApi.banIP(value, reason.trim() || undefined);
+      await wafApi.banIP(value, reason.trim() || "manual ban", 3600);
       setIp("");
       setReason("");
       await refreshAll();

@@ -9,7 +9,6 @@ import { AttackForensics } from "./views/AttackForensics/AttackForensics";
 import { ForensicDrawer } from "./views/AttackForensics/ForensicDrawer";
 import { SecurityPolicies } from "./views/SecurityPolicies/SecurityPolicies";
 import { IpBans } from "./views/HostFirewall/IpBans";
-import { MarketplaceView } from "./views/Marketplace/MarketplaceView";
 import { SitesView } from "./views/Sites/SitesView";
 import { ErrorBoundary } from "./components/common/ErrorBoundary";
 
@@ -146,7 +145,6 @@ export const App: React.FC = () => {
         {currentTab === "sites" && <SitesView />}
         {currentTab === "policies" && <SecurityPolicies />}
         {currentTab === "firewall" && <IpBans />}
-        {currentTab === "marketplace" && <MarketplaceView />}
         </ErrorBoundary>
       </main>
 

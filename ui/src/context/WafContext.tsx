@@ -16,7 +16,6 @@ interface WafContextType {
   selectedEvent: WafEvent | null;
   setSelectedEvent: (e: WafEvent | null) => void;
   unbanIP: (ip: string) => Promise<void>;
-  togglePlugin: (id: string, enabled: boolean) => Promise<void>;
   refreshAll: () => Promise<void>;
 }
 
@@ -85,11 +84,6 @@ export const WafProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setBannedIPs((prev) => prev.filter((b) => b.ip !== ip));
   };
 
-  const togglePlugin = async (id: string, enabled: boolean) => {
-    setPlugins((prev) => prev.map((p) => (p.id === id ? { ...p, enabled } : p)));
-    await wafApi.togglePlugin(id, enabled);
-  };
-
   return (
     <WafContext.Provider
       value={{
@@ -104,7 +98,7 @@ export const WafProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         selectedEvent,
         setSelectedEvent,
         unbanIP,
-        togglePlugin,
+
         refreshAll,
       }}
     >

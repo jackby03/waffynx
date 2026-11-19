@@ -29,10 +29,6 @@ const TAB_TITLES: Record<ViewTab, { title: string; subtitle: string }> = {
     title: "Host Firewall & Edge Ban Synchronization",
     subtitle: "L3/L4 nftables & UFW kernel drop tables",
   },
-  marketplace: {
-    title: "AppSec Marketplace & Extensions",
-    subtitle: "Modular WAF plugins, detection analyzers, and bridges",
-  },
 };
 
 export const Topbar: React.FC<TopbarProps> = ({ currentTab }) => {
